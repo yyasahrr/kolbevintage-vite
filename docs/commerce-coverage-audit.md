@@ -4,7 +4,9 @@
 محدودهٔ ممیزی: **همین مخزن (`kolbevintage-vite`، Fastify + PostgreSQL + React)**.
 مخزن Django/DRF مذکور در PRD در این محیط قابل بررسی نبود و در این سند ارزیابی نشده است.
 
-> **مرز صداقت:** این سند «ادعای تکمیل» نیست. هر وضعیت فقط بر اساس کدی که در همین
+> **فهرست کوتاه نواقص هسته (خارج از قالب چک‌لیست):** `docs/core-deficiencies.md`
+
+**مرز صداقت:** این سند «ادعای تکمیل» نیست. هر وضعیت فقط بر اساس کدی که در همین
 > SHA هست و تست‌هایی که واقعاً اجرا شده‌اند داده شده. هیچ آیتمی صرفاً به‌خاطر
 > گزارش قبلی PASS اعلام نشده. جایی که کد هست ولی تست اختصاصی ندارد
 > `IMPLEMENTED_UNVERIFIED` و جایی که اصلاً وجود ندارد `NOT_STARTED` ثبت شده است.
@@ -20,7 +22,7 @@
 | # | واقعیت | نتیجه |
 | --- | --- | --- |
 | ۱ | هستهٔ تجارت (Variant، Quote، Hold، Payment، Order، Refund، Outbox، Cashback) در این مخزن وجود دارد و با ۲۱ تست Integration روی PostgreSQL واقعی پوشش داده شده. | حدود **۴۰٪** کنترل‌های C04–C15 با Evidence قابل دفاع |
-| ۲ | پروندهٔ مرجع PRD معماری Django/DRF را الزام می‌کند؛ این مخزن طبق انتخاب صریح مالک در همین نشست **Fastify + PostgreSQL** است. | `COM-C00-004` = **BLOCKED** تا ثبت ADR/تصمیم رسمی |
+| ۲ | **تصمیم مالک (۲۰۲۶-۱۱-۰۴): معماری همان Fastify + PostgreSQL می‌ماند؛ مهاجرت به Django/DRF انجام نمی‌شود.** | `COM-C00-004` = **انحراف پذیرفته‌شده**؛ فقط ADR نباید فراموش شود |
 | ۳ | هیچ Audit Log سروری برای عملیات حساس (Toggle BNPL، قیمت، Refund، موجودی) وجود ندارد. | بزرگ‌ترین شکاف P0 مشترک بین C06/C17/C20 |
 | ۴ | Provider واقعی وجود ندارد؛ آداپتور Mock با همان قرارداد verify/idempotency پیاده شده. | C06-009/015/022، C11-003/004، C14-015/016، C18 = BLOCKED/OPEN |
 | ۵ | RBAC چندنقشی وجود ندارد؛ فقط دو سطح: نشست ادمین (`1234`) و Superadmin جدا. | C17-001/006/012 = PARTIAL/NOT_STARTED |
@@ -32,7 +34,7 @@
 
 | گروه | کنترل | VERIFIED | PARTIAL / UNVERIFIED | NOT_STARTED | OPEN/BLOCKED |
 | --- | --- | --- | --- | --- | --- |
-| C00 دامنه/معماری | ۱۲ | ۲ | ۴ | ۱ | ۵ |
+| C00 دامنه/معماری | ۱۲ | ۲ | ۴ | ۱ | ۵ (C00-004 پذیرفته به‌عنوان انحراف) |
 | C01 کاتالوگ | ۱۶ | ۴ | ۵ | ۷ | ۰ |
 | C02 Variant/SKU | ۱۶ | ۹ | ۴ | ۱ (C02-009) | ۰ |
 | C03 Storefront | ۱۷ | ۲ | ۹ | ۶ (نیازمند E2E) | ۰ |
@@ -72,7 +74,7 @@
 | COM-C02-001/002/003/004/005 — Variant ID، سه حالت سایز، ماتریس رنگ×سایز | `server/src/commerce/variants.ts` (`sizeModeOf`, `syncVariants`), `server/test/commerce.test.ts` (تست‌های Checkout/Variant) |
 | COM-C02-007/008/013 — رد Variant ناشناخته، موجودی صفر، Snapshot سفارش | `checkout.ts` (`variant_not_found`)، `orders.ts` (`order_lines`) |
 | COM-C02-015 — اعتبارسنجی سروری واریانت در هر Command | `checkout.ts` / `cart.ts` (هر بار از DB می‌خوانند) |
-| COM-C04-001/002/005/006/007/008/009 — مرجعیت قیمت سرور، Quote نسخه‌دار، رد Quote کهنه | `pricing.ts`, `payments.ts` (`assertQuoteFresh`), تست «price change … forces a re-quote» |
+| COM-C04-001/005/006/007/008/009 — مرجعیت قیمت سرور، Quote نسخه‌دار، رد Quote کهنه (**C04-002 تاریخچهٔ قیمت ندارد** ← `docs/core-deficiencies.md` A10) | `pricing.ts`, `payments.ts` (`assertQuoteFresh`), تست «price change … forces a re-quote» |
 | COM-C04-010/012 + C12-004/005 — Snapshot فاکتور و آستانهٔ ارسال رایگان قابل تنظیم | `orders.ts` (`order_lines`)، `settings.ts`، تست‌های invoice snapshot |
 | COM-C04-011 — یک هزینهٔ ارسال برای کل سفارش | `pricing.ts` (shipping روی کل)، C23-022 ضمنی |
 | COM-C05-003/004/005/007 — Priority، Tie-breaker، بدون Stacking، کوپن در Checkout | `pricing.ts` (`order by priority desc, created_at asc, id asc`)، `requoteCheckout` |
@@ -108,7 +110,7 @@
 | ۴ | **سهمیهٔ کوپن شمارش نمی‌شود.** `used_count` هرگز افزایش نمی‌یابد؛ در نتیجه سقف استفاده و Race بی‌اثر است. | C05-008/011 | افزایش اتمیک در تراکنش Settle + تست دو خرید هم‌زمان با آخرین سهمیه |
 | ۵ | **مرجوعی بدون مرحلهٔ QC موجودی را برمی‌گرداند.** کالای معیوب بلافاصله قابل فروش می‌شود. | C14-005/006/007, C23-018 | وضعیت‌های RMA (requested→received→qc→decision) + برگشت به `quarantined` نه `on_hand` |
 | ۶ | **Exchange و اختلاف قیمت وجود ندارد.** | C14-008/009/010/011, C23-017 | سند Exchange، لینک پرداخت اختلاف (idempotent/expiry) و Refund اختلاف منفی |
-| ۷ | **شناسهٔ سفارش قابل حدس است** (`VL-100001`) و تست IDOR بین دو مشتری نداریم. | C12-013, C16-006/011, C23-019 | UUID/توکن عمومی سفارش + تست دسترسی افقی |
+| ۷ | **شناسهٔ سفارش قابل حدس است** (`VL-100001`). AuthZ بر پایهٔ ایمیل نشست هست (`routes.ts:233`)، ولی تست دسترسی افقی دو مشتری نداریم و شمارش فروش لو می‌رود. | C12-013, C16-011, C23-019 | UUID/توکن عمومی سفارش + تست IDOR |
 | ۸ | **Rate Limit / CSRF / Security Headers نیست.** | C16-001/009, C20-005/006/012 | پلاگین rate-limit روی auth/OTP/checkout، توکن CSRF، helmet/CSP |
 | ۹ | **کلیدهای Provider داخل سند `admin.integrations` (JSONB) ذخیره می‌شوند** و در پنل قابل خواندن‌اند. | C17-010, C18-014, C20-007/013 | انتقال به env/Secret Store، Mask در API، حذف از Export |
 | ۱۰ | **جانمایی واحد پول/تومان مشخص نیست.** همه‌چیز با عدد یوروی دمو محاسبه می‌شود. | C00-003, C04-003/014 | قرارداد واحد پول در Backend (minor unit integer)، تبدیل و نمایش تومان، ثبت تصمیم |
