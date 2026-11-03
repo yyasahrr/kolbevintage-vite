@@ -351,3 +351,22 @@ create table if not exists outbox_events (
 create index if not exists outbox_events_pending_idx on outbox_events (status, available_at);
 
 alter table product_variants add column if not exists last_catalog_qty integer not null default 0;
+
+-- tiered cashback: the rate depends on how much the basket is worth
+create table if not exists cashback_ledger (
+  id text primary key,
+  customer_email text,
+  order_id text references orders (id) on delete cascade,
+  kind text not null default 'earn',
+  base_amount numeric(12, 2) not null default 0,
+  percent numeric(6, 2) not null default 0,
+  amount numeric(12, 2) not null,
+  ref_id text,
+  note text,
+  created_at timestamptz not null default now()
+);
+alter table cashback_ledger add column if not exists ref_id text;
+create unique index if not exists cashback_earn_uniq on cashback_ledger (order_id) where kind = 'earn';
+create unique index if not exists cashback_reversal_uniq on cashback_ledger (ref_id) where kind = 'reversal';
+create index if not exists cashback_ledger_email_idx on cashback_ledger (customer_email, created_at desc);
+create index if not exists cashback_ledger_order_idx on cashback_ledger (order_id);

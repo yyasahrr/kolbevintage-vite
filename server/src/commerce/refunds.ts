@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query, withTransaction } from "../db";
+import { reverseCashbackForRefund } from "./cashback";
 import { CommerceError, forbidden, notFound } from "./errors";
 import { getOrder } from "./orders";
 import { enqueue } from "./outbox";
@@ -195,10 +196,22 @@ export async function decideRefund(input: {
         where id = $1 returning *`,
       [refund.id, input.actor, input.note ?? null],
     );
+    const orderRes = await client.query<{ subtotal: string | null; discount_total: string | null; email: string | null }>(
+      "select subtotal, discount_total, email from orders where id = $1",
+      [refund.order_id],
+    );
+    const goodsTotal = Number(orderRes.rows[0]?.subtotal ?? 0) - Number(orderRes.rows[0]?.discount_total ?? 0);
+    const clawedBack = await reverseCashbackForRefund(client, {
+      orderId: refund.order_id,
+      refundId: refund.id,
+      refundAmount: Number(refund.amount),
+      goodsTotal,
+    });
+
     await enqueue(
       client,
       "refund.settled",
-      { refundId: refund.id, orderId: refund.order_id, amount: Number(refund.amount) },
+      { refundId: refund.id, orderId: refund.order_id, amount: Number(refund.amount), cashbackReversed: clawedBack },
       `refund.settled:${refund.id}`,
     );
 

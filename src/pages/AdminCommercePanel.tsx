@@ -19,6 +19,11 @@ interface CommerceSettings {
   freeShippingThreshold: number;
   shippingThresholdBasis: "after_discount" | "before_discount";
   discountStacking: "none" | "explicit";
+  cashbackEnabled: boolean;
+  cashbackMode: "tier_rate" | "marginal";
+  cashbackBase: "merchandise" | "grand_total";
+  cashbackTiers: { min: number; max: number | null; percent: number }[];
+  cashbackMaxAmount: number;
   liveRefundsEnabled: boolean;
   cartMaxQtyPerLine: number;
   currency: string;
@@ -36,6 +41,24 @@ interface Refund {
   requestedBy: string | null;
   approvedBy: string | null;
   createdAt: string;
+}
+
+interface CashbackOverview {
+  accounts: number;
+  orders: number;
+  earned: number;
+  reversed: number;
+  balance: number;
+  entries: {
+    id: string;
+    email: string | null;
+    orderId: string | null;
+    kind: "earn" | "reversal";
+    baseAmount: number;
+    percent: number;
+    amount: number;
+    at: string;
+  }[];
 }
 
 interface Adjustment {
@@ -78,6 +101,7 @@ export function CommercePanel() {
   const [settings, setSettings] = useState<CommerceSettings | null>(null);
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
+  const [cashback, setCashback] = useState<CashbackOverview | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [superCode, setSuperCode] = useState("");
@@ -85,14 +109,16 @@ export function CommercePanel() {
 
   const load = useCallback(async () => {
     try {
-      const [s, r, a] = await Promise.all([
+      const [s, r, a, c] = await Promise.all([
         api.get<CommerceSettings>("/api/commerce/admin/settings"),
         api.get<Refund[]>("/api/commerce/admin/refunds"),
         api.get<Adjustment[]>("/api/commerce/admin/inventory/adjustments"),
+        api.get<CashbackOverview>("/api/commerce/admin/cashback"),
       ]);
       setSettings(s);
       setRefunds(r);
       setAdjustments(a);
+      setCashback(c);
     } catch (error) {
       setMessage({ ok: false, text: error instanceof Error ? error.message : "خواندن تنظیمات ناموفق بود." });
     }
@@ -363,6 +389,154 @@ export function CommercePanel() {
           <span className="ad-actions-spacer" />
           <span className="ad-hint">واحد پول: {settings.currency}</span>
         </div>
+      )}
+
+      {settings && (
+        <Panel
+          title="کش‌بک پله‌ای"
+          action={
+            <button
+              type="button"
+              className="ad-btn is-sm"
+              onClick={() =>
+                patch({
+                  cashbackTiers: [
+                    ...settings.cashbackTiers,
+                    { min: settings.cashbackTiers.at(-1)?.max ?? 0, max: null, percent: 1 },
+                  ],
+                })
+              }
+            >
+              + پله
+            </button>
+          }
+        >
+          <label className="ad-check">
+            <input
+              type="checkbox"
+              checked={settings.cashbackEnabled}
+              onChange={(e) => patch({ cashbackEnabled: e.target.checked })}
+            />
+            کش‌بک فعال باشد
+          </label>
+          <p className="ad-hint">
+            نرخ به مبلغ سبد بستگی دارد، نه یک درصد ثابت: مثلاً تا ۱٬۰۰۰٬۰۰۰ → ۵٪، تا ۳٬۰۰۰٬۰۰۰ → ۳٪. در حالت «نرخ پله»
+            کل سبد با نرخ پلهٔ خودش حساب می‌شود؛ در حالت «پله‌ای/حاشیه‌ای» هر نرخ فقط روی سهم خودش اعمال می‌شود.
+          </p>
+          <div className="ad-two">
+            <label className="ad-field">
+              روش محاسبه
+              <select
+                className="ad-select"
+                value={settings.cashbackMode}
+                onChange={(e) => patch({ cashbackMode: e.target.value as CommerceSettings["cashbackMode"] })}
+              >
+                <option value="tier_rate">نرخ پله روی کل سبد (تا X → ۵٪)</option>
+                <option value="marginal">حاشیه‌ای (هر نرخ روی سهم خودش)</option>
+              </select>
+            </label>
+            <label className="ad-field">
+              مبنای محاسبه
+              <select
+                className="ad-select"
+                value={settings.cashbackBase}
+                onChange={(e) => patch({ cashbackBase: e.target.value as CommerceSettings["cashbackBase"] })}
+              >
+                <option value="merchandise">مبلغ کالاها پس از تخفیف (بدون ارسال)</option>
+                <option value="grand_total">مبلغ نهایی سفارش (با ارسال)</option>
+              </select>
+            </label>
+          </div>
+          <div className="ad-table-wrap" style={{ marginTop: 10 }}>
+            <table className="ad-table">
+              <thead>
+                <tr>
+                  <th>از مبلغ</th>
+                  <th>تا مبلغ (خالی = نامحدود)</th>
+                  <th>درصد</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {settings.cashbackTiers.map((tier, index) => (
+                  <tr key={index}>
+                    <td>
+                      <input
+                        className="ad-input"
+                        type="number"
+                        min={0}
+                        value={tier.min}
+                        onChange={(e) => {
+                          const next = [...settings.cashbackTiers];
+                          next[index] = { ...tier, min: Number(e.target.value) || 0 };
+                          patch({ cashbackTiers: next });
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="ad-input"
+                        type="number"
+                        min={0}
+                        placeholder="نامحدود"
+                        value={tier.max ?? ""}
+                        onChange={(e) => {
+                          const next = [...settings.cashbackTiers];
+                          next[index] = { ...tier, max: e.target.value === "" ? null : Number(e.target.value) };
+                          patch({ cashbackTiers: next });
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="ad-input"
+                        type="number"
+                        min={0}
+                        max={30}
+                        step={0.5}
+                        value={tier.percent}
+                        onChange={(e) => {
+                          const next = [...settings.cashbackTiers];
+                          next[index] = { ...tier, percent: Number(e.target.value) || 0 };
+                          patch({ cashbackTiers: next });
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="ad-btn is-sm is-danger"
+                        onClick={() => patch({ cashbackTiers: settings.cashbackTiers.filter((_, i) => i !== index) })}
+                      >
+                        حذف
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="ad-two" style={{ marginTop: 10 }}>
+            <label className="ad-field">
+              سقف مبلغ کش‌بک هر سفارش
+              <input
+                className="ad-input"
+                type="number"
+                min={0}
+                value={settings.cashbackMaxAmount}
+                onChange={(e) => patch({ cashbackMaxAmount: Number(e.target.value) || 0 })}
+              />
+            </label>
+            <div className="ad-field">
+              وضعیت
+              <p className="ad-hint">
+                {cashback
+                  ? `${money(cashback.accounts)} حساب، ${money(cashback.orders)} سفارش، پرداختی ${money(cashback.earned)}، برگشتی ${money(Math.abs(cashback.reversed))}`
+                  : "در حال خواندن…"}
+              </p>
+            </div>
+          </div>
+        </Panel>
       )}
 
       <Panel title={`درخواست‌های بازپرداخت (${refunds.length})`}>

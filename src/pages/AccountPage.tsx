@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BadgeCheck,
@@ -26,6 +26,7 @@ import { useAdmin } from "@/state/admin";
 import { addTicketMessage, cashbackBalance, createTicket, createReturn, requestTryon, tryonBalance, useOps } from "@/state/ops";
 import { formatPrice } from "@/data/looks";
 import { liveGetProduct } from "@/data/catalog";
+import { commerce, type CashbackWallet, type CommerceConfig } from "@/lib/commerce";
 import { ProductThumb } from "@/components/ProductThumb";
 import { PageIntro, buttonStyles } from "@/components/ui";
 import { SmartSizeGuide } from "@/components/SmartSizeGuide";
@@ -68,7 +69,8 @@ export function AccountPage() {
   const acc = auth.account;
   const orders = admin.orders.filter((o) => o.email.toLowerCase() === acc.email.toLowerCase());
   const tickets = ops.tickets.filter((t) => t.email === acc.email);
-  const cashback = cashbackBalance(acc.email);
+  const wallet = useServerWallet(acc.email);
+  const cashback = wallet?.balance ?? cashbackBalance(acc.email);
   const tryon = tryonBalance(acc.email);
   const spend = orders.reduce((n, o) => n + o.total, 0);
   const labels = ops.labels.filter((l) => {
@@ -379,17 +381,65 @@ function getFirstProducts() {
   return products as NonNullable<(typeof products)[number]>[];
 }
 
+/** the server wallet is authoritative once it answers; localStorage is the fallback */
+function useServerWallet(email: string) {
+  const [wallet, setWallet] = useState<CashbackWallet | null>(null);
+  useEffect(() => {
+    let alive = true;
+    commerce
+      .cashback()
+      .then((data) => {
+        if (alive && data.email === email) setWallet(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [email]);
+  return wallet;
+}
+
 function WalletTab({ email }: { email: string }) {
   const ops = useOps();
-  const cashes = ops.cashbackTxns.filter((t) => t.email === email);
-  const balance = cashbackBalance(email);
+  const wallet = useServerWallet(email);
+  const [cfg, setCfg] = useState<CommerceConfig | null>(null);
+  useEffect(() => {
+    commerce.config().then(setCfg).catch(() => undefined);
+  }, []);
+
+  const cashes =
+    wallet && wallet.transactions.length > 0
+      ? wallet.transactions.map((t) => ({
+          id: t.id,
+          kind: t.kind === "earn" ? ("earn" as const) : ("spend" as const),
+          at: new Date(t.at).getTime(),
+          amount: Math.abs(t.amount),
+          orderId: t.orderId ?? "",
+        }))
+      : ops.cashbackTxns.filter((t) => t.email === email);
+  const balance = wallet?.balance ?? cashbackBalance(email);
+  const tiers = cfg?.cashback.tiers ?? [];
   return (
     <section className="acc-card">
       <header><h3><Wallet width={15} height={15} /> کیف پول و کش‌بک</h3></header>
       <div className="acc-wallet-hero">
         <span>موجودی کش‌بک</span>
         <b>{balance.toLocaleString("fa-IR")} تومان</b>
-        <small>با هر خرید، {ops.cashbackRate.toLocaleString("fa-IR")}٪ از مبلغ کالاها به کیف پول تو برمی‌گردد.</small>
+        <small>
+          درصد کش‌بک به مبلغ سبد بستگی دارد
+          {tiers.length > 0 ? ":" : " و بعد از هر پرداخت به کیف پول اضافه می‌شود."}
+        </small>
+        {tiers.length > 0 && (
+          <span className="acc-cashback-tiers">
+            {tiers.map((tier, index) => (
+              <em key={`${tier.min}-${index}`}>
+                {index === 0 ? "تا " : ""}
+                {(tier.max ?? 0) > 0 ? `${tier.max?.toLocaleString("fa-IR")} → ` : "بیشتر از همه → "}
+                {tier.percent.toLocaleString("fa-IR")}٪
+              </em>
+            ))}
+          </span>
+        )}
       </div>
       {cashes.length === 0 ? (
         <p className="acc-muted">هنوز تراکنش کش‌بکی نداری. با اولین خرید فعال می‌شود.</p>

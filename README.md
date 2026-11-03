@@ -96,9 +96,12 @@ dedicated commerce module (`server/src/commerce/`) — see
   whole order (owner decision replacing the old per-product eligibility rule).
 - **Refunds**: partial per order line, adjustment documents only, and live
   refunds are fail-closed until a protected Superadmin enables them.
-- **Outbox**: `order.paid`, `order.exception`, `order.cancelled` and
-  `refund.settled` are delivered asynchronously with retries, so a dead SMS
-  provider cannot invalidate an order.
+- **Outbox**: `order.paid`, `order.exception`, `order.cancelled`,
+  `refund.settled` and `cashback.earned` are delivered asynchronously with
+  retries, so a dead SMS provider cannot invalidate an order.
+- **Cashback**: tiered by basket value (e.g. up to 1,000 → 5%, up to 3,000 →
+  3%, above → 1%), credited to an append-only wallet ledger on payment, clawed
+  back proportionally on partial refunds, and shown in the cart before paying.
 
 The storefront checkout now calls this module end to end (server-priced totals,
 installment option, out-of-stock warnings), and the admin panel gets a new

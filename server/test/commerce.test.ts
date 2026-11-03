@@ -159,6 +159,15 @@ before(async () => {
     shippingThresholdBasis: "after_discount",
     discountStacking: "none",
     superadmins: ["superadmin"],
+    cashbackEnabled: true,
+    cashbackMode: "tier_rate",
+    cashbackBase: "merchandise",
+    cashbackTiers: [
+      { min: 0, max: 1000, percent: 5 },
+      { min: 1000, max: 3000, percent: 3 },
+      { min: 3000, max: null, percent: 1 },
+    ],
+    cashbackMaxAmount: 500,
   });
   const index = await import("../src/index");
   app = await index.buildServer();
@@ -189,6 +198,15 @@ beforeEach(async () => {
     shippingThresholdBasis: "after_discount",
     discountStacking: "none",
     superadmins: ["superadmin"],
+    cashbackEnabled: true,
+    cashbackMode: "tier_rate",
+    cashbackBase: "merchandise",
+    cashbackTiers: [
+      { min: 0, max: 1000, percent: 5 },
+      { min: 1000, max: 3000, percent: 3 },
+      { min: 3000, max: null, percent: 1 },
+    ],
+    cashbackMaxAmount: 500,
   });
 });
 
@@ -579,4 +597,85 @@ test("guest cart merges into the account cart on sign-in", async () => {
   assert.equal(cart.body.customerEmail, "ava@example.com");
   assert.equal(cart.body.lines.length, 1);
   assert.equal(cart.body.lines[0].quantity, 1);
+});
+
+test("the cashback rate comes from the bracket that contains the basket", async () => {
+  const { computeCashback } = await import("../src/commerce/cashback");
+  const settings = {
+    ...(await import("../src/commerce/settings")).DEFAULT_COMMERCE_SETTINGS,
+    cashbackEnabled: true,
+    cashbackMode: "tier_rate" as const,
+    cashbackTiers: [
+      { min: 0, max: 1000, percent: 5 },
+      { min: 1000, max: 3000, percent: 3 },
+      { min: 3000, max: null, percent: 1 },
+    ],
+    cashbackMaxAmount: 10_000,
+  };
+
+  assert.equal(computeCashback(500, settings).percent, 5);
+  assert.equal(computeCashback(500, settings).amount, 25);
+  assert.equal(computeCashback(1000, settings).percent, 3, "the lower bracket is [min, max)");
+  assert.equal(computeCashback(2999, settings).percent, 3);
+  assert.equal(computeCashback(3000, settings).percent, 1);
+  assert.equal(computeCashback(10_000, settings).amount, 100);
+
+  // the owner can switch to marginal brackets: each rate only on its own slice
+  const marginal = { ...settings, cashbackMode: "marginal" as const };
+  assert.equal(computeCashback(2500, marginal).amount, 95); // 1000×5% + 1500×3%
+  assert.equal(computeCashback(0, settings).amount, 0);
+  assert.equal(computeCashback(500, { ...settings, cashbackEnabled: false }).amount, 0);
+});
+
+test("a paid order credits exactly one cashback entry and a refund claws back its share", async () => {
+  const variantId = await setStock(SKU, 3);
+  const client = await customerClient();
+  // neutralise campaigns so the basket value is predictable
+  await query("delete from price_rules");
+  const { checkout, settled } = await payAndSettle(client, [{ variantId, quantity: 2 }]);
+
+  const base = checkout.quote.cashback.base;
+  assert.ok(base > 0);
+  assert.equal(settled.cashback.percent, checkout.quote.cashback.percent);
+  assert.equal(settled.cashback.amount, checkout.quote.cashback.amount);
+
+  const wallet = await client.get("/api/commerce/cashback");
+  assert.equal(wallet.body.balance, settled.cashback.amount);
+  assert.equal(wallet.body.transactions.length, 1);
+  assert.equal(wallet.body.transactions[0].kind, "earn");
+
+  // a duplicated callback must not credit again
+  const attempts = await query("select id from payment_attempts where checkout_id = $1", [checkout.id]);
+  await client.post(`/api/commerce/payments/${attempts.rows[0].id}/callback`, { result: "success" });
+  const again = await query("select count(*)::int as n from cashback_ledger where kind = 'earn'");
+  assert.equal(again.rows[0].n, 1);
+
+  // returning part of the order reverses the matching share of the cashback
+  const admin = await adminClient();
+  const order = await admin.get(`/api/commerce/orders/${settled.orderId}`);
+  const requested = await client.post(`/api/commerce/orders/${settled.orderId}/returns`, {
+    lineId: order.body.lines[0].id,
+    quantity: 1,
+    reason: "تعویض سایز",
+  });
+  assert.equal(requested.status, 201);
+
+  const superAdmin = await superAdminClient();
+  await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
+  const approved = await superAdmin.post(`/api/commerce/admin/refunds/${requested.body.refund.id}`, { decision: "approve" });
+  assert.equal(approved.status, 200);
+
+  const afterRefund = await client.get("/api/commerce/cashback");
+  assert.ok(afterRefund.body.balance < wallet.body.balance, "half of the cashback is clawed back");
+  assert.equal(afterRefund.body.reversed, -settled.cashback.amount / 2);
+});
+
+test("guest orders never earn cashback", async () => {
+  const variantId = await setStock(SKU, 2);
+  const guest = makeClient();
+  const { checkout, settled } = await payAndSettle(guest, [{ variantId, quantity: 1 }]);
+  assert.equal(settled.orderStatus, "paid");
+  assert.ok(checkout.quote.cashback.amount > 0, "the quote still advertises the earn rate");
+  const rows = await query("select count(*)::int as n from cashback_ledger where order_id = $1", [settled.orderId]);
+  assert.equal(rows.rows[0].n, 0);
 });

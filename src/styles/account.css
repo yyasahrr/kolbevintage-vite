@@ -1464,3 +1464,20 @@
 @media (prefers-reduced-motion: reduce) {
   .product-sticky { transition: opacity 0.01s; }
 }
+
+/* tiered cashback explainer (account wallet) */
+.acc-cashback-tiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.acc-cashback-tiers em {
+  font-style: normal;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
+  white-space: nowrap;
+}

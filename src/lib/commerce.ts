@@ -6,6 +6,40 @@ import { api } from "./api";
    browser only mirrors it.
    ===================================================================== */
 
+export interface CashbackTier {
+  min: number;
+  max: number | null;
+  percent: number;
+}
+
+export interface CashbackQuote {
+  enabled: boolean;
+  mode: "tier_rate" | "marginal";
+  base: number;
+  percent: number;
+  amount: number;
+  tier: CashbackTier | null;
+  note: string;
+}
+
+export interface CashbackWallet {
+  email: string | null;
+  balance: number;
+  earned: number;
+  reversed: number;
+  transactions: {
+    id: string;
+    orderId: string | null;
+    kind: "earn" | "reversal";
+    baseAmount: number;
+    percent: number;
+    amount: number;
+    note: string | null;
+    at: string;
+  }[];
+  admin?: boolean;
+}
+
 export interface CommerceConfig {
   currency: string;
   bnpl4: { enabled: boolean; installments: number; provider: string; scope: "store" };
@@ -15,6 +49,13 @@ export interface CommerceConfig {
   shipping: { flat: number; express: number; freeThreshold: number; thresholdBasis: "after_discount" | "before_discount" };
   paymentProvider: string;
   mockControls: boolean;
+  cashback: {
+    enabled: boolean;
+    mode: "tier_rate" | "marginal";
+    base: "merchandise" | "grand_total";
+    tiers: CashbackTier[];
+    maxAmount: number;
+  };
 }
 
 export interface CommerceItem {
@@ -58,6 +99,7 @@ export interface ServerQuote {
   grandTotal: number;
   currency: string;
   installments: { method: "online" | "bnpl4"; label: string; perInstallment: number }[];
+  cashback: CashbackQuote;
   quoteVersion: string;
   expiresAt: string;
 }
@@ -94,6 +136,7 @@ export interface SettleResult {
   message?: string;
   late?: boolean;
   duplicate?: boolean;
+  cashback?: { amount: number; percent: number; base: number; note: string } | null;
 }
 
 export const commerce = {
@@ -109,6 +152,7 @@ export const commerce = {
     api.post<StartPaymentResult>(`/api/commerce/checkout/${checkoutId}/pay`, { method, idempotencyKey }),
   simulate: (attemptId: string, result: "success" | "fail" | "timeout" | "reject") =>
     api.post<SettleResult>(`/api/commerce/payments/${attemptId}/simulate`, { result }),
+  cashback: () => api.get<CashbackWallet>("/api/commerce/cashback"),
 };
 
 export interface Shortage {

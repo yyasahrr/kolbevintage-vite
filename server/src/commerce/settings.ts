@@ -16,6 +16,13 @@ import { getDocument } from "../seed";
    - Discounts do not stack unless both sides opt in (fail-closed).
    ===================================================================== */
 
+/** one cashback bracket: `min <= amount < max` (max = null means "and above") */
+export interface CashbackTier {
+  min: number;
+  max: number | null;
+  percent: number;
+}
+
 export interface CommerceSettings {
   /** the 4-installment gateway is a single store-wide switch (OWN-05 revision) */
   bnpl4Enabled: boolean;
@@ -40,6 +47,18 @@ export interface CommerceSettings {
   superadmins: string[];
   taxRate: number;
   currency: string;
+  /**
+   * Tiered cashback. `tier_rate` applies the bracket's rate to the whole
+   * basket (the rule the owner asked for: up to X → 5%, up to Y → 3%, …);
+   * `marginal` applies each rate only to the slice inside its bracket.
+   */
+  cashbackEnabled: boolean;
+  cashbackMode: "tier_rate" | "marginal";
+  /** cashback is earned on the discounted goods value, not on shipping */
+  cashbackBase: "merchandise" | "grand_total";
+  cashbackTiers: CashbackTier[];
+  /** safety cap so a misconfigured bracket cannot pay out a fortune */
+  cashbackMaxAmount: number;
   /** mock provider controls (simulate success/fail/timeout) — never in production */
   allowMockControls: boolean;
   /** test hook: make the outbox SMS handler fail */
@@ -64,6 +83,15 @@ export const DEFAULT_COMMERCE_SETTINGS: CommerceSettings = {
   superadmins: ["superadmin"],
   taxRate: 0,
   currency: "EUR",
+  cashbackEnabled: true,
+  cashbackMode: "tier_rate",
+  cashbackBase: "merchandise",
+  cashbackTiers: [
+    { min: 0, max: 1000, percent: 5 },
+    { min: 1000, max: 3000, percent: 3 },
+    { min: 3000, max: null, percent: 1 },
+  ],
+  cashbackMaxAmount: 500,
   allowMockControls: true,
   smsSimulateDown: false,
   paymentProvider: "mock",

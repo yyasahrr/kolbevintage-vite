@@ -46,6 +46,7 @@ export function CheckoutPage() {
     discounts: { id: string; name: string; amount: number; note?: string }[];
     status?: string;
     note?: string;
+    cashback?: { amount: number; percent: number } | null;
   } | null>(null);
   const [serverQuote, setServerQuote] = useState<ServerQuote | null>(null);
   const [cfg, setCfg] = useState<CommerceConfig | null>(null);
@@ -227,6 +228,7 @@ export function CheckoutPage() {
         const paid = Number(settled.total ?? created.checkout.quote.grandTotal);
         setOrder({
           id: settled.orderId,
+          cashback: settled.cashback ? { amount: settled.cashback.amount, percent: settled.cashback.percent } : null,
           total: paid,
           items: lines.reduce((n, l) => n + l.qty, 0),
           discounts: viewDiscounts,
@@ -292,6 +294,11 @@ export function CheckoutPage() {
                 <dd className="mt-1 font-semibold text-ink">{formatPrice(order.total)}</dd>
               </div>
             </dl>
+            {order.cashback && order.cashback.amount > 0 && (
+              <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-[11.5px] text-emerald-800">
+                {formatPrice(order.cashback.amount)} کش‌بک ({order.cashback.percent.toLocaleString("fa-IR")}٪) به کیف پول حساب تو اضافه شد.
+              </p>
+            )}
             {order.note && (
               <p className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2 text-[11.5px] leading-relaxed text-amber-900">
                 {order.note}
@@ -518,6 +525,15 @@ export function CheckoutPage() {
               <dt className="text-ink-45">ارسال {shipping === "express" ? "سریع" : "استاندارد"}</dt>
               <dd className={cn("text-ink", viewShipping === 0 && "text-emerald-700")}>{viewShipping === 0 ? "رایگان" : formatPrice(viewShipping)}</dd>
             </div>
+            {serverQuote?.cashback.enabled && serverQuote.cashback.amount > 0 && (
+              <div className="flex justify-between text-emerald-700">
+                <dt>
+                  کش‌بک این خرید{" "}
+                  <span className="text-[10.5px] text-ink-45">({serverQuote.cashback.percent.toLocaleString("fa-IR")}٪)</span>
+                </dt>
+                <dd>+ {formatPrice(serverQuote.cashback.amount)}</dd>
+              </div>
+            )}
             <div className="flex items-baseline justify-between border-t border-black/[0.07] pt-2">
               <dt className="text-[12.5px] font-medium text-ink">مبلغ نهایی</dt>
               <dd className="font-display text-[24px] font-medium text-ink">{formatPrice(viewTotal)}</dd>

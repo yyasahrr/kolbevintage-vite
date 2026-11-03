@@ -3,6 +3,7 @@ import { config } from "../config";
 import { query, withTransaction } from "../db";
 import type { CheckoutRow } from "./checkout";
 import { getCheckout } from "./checkout";
+import { recordCashback } from "./cashback";
 import { CommerceError, notFound } from "./errors";
 import { consumeReservations, expireReservations } from "./inventory";
 import { insertOrder, type OrderStatus } from "./orders";
@@ -364,6 +365,16 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
         where id = $1`,
       [current.id, order.id, outcome.providerRef, JSON.stringify(outcome.raw)],
     );
+    // cashback only exists for real paid orders, never for exceptions
+    const earned = late
+      ? null
+      : await recordCashback(client, {
+          orderId: order.id,
+          email: checkout.customer_email,
+          base: quote.cashback.base,
+          settings: await loadCommerceSettings(),
+        });
+
     await client.query(
       "update checkout_sessions set status = $2, updated_at = now() where id = $1",
       [checkout.id, late ? "exception" : "completed"],
@@ -386,6 +397,20 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
         { orderId: order.id, attemptId: current.id, amount: Number(current.amount), method: current.method },
         `order.paid:${order.id}`,
       );
+      if (earned && earned.amount > 0) {
+        await enqueue(
+          client,
+          "cashback.earned",
+          {
+            orderId: order.id,
+            email: checkout.customer_email,
+            amount: earned.amount,
+            percent: earned.percent,
+            base: earned.base,
+          },
+          `cashback.earned:${order.id}`,
+        );
+      }
     }
 
     return {
@@ -396,6 +421,9 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
       total: Number(current.amount),
       late,
       duplicate: false,
+      cashback: earned
+        ? { amount: earned.amount, percent: earned.percent, base: earned.base, note: earned.note }
+        : null,
     };
   });
 }

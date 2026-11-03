@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { query } from "../db";
+import { computeCashback, type CashbackResult } from "./cashback";
 import { CommerceError } from "./errors";
 import type { CommerceSettings } from "./settings";
 
@@ -59,6 +60,8 @@ export interface Quote {
   grandTotal: number;
   currency: string;
   installments: { method: "online" | "bnpl4"; label: string; perInstallment: number }[];
+  /** tiered cashback this basket would earn when paid */
+  cashback: CashbackResult;
   quoteVersion: string;
   expiresAt: string;
 }
@@ -258,6 +261,11 @@ export async function buildQuote(params: {
     });
   }
 
+  // cashback is a function of the basket value; the rate comes from the tier
+  // that contains that value (see commerce/cashback.ts)
+  const cashbackBase = settings.cashbackBase === "grand_total" ? grandTotal : afterDiscount;
+  const cashback = computeCashback(cashbackBase, settings);
+
   const quoteVersion = quoteVersionFor({
     lines: quoteLines.map((l) => ({ variantId: l.variantId, unitPrice: l.unitPrice, quantity: l.quantity })),
     rules: eligible,
@@ -283,6 +291,7 @@ export async function buildQuote(params: {
     grandTotal,
     currency: settings.currency,
     installments,
+    cashback,
     quoteVersion,
     expiresAt: new Date(now.getTime() + settings.quoteTtlMinutes * 60_000).toISOString(),
   };

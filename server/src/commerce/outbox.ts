@@ -12,7 +12,12 @@ import { loadCommerceSettings } from "./settings";
    on `dedupe_key` because delivery is at-least-once, not exactly-once.
    ===================================================================== */
 
-export type OutboxType = "order.paid" | "order.exception" | "refund.settled" | "order.cancelled";
+export type OutboxType =
+  | "order.paid"
+  | "order.exception"
+  | "order.cancelled"
+  | "refund.settled"
+  | "cashback.earned";
 
 export interface OutboxRow {
   id: string;
@@ -51,7 +56,13 @@ async function handle(type: OutboxType, payload: Record<string, unknown>): Promi
   const delivered: string[] = [];
   const skipped: string[] = [];
 
-  if (type === "order.paid" || type === "order.exception" || type === "order.cancelled" || type === "refund.settled") {
+  if (
+    type === "order.paid" ||
+    type === "order.exception" ||
+    type === "order.cancelled" ||
+    type === "refund.settled" ||
+    type === "cashback.earned"
+  ) {
     if (settings.smsSimulateDown) {
       throw new Error("SMS provider unreachable (simulated)");
     }

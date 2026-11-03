@@ -4,6 +4,12 @@ import { query } from "../db";
 import { createSession, setSessionCookie } from "../sessions";
 import { actorOf, currentSession, requireAdminSession, requireSuperadmin } from "./auth";
 import {
+  cashbackBalance,
+  cashbackOverview,
+  cashbackTransactions,
+  normalizeTiers,
+} from "./cashback";
+import {
   addCartLine,
   cartLines,
   mergeGuestCartForCustomer,
@@ -81,6 +87,13 @@ export async function commerceRoutes(app: FastifyInstance) {
       },
       paymentProvider: settings.paymentProvider,
       mockControls: settings.allowMockControls && !config.isProd,
+      cashback: {
+        enabled: settings.cashbackEnabled,
+        mode: settings.cashbackMode,
+        base: settings.cashbackBase,
+        tiers: normalizeTiers(settings.cashbackTiers),
+        maxAmount: settings.cashbackMaxAmount,
+      },
     };
   });
 
@@ -300,6 +313,35 @@ export async function commerceRoutes(app: FastifyInstance) {
      Admin: settings, variants, inventory, payments, outbox, refunds
      --------------------------------------------------------------- */
 
+  /** the signed-in customer's wallet (tiered cashback balance + history) */
+  app.get("/api/commerce/cashback", async (req) => {
+    const session = await currentSession(req);
+    if (session?.kind === "admin") {
+      const overview = await cashbackOverview();
+      return {
+        email: null,
+        balance: overview.balance,
+        earned: overview.earned,
+        reversed: overview.reversed,
+        transactions: overview.entries,
+        admin: true,
+      };
+    }
+    if (session?.kind !== "customer") {
+      return { email: null, balance: 0, earned: 0, reversed: 0, transactions: [] };
+    }
+    const [balance, transactions] = await Promise.all([
+      cashbackBalance(session.subject),
+      cashbackTransactions(session.subject),
+    ]);
+    return { email: session.subject, ...balance, transactions };
+  });
+
+  app.get("/api/commerce/admin/cashback", async (req) => {
+    await requireAdminSession(req);
+    return cashbackOverview();
+  });
+
   app.get("/api/commerce/admin/settings", async (req) => {
     await requireAdminSession(req);
     return loadCommerceSettings(true);
@@ -324,6 +366,7 @@ export async function commerceRoutes(app: FastifyInstance) {
     for (const key of allowed) {
       if (req.body && key in req.body) (patch as Record<string, unknown>)[key] = req.body[key];
     }
+    if (patch.cashbackTiers) patch.cashbackTiers = normalizeTiers(patch.cashbackTiers);
     return saveCommerceSettings(patch);
   });
 
