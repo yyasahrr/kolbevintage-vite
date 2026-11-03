@@ -2676,3 +2676,50 @@
   outline: 2px solid #1b1815;
   outline-offset: 2px;
 }
+
+/* ---------- backend sync indicator ---------- */
+.ad-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  border: 1px solid rgba(27, 24, 21, 0.12);
+  background: #fffdfa;
+  color: #6f675c;
+  white-space: nowrap;
+}
+.ad-sync i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #c9c3bc;
+}
+.ad-sync.is-online {
+  border-color: rgba(47, 111, 78, 0.25);
+  color: #2f6f4e;
+}
+.ad-sync.is-online i {
+  background: #2f6f4e;
+}
+.ad-sync.is-connecting i {
+  background: #9a6b21;
+}
+.ad-sync.is-offline {
+  border-color: rgba(156, 47, 34, 0.22);
+  color: #9c2f22;
+}
+.ad-sync.is-offline i {
+  background: #9c2f22;
+}
+@media (max-width: 640px) {
+  .ad-sync {
+    font-size: 0;
+    padding: 6px;
+  }
+  .ad-sync i {
+    width: 8px;
+    height: 8px;
+  }
+}

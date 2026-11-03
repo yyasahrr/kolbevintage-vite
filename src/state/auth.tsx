@@ -1,12 +1,15 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { ApiError, api } from "@/lib/api";
 import { getAdmin } from "./admin";
 import { addLog, getOps, tryonBalance, cashbackBalance } from "./ops";
 
 /* =====================================================================
-   Customer accounts — demo auth with one-time codes (OTP), saved
-   addresses, size profile, wallet/cashback and try-on credits.
-   All state lives in localStorage; nothing leaves the browser.
+   Customer accounts.
+
+   The provider talks to the Fastify/PostgreSQL backend when it is reachable
+   (register, password login, OTP, profile, addresses) and keeps the previous
+   demo behaviour as an offline fallback so the static build still works.
    ===================================================================== */
 
 export interface Address {
@@ -97,13 +100,21 @@ function persist(s: AuthState) {
   }
 }
 
+const isNetworkError = (error: unknown) => !(error instanceof ApiError);
+
+interface Result {
+  ok: boolean;
+  message: string;
+  code?: string;
+}
+
 interface AuthValue {
   state: AuthState;
   account: Account | null;
-  requestOtp: (email: string, phone: string, method: "sms" | "email") => { ok: boolean; code?: string; message: string };
-  verifyOtp: (code: string) => { ok: boolean; message: string };
-  loginWithPassword: (email: string, password: string) => { ok: boolean; message: string };
-  register: (a: { name: string; email: string; phone: string; password: string }) => { ok: boolean; message: string };
+  requestOtp: (email: string, phone: string, method: "sms" | "email") => Promise<Result>;
+  verifyOtp: (code: string) => Promise<Result>;
+  loginWithPassword: (email: string, password: string) => Promise<Result>;
+  register: (a: { name: string; email: string; phone: string; password: string }) => Promise<Result>;
   logout: () => void;
   updateAccount: (patch: Partial<Account>) => void;
   saveAddress: (a: Address) => void;
@@ -112,138 +123,264 @@ interface AuthValue {
   purchaseTryon: (credits: number, price: number) => { ok: boolean; message: string };
   login: (email: string) => void;
   balance: { tryon: number; cashback: number };
+  accountLoading: boolean;
 }
 
 const Ctx = createContext<AuthValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(read);
+  const [accountLoading, setAccountLoading] = useState(true);
 
   useEffect(() => persist(state), [state]);
 
   const account = useMemo(() => state.accounts.find((a) => a.email === state.email) ?? null, [state]);
+  const accountRef = useRef<Account | null>(account);
+  accountRef.current = account;
 
-  const findOrCreate = (email: string, phone = ""): Account => ({
-    email,
-    phone,
-    name: email.split("@")[0],
-    password: "",
-    addresses: [],
-    size: DEMO_SIZE,
-    createdAt: Date.now(),
-    loginMethod: "otp",
-    twoFactor: false,
-  });
+  /** upsert the signed-in account coming from the API */
+  const applyCustomer = useCallback((customer: Partial<Account>) => {
+    if (!customer.email) return;
+    const email = customer.email;
+    setState((s) => {
+      const base =
+        s.accounts.find((a) => a.email === email) ??
+        ({ email, phone: "", name: email.split("@")[0], password: "", addresses: [], size: DEMO_SIZE, createdAt: Date.now(), loginMethod: "password", twoFactor: false } as Account);
+      const merged: Account = { ...base, ...customer, email, password: "" };
+      const accounts = s.accounts.some((a) => a.email === email)
+        ? s.accounts.map((a) => (a.email === email ? merged : a))
+        : [...s.accounts, merged];
+      return { ...s, accounts, email, otp: null, lastError: null };
+    });
+  }, []);
 
-  const requestOtp: AuthValue["requestOtp"] = useCallback((email, phone, method) => {
+  /* hydrate the session from the server on boot */
+  useEffect(() => {
+    let alive = true;
+    api
+      .get<{ customer: Partial<Account> | null }>("/api/auth/me")
+      .then((res) => {
+        if (alive && res.customer) applyCustomer(res.customer);
+      })
+      .catch(() => undefined)
+      .finally(() => alive && setAccountLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [applyCustomer]);
+
+  /* debounced profile write */
+  const profileTimer = useRef<number | undefined>(undefined);
+  const pushProfile = useCallback((patch: Record<string, unknown>) => {
+    if (profileTimer.current) window.clearTimeout(profileTimer.current);
+    profileTimer.current = window.setTimeout(() => {
+      api.patch("/api/auth/profile", patch).catch(() => undefined);
+    }, 500);
+  }, []);
+
+  const requestOtp: AuthValue["requestOtp"] = useCallback(async (email, phone, method) => {
     const e = email.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(e)) return { ok: false, message: "ایمیل معتبر نیست." };
     const channels = getOps().security.otpChannels;
     if (method === "sms" && !channels.sms) return { ok: false, message: "ورود پیامکی توسط مدیر بسته شده است." };
     if (method === "email" && !channels.email) return { ok: false, message: "ورود ایمیلی توسط مدیر بسته شده است." };
     if (method === "sms" && !/^0?9\d{9}$/.test(phone.trim())) return { ok: false, message: "شمارهٔ موبایل معتبر نیست." };
-    const code = String(Math.floor(100000 + Math.random() * 899999));
-    setState((s) => ({ ...s, otp: { email: e, phone: phone.trim(), code, expires: Date.now() + 120000, method }, lastError: null }));
-    addLog({ actor: e, action: "درخواست کد ورود", target: method === "sms" ? "پیامک" : "ایمیل" });
-    return { ok: true, code, message: `کد ${method === "sms" ? "پیامکی" : "ایمیلی"} به ${method === "sms" ? phone : e} ارسال شد (نمایشی).` };
-  }, []);
 
-  const finishLogin = useCallback((email: string, method: "otp" | "password") => {
-    setState((s) => {
-      const exists = s.accounts.some((a) => a.email === email);
-      const accounts = exists
-        ? s.accounts.map((a) => (a.email === email ? { ...a, loginMethod: method } : a))
-        : [...s.accounts, findOrCreate(email)];
-      return { ...s, accounts, email, otp: null, lastError: null };
-    });
-    addLog({ actor: email, action: "ورود موفق", target: method === "otp" ? "رمز یکبار مصرف" : "رمز عبور" });
+    try {
+      const res = await api.post<Result>("/api/auth/otp/request", { email: e, phone: phone.trim(), channel: method });
+      if (!res.ok) return { ok: false, message: res.message };
+      setState((s) => ({
+        ...s,
+        otp: { email: e, phone: phone.trim(), code: res.code ?? "", expires: Date.now() + 120000, method },
+        lastError: null,
+      }));
+      addLog({ actor: e, action: "درخواست کد ورود", target: method === "sms" ? "پیامک" : "ایمیل" });
+      return res;
+    } catch (error) {
+      if (!isNetworkError(error)) return { ok: false, message: error instanceof Error ? error.message : "ارسال کد ناموفق بود." };
+      // offline demo
+      const code = String(Math.floor(100000 + Math.random() * 899999));
+      setState((s) => ({ ...s, otp: { email: e, phone: phone.trim(), code, expires: Date.now() + 120000, method }, lastError: null }));
+      addLog({ actor: e, action: "درخواست کد ورود", target: method === "sms" ? "پیامک" : "ایمیل" });
+      return { ok: true, code, message: `کد ${method === "sms" ? "پیامکی" : "ایمیلی"} به ${method === "sms" ? phone : e} ارسال شد (نمایشی).` };
+    }
   }, []);
 
   const verifyOtp: AuthValue["verifyOtp"] = useCallback(
-    (code) => {
+    async (code) => {
       const otp = state.otp;
       if (!otp) return { ok: false, message: "اول درخواست کد بده." };
-      if (Date.now() > otp.expires) return { ok: false, message: "کد منقضی شده؛ کد تازه بگیر." };
-      if (code.trim() !== otp.code) return { ok: false, message: "کد درست نیست." };
-      finishLogin(otp.email, "otp");
-      return { ok: true, message: "خوش آمدی!" };
+      try {
+        const res = await api.post<{ ok: boolean; message: string; customer?: Partial<Account> }>("/api/auth/otp/verify", {
+          email: otp.email,
+          code: code.trim(),
+        });
+        if (!res.ok) return { ok: false, message: res.message };
+        if (res.customer) applyCustomer({ ...res.customer, loginMethod: "otp" });
+        addLog({ actor: otp.email, action: "ورود موفق", target: "رمز یکبار مصرف" });
+        return { ok: true, message: res.message || "خوش آمدی!" };
+      } catch (error) {
+        if (!isNetworkError(error)) return { ok: false, message: error instanceof Error ? error.message : "کد درست نیست." };
+        if (Date.now() > otp.expires) return { ok: false, message: "کد منقضی شده؛ کد تازه بگیر." };
+        if (code.trim() !== otp.code) return { ok: false, message: "کد درست نیست." };
+        applyCustomer({ email: otp.email, phone: otp.phone, loginMethod: "otp" });
+        addLog({ actor: otp.email, action: "ورود موفق", target: "رمز یکبار مصرف" });
+        return { ok: true, message: "خوش آمدی!" };
+      }
     },
-    [state.otp, finishLogin],
+    [state.otp, applyCustomer],
   );
 
   const loginWithPassword: AuthValue["loginWithPassword"] = useCallback(
-    (email, password) => {
+    async (email, password) => {
       const e = email.trim().toLowerCase();
-      const acc = state.accounts.find((a) => a.email === e);
-      if (!acc || !acc.password) return { ok: false, message: "حسابی با این ایمیل و رمز پیدا نشد." };
-      if (acc.password !== password) return { ok: false, message: "رمز عبور درست نیست." };
-      finishLogin(e, "password");
-      return { ok: true, message: "خوش آمدی!" };
+      try {
+        const res = await api.post<{ ok: boolean; message: string; customer?: Partial<Account> }>("/api/auth/login", {
+          email: e,
+          password,
+        });
+        if (!res.ok) return { ok: false, message: res.message };
+        if (res.customer) applyCustomer({ ...res.customer, loginMethod: "password" });
+        addLog({ actor: e, action: "ورود موفق", target: "رمز عبور" });
+        return { ok: true, message: res.message || "خوش آمدی!" };
+      } catch (error) {
+        if (!isNetworkError(error)) return { ok: false, message: error instanceof Error ? error.message : "ورود ناموفق بود." };
+        const acc = state.accounts.find((a) => a.email === e);
+        if (!acc || !acc.password) return { ok: false, message: "حسابی با این ایمیل و رمز پیدا نشد." };
+        if (acc.password !== password) return { ok: false, message: "رمز عبور درست نیست." };
+        applyCustomer({ ...acc, loginMethod: "password" });
+        addLog({ actor: e, action: "ورود موفق", target: "رمز عبور" });
+        return { ok: true, message: "خوش آمدی!" };
+      }
     },
-    [state.accounts, finishLogin],
+    [state.accounts, applyCustomer],
   );
 
   const register: AuthValue["register"] = useCallback(
-    ({ name, email, phone, password }) => {
+    async ({ name, email, phone, password }) => {
       const e = email.trim().toLowerCase();
       if (!/^\S+@\S+\.\S+$/.test(e)) return { ok: false, message: "ایمیل معتبر نیست." };
       if (password.length < 8) return { ok: false, message: "رمز باید حداقل ۸ کاراکتر باشد." };
-      if (state.accounts.some((a) => a.email === e)) return { ok: false, message: "این ایمیل قبلاً ثبت شده؛ وارد شو." };
       if (!getOps().security.allowCustomerSignup) return { ok: false, message: "ثبت‌نام در حال حاضر بسته است." };
-      setState((s) => ({ ...s, accounts: [...s.accounts, { ...findOrCreate(e, phone), name: name.trim() || e, password }], email: e, otp: null }));
-      addLog({ actor: e, action: "ثبت‌نام", target: "حساب مشتری" });
-      return { ok: true, message: "حساب ساخته شد." };
+
+      try {
+        const res = await api.post<{ ok: boolean; message: string; customer?: Partial<Account> }>("/api/auth/register", {
+          name,
+          email: e,
+          phone,
+          password,
+        });
+        if (!res.ok) return { ok: false, message: res.message };
+        if (res.customer) applyCustomer({ ...res.customer, loginMethod: "password" });
+        addLog({ actor: e, action: "ثبت‌نام", target: "حساب مشتری" });
+        return { ok: true, message: res.message || "حساب ساخته شد." };
+      } catch (error) {
+        if (!isNetworkError(error)) return { ok: false, message: error instanceof Error ? error.message : "ثبت‌نام ناموفق بود." };
+        if (state.accounts.some((a) => a.email === e)) return { ok: false, message: "این ایمیل قبلاً ثبت شده؛ وارد شو." };
+        const acc: Account = {
+          email: e,
+          phone,
+          name: name.trim() || e,
+          password,
+          addresses: [],
+          size: DEMO_SIZE,
+          createdAt: Date.now(),
+          loginMethod: "password",
+          twoFactor: false,
+        };
+        setState((s) => ({ ...s, accounts: [...s.accounts, acc], email: e, otp: null }));
+        addLog({ actor: e, action: "ثبت‌نام", target: "حساب مشتری" });
+        return { ok: true, message: "حساب ساخته شد." };
+      }
     },
-    [state.accounts],
+    [state.accounts, applyCustomer],
   );
 
-  const logout = useCallback(() => setState((s) => ({ ...s, email: null, otp: null })), []);
+  const logout = useCallback(() => {
+    setState((s) => ({ ...s, email: null, otp: null }));
+    api.post("/api/auth/logout").catch(() => undefined);
+  }, []);
 
   const updateAccount = useCallback(
     (patch: Partial<Account>) => {
-      setState((s) => ({ ...s, accounts: s.accounts.map((a) => (a.email === s.email ? { ...a, ...patch } : a)) }));
+      setState((s) => ({
+        ...s,
+        accounts: s.accounts.map((a) => (a.email === s.email ? { ...a, ...patch } : a)),
+      }));
+      const serverPatch: Record<string, unknown> = {};
+      if (patch.name !== undefined) serverPatch.name = patch.name;
+      if (patch.phone !== undefined) serverPatch.phone = patch.phone;
+      if (patch.size !== undefined) serverPatch.size = patch.size;
+      if (patch.twoFactor !== undefined) serverPatch.twoFactor = patch.twoFactor;
+      if (patch.password) serverPatch.password = patch.password;
+      if (Object.keys(serverPatch).length) pushProfile(serverPatch);
     },
-    [],
+    [pushProfile],
   );
 
   const saveAddress = useCallback(
     (addr: Address) => {
-      setState((s) => ({
-        ...s,
-        accounts: s.accounts.map((a) => {
+      setState((s) => {
+        const accounts = s.accounts.map((a) => {
           if (a.email !== s.email) return a;
           const exists = a.addresses.some((x) => x.id === addr.id);
           const addresses = exists ? a.addresses.map((x) => (x.id === addr.id ? addr : x)) : [...a.addresses, addr];
-          return { ...a, addresses: addr.default ? addresses.map((x) => ({ ...x, default: x.id === addr.id })) : addresses };
-        }),
-      }));
+          const normalized = addr.default ? addresses.map((x) => ({ ...x, default: x.id === addr.id })) : addresses;
+          pushProfile({ addresses: normalized });
+          return { ...a, addresses: normalized };
+        });
+        return { ...s, accounts };
+      });
     },
-    [],
+    [pushProfile],
   );
 
-  const removeAddress = useCallback((id: string) => {
-    setState((s) => ({ ...s, accounts: s.accounts.map((a) => (a.email === s.email ? { ...a, addresses: a.addresses.filter((x) => x.id !== id) } : a)) }));
-  }, []);
+  const removeAddress = useCallback(
+    (id: string) => {
+      setState((s) => {
+        const accounts = s.accounts.map((a) => {
+          if (a.email !== s.email) return a;
+          const addresses = a.addresses.filter((x) => x.id !== id);
+          pushProfile({ addresses });
+          return { ...a, addresses };
+        });
+        return { ...s, accounts };
+      });
+    },
+    [pushProfile],
+  );
 
-  const setDefaultAddress = useCallback((id: string) => {
-    setState((s) => ({ ...s, accounts: s.accounts.map((a) => (a.email === s.email ? { ...a, addresses: a.addresses.map((x) => ({ ...x, default: x.id === id })) } : a)) }));
-  }, []);
+  const setDefaultAddress = useCallback(
+    (id: string) => {
+      setState((s) => {
+        const accounts = s.accounts.map((a) => {
+          if (a.email !== s.email) return a;
+          const addresses = a.addresses.map((x) => ({ ...x, default: x.id === id }));
+          pushProfile({ addresses });
+          return { ...a, addresses };
+        });
+        return { ...s, accounts };
+      });
+    },
+    [pushProfile],
+  );
 
   const purchaseTryon = useCallback(
     (credits: number, price: number) => {
       if (!state.email) return { ok: false, message: "اول وارد شو." };
-      const ops = getOps();
-      setState((s) => ({ ...s, accounts: s.accounts.map((a) => (a.email === s.email ? { ...a } : a)) }));
-      // credits live in ops so the admin panel can see them too
       import("./ops").then((m) => m.grantTryon(state.email!, credits));
       addLog({ actor: state.email, action: "خرید بستهٔ پرو آنلاین", target: `${credits} پرو`, meta: `${price.toLocaleString("fa-IR")} تومان` });
-      void ops;
       return { ok: true, message: `${credits} پرو به حسابت اضافه شد.` };
     },
     [state.email],
   );
 
-  const login = useCallback((email: string) => setState((s) => ({ ...s, email })), []);
+  const login = useCallback((email: string) => {
+    setState((s) => {
+      const exists = s.accounts.some((a) => a.email === email);
+      return { ...s, email, accounts: exists ? s.accounts : [...s.accounts, { ...DEFAULT.accounts[0], email }] };
+    });
+  }, []);
 
   const balance = useMemo(
     () => ({ tryon: state.email ? tryonBalance(state.email) : 0, cashback: state.email ? cashbackBalance(state.email) : 0 }),
@@ -251,8 +388,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthValue>(
-    () => ({ state, account, requestOtp, verifyOtp, loginWithPassword, register, logout, updateAccount, saveAddress, removeAddress, setDefaultAddress, purchaseTryon, login, balance }),
-    [state, account, requestOtp, verifyOtp, loginWithPassword, register, logout, updateAccount, saveAddress, removeAddress, setDefaultAddress, purchaseTryon, login, balance],
+    () => ({
+      state,
+      account,
+      requestOtp,
+      verifyOtp,
+      loginWithPassword,
+      register,
+      logout,
+      updateAccount,
+      saveAddress,
+      removeAddress,
+      setDefaultAddress,
+      purchaseTryon,
+      login,
+      balance,
+      accountLoading,
+    }),
+    [state, account, requestOtp, verifyOtp, loginWithPassword, register, logout, updateAccount, saveAddress, removeAddress, setDefaultAddress, purchaseTryon, login, balance, accountLoading],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

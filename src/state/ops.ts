@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { GarmentKind, ProductImage, ProductImageRole } from "@/types";
+import { pushRemote } from "./persist";
 
 /* =====================================================================
    Operations store — everything the admin panel edits that is NOT the
@@ -392,6 +393,25 @@ function commit(next: OpsState) {
   cache = next;
   try {
     localStorage.setItem(KEY, JSON.stringify(next));
+  } catch {
+    /* quota */
+  }
+  listeners.forEach((l) => l());
+  pushRemote("ops", next);
+}
+
+/** replaces the store with the server snapshot without echoing it back */
+export function hydrateOps(next: Partial<OpsState>) {
+  const merged: OpsState = {
+    ...DEFAULT,
+    ...next,
+    brand: { ...DEFAULT.brand, ...(next.brand ?? {}) },
+    security: { ...DEFAULT.security, ...(next.security ?? {}) },
+    productImages: migrateImages(next),
+  };
+  cache = merged;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(merged));
   } catch {
     /* quota */
   }

@@ -23,3 +23,8 @@ yarn-error.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Backend runtime data (PostgreSQL cluster + uploaded media)
+server/.pgdata/
+server/uploads/*
+!server/uploads/.gitkeep

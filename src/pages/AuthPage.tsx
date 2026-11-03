@@ -23,22 +23,59 @@ export function AuthPage() {
   const [sent, setSent] = useState(false);
   const [demoCode, setDemoCode] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const flash = (r: { ok: boolean; message: string }) => setMsg({ ok: r.ok, text: r.message });
 
-  const send = () => {
-    const r = requestOtp(email, phone, channel);
-    flash(r);
-    if (r.ok) {
-      setSent(true);
-      setDemoCode(r.code ?? "");
+  const send = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await requestOtp(email, phone, channel);
+      flash(r);
+      if (r.ok) {
+        setSent(true);
+        setDemoCode(r.code ?? "");
+      }
+    } finally {
+      setBusy(false);
     }
   };
 
-  const verify = () => {
-    const r = verifyOtp(code);
-    flash(r);
-    if (r.ok) nav("/account");
+  const verify = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await verifyOtp(code);
+      flash(r);
+      if (r.ok) nav("/account");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signIn = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await loginWithPassword(email, password);
+      flash(r);
+      if (r.ok) nav("/account");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signUp = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await register({ name, email, phone, password });
+      flash(r);
+      if (r.ok) nav("/account");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -56,7 +93,7 @@ export function AuthPage() {
               <li><Check width={13} height={13} /> ذخیرهٔ اندازه‌های بدنت</li>
             </ul>
           </div>
-          <p className="auth-art-foot">نسخهٔ نمایشی · داده‌ها در همین مرورگر می‌مانند</p>
+          <p className="auth-art-foot">اتصال امن به سرور · نشست با کوکی HTTP-only</p>
         </aside>
 
         <main className="auth-card">
@@ -86,7 +123,7 @@ export function AuthPage() {
               {channel === "sms" && (
                 <label className="auth-field">شمارهٔ موبایل<input value={phone} onChange={(e) => setPhone(e.target.value)} dir="ltr" inputMode="tel" /></label>
               )}
-              <button type="button" className={buttonStyles("solid", "lg", "w-full")} onClick={send}>
+              <button type="button" className={buttonStyles("solid", "lg", "w-full")} onClick={() => void send()} disabled={busy}>
                 <MessageSquare width={15} height={15} /> دریافت کد
               </button>
 
@@ -96,7 +133,7 @@ export function AuthPage() {
                   <label className="auth-field">کد ۶ رقمی
                     <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} dir="ltr" inputMode="numeric" className="auth-code" placeholder="— — — — — —" />
                   </label>
-                  <button type="button" className={buttonStyles("outline", "lg", "w-full")} onClick={verify}>
+                  <button type="button" className={buttonStyles("outline", "lg", "w-full")} onClick={() => void verify()} disabled={busy}>
                     <ArrowLeft width={15} height={15} /> ورود به حساب
                   </button>
                 </div>
@@ -112,7 +149,7 @@ export function AuthPage() {
               </header>
               <label className="auth-field">ایمیل<input value={email} onChange={(e) => setEmail(e.target.value)} dir="ltr" type="email" /></label>
               <label className="auth-field">رمز عبور<input value={password} onChange={(e) => setPassword(e.target.value)} dir="ltr" type="password" /></label>
-              <button type="button" className={buttonStyles("solid", "lg", "w-full")} onClick={() => { const r = loginWithPassword(email, password); flash(r); if (r.ok) nav("/account"); }}>
+              <button type="button" className={buttonStyles("solid", "lg", "w-full")} onClick={() => void signIn()} disabled={busy}>
                 <KeyRound width={15} height={15} /> ورود
               </button>
             </>
@@ -128,7 +165,7 @@ export function AuthPage() {
               <label className="auth-field">ایمیل<input value={email} onChange={(e) => setEmail(e.target.value)} dir="ltr" type="email" /></label>
               <label className="auth-field">شمارهٔ موبایل<input value={phone} onChange={(e) => setPhone(e.target.value)} dir="ltr" inputMode="tel" /></label>
               <label className="auth-field">رمز عبور (حداقل ۸ کاراکتر)<input value={password} onChange={(e) => setPassword(e.target.value)} dir="ltr" type="password" /></label>
-              <button type="button" className={buttonStyles("solid", "lg", "w-full")} onClick={() => { const r = register({ name, email, phone, password }); flash(r); if (r.ok) nav("/account"); }}>
+              <button type="button" className={buttonStyles("solid", "lg", "w-full")} onClick={() => void signUp()} disabled={busy}>
                 <ShieldCheck width={15} height={15} /> ثبت‌نام
               </button>
             </>

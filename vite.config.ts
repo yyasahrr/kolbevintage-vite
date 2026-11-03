@@ -11,7 +11,16 @@ const __dirname = path.dirname(__filename);
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), viteSingleFile()],
-  server: { host: "0.0.0.0", port: 5173, strictPort: true, allowedHosts: true },
+  server: {
+    host: "0.0.0.0",
+    port: 5173,
+    strictPort: true,
+    allowedHosts: true,
+    proxy: {
+      "/api": { target: "http://127.0.0.1:4000", changeOrigin: false },
+      "/uploads": { target: "http://127.0.0.1:4000", changeOrigin: false },
+    },
+  },
   preview: { host: "0.0.0.0", port: 4173, strictPort: true, allowedHosts: true },
   resolve: {
     alias: {

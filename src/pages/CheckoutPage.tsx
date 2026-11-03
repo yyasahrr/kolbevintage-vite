@@ -14,6 +14,7 @@ import {
   type OrderLine,
 } from "@/state/admin";
 import { computeDiscounts, validateCode, type AppliedDiscount } from "@/state/discounts";
+import { api } from "@/lib/api";
 import { formatPrice } from "@/data/looks";
 
 import { PageIntro, buttonStyles } from "@/components/ui";
@@ -94,6 +95,8 @@ export function CheckoutPage() {
       gateway: GATEWAY_LABEL[admin.integrations.payment.gateway],
     };
     addOrder(record);
+    // also register the order through the backend's public checkout endpoint
+    api.post<{ ok: boolean; id: string }>("/api/orders", record).catch(() => undefined);
     if (campaignId) bumpCampaignUse(campaignId);
     if (couponHit) bumpCouponUse(appliedCode);
     consumeStock(linesFull.map((l) => ({ productId: l.productId, colorId: l.colorId, sizeId: l.sizeId, qty: l.qty, name: l.name })));

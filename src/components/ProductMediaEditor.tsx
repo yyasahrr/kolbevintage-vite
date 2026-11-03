@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { ImagePlus, Loader2, Trash2, Upload } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { fileToDataUrl } from "@/builder/ControlsUI";
+import { uploadImage } from "@/lib/api";
 import { resolveImg } from "@/builder/stock";
 import { IMAGE_ROLE_HINT, IMAGE_ROLE_LABEL } from "@/state/ops";
 import type { ColorOption, ProductImage, ProductImageRole } from "@/types";
@@ -36,7 +36,8 @@ export function ProductMediaEditor({ images, colors, onChange, emptyHint }: Prop
     setBusy(true);
     try {
       const urls: string[] = [];
-      for (const f of list) urls.push(await fileToDataUrl(f, 1200));
+      // uploads go to the backend (files on disk); falls back to a data URL offline
+      for (const f of list) urls.push(await uploadImage(f));
       const hasCover = images.some((i) => i.role !== "hover");
       const next: ProductImage[] = urls.map((url, i) => ({
         id: `img-${uid()}`,

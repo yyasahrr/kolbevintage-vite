@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { Crop, GarmentKind, ColorOption, SizeOption, StockMap } from "@/types";
+import { pushRemote } from "./persist";
 
 /* =====================================================================
    Admin data store — the single source of truth the admin panel edits
@@ -392,6 +393,34 @@ function commit(next: AdminState) {
     localStorage.setItem(KEY, JSON.stringify(next));
   } catch {
     /* quota — keep in memory */
+  }
+  listeners.forEach((l) => l());
+  // persisted to PostgreSQL through the sync bridge (no-op when offline)
+  pushRemote("admin", next);
+}
+
+/** replaces the store with the server snapshot without echoing it back */
+export function hydrateAdmin(next: Partial<AdminState>) {
+  const merged: AdminState = {
+    ...DEFAULT_ADMIN,
+    ...next,
+    settings: { ...DEFAULT_ADMIN.settings, ...(next.settings ?? {}) },
+    integrations: {
+      ai: { ...DEFAULT_ADMIN.integrations.ai, ...(next.integrations?.ai ?? {}) },
+      payment: { ...DEFAULT_ADMIN.integrations.payment, ...(next.integrations?.payment ?? {}) },
+      sms: { ...DEFAULT_ADMIN.integrations.sms, ...(next.integrations?.sms ?? {}) },
+      email: { ...DEFAULT_ADMIN.integrations.email, ...(next.integrations?.email ?? {}) },
+      shipping: { ...DEFAULT_ADMIN.integrations.shipping, ...(next.integrations?.shipping ?? {}) },
+    },
+    customProducts: next.customProducts ?? [],
+    productEdits: next.productEdits ?? {},
+    complements: next.complements ?? {},
+  };
+  cache = merged;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(merged));
+  } catch {
+    /* quota */
   }
   listeners.forEach((l) => l());
 }

@@ -57,9 +57,11 @@ import { LOOKS, formatPrice, stockOf } from "@/data/looks";
 import { computeDiscounts } from "@/state/discounts";
 import { ProductThumb } from "@/components/ProductThumb";
 import { ProductMediaEditor } from "@/components/ProductMediaEditor";
+import { adminLogin, adminLogout } from "@/lib/api";
 import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
 import { THEMES } from "@/theme/themes";
+import { useSyncStatus } from "@/state/sync";
 import { useAdmin, addOrder, setOrderStatus, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, consumeStock, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
@@ -181,11 +183,12 @@ export function AdminPage() {
           <TrendingUp width={13} height={13} />
           {fa(admin.orders.length)} سفارش
         </span>
+        <SyncBadge />
         <Link to="/" className="ad-btn is-sm" aria-label="مشاهده سایت">
           <Store width={14} height={14} />
           <span className="ad-top-btn-label">سایت</span>
         </Link>
-        <button type="button" className="ad-btn is-sm" onClick={() => { lockAdmin(); setUnlocked(false); }}>
+        <button type="button" className="ad-btn is-sm" onClick={() => { lockAdmin(); void adminLogout(); setUnlocked(false); }}>
           <LogOut width={14} height={14} />
           <span className="ad-top-btn-label">خروج</span>
         </button>
@@ -256,7 +259,11 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
         className="ad-gate-card"
         onSubmit={(e) => {
           e.preventDefault();
-          if (unlockAdmin(code) || code.trim() === sec.passcode) onUnlock();
+          if (unlockAdmin(code) || code.trim() === sec.passcode) {
+            // also open a real server session for uploads and protected writes
+            void adminLogin(code.trim()).catch(() => undefined);
+            onUnlock();
+          }
           else {
             recordFailedLogin("127.0.0.1");
             setAttempts((n) => n + 1);
@@ -274,6 +281,22 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
         <Link to="/" className="ad-gate-back">بازگشت به فروشگاه</Link>
       </form>
     </div>
+  );
+}
+
+function SyncBadge() {
+  const sync = useSyncStatus();
+  const map = {
+    online: { cls: "is-online", label: sync.lastSaved ? "ذخیره شد" : "متصل به سرور" },
+    connecting: { cls: "is-connecting", label: "اتصال به سرور…" },
+    offline: { cls: "is-offline", label: "فقط مرورگر" },
+  } as const;
+  const item = map[sync.state];
+  return (
+    <span className={`ad-sync ${item.cls}`} title={sync.error ?? "داده‌ها در PostgreSQL ذخیره می‌شوند"}>
+      <i aria-hidden />
+      {item.label}
+    </span>
   );
 }
 
