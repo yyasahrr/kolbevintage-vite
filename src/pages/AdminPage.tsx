@@ -69,7 +69,8 @@ import { resolveImg } from "@/builder/stock";
 import { useCart as useNotifyCart } from "@/state/cart";
 import type { AdminState, Campaign, DiscountRule, OrderLine, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
 import type { GarmentKind, ProductImage } from "@/types";
-import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel } from "./AdminOps";
+import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
+import { CommercePanel } from "./AdminCommercePanel";
 import "@/styles/admin.css";
 
 /* =====================================================================
@@ -108,6 +109,7 @@ type Tab =
   | "megamenu"
   | "content"
   | "appearance"
+  | "commerce"
   | "settings";
 
 const TABS: { id: Tab; label: string; icon: typeof Gauge }[] = [
@@ -132,6 +134,7 @@ const TABS: { id: Tab; label: string; icon: typeof Gauge }[] = [
   { id: "messages", label: "پیام‌ها", icon: Inbox },
   { id: "reviews", label: "نظرات", icon: MessageSquare },
   { id: "integrations", label: "اتصالات", icon: Wifi },
+  { id: "commerce", label: "تجارت و پرداخت", icon: Settings },
   { id: "content", label: "محتوا", icon: LayoutTemplate },
   { id: "appearance", label: "ظاهر", icon: Palette },
   { id: "settings", label: "تنظیمات", icon: Settings },
@@ -236,6 +239,7 @@ export function AdminPage() {
           {tab === "integrations" && <Integrations />}
           {tab === "content" && <Content />}
           {tab === "appearance" && <Appearance />}
+          {tab === "commerce" && <CommercePanel />}
           {tab === "settings" && <StoreSettings onBack={() => navigate("/")} />}
         </main>
       </div>

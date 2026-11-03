@@ -10,9 +10,14 @@ const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** machine-readable failure code from the commerce core (e.g. quote_stale) */
+  code?: string;
+  details?: unknown;
+  constructor(message: string, status: number, code?: string, details?: unknown) {
     super(message);
     this.status = status;
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -27,10 +32,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
-    const message = (data as { error?: string; message?: string } | null)?.message
-      ?? (data as { error?: string } | null)?.error
-      ?? `خطای سرور (${res.status})`;
-    throw new ApiError(message, res.status);
+    const payload = data as { error?: string; message?: string; code?: string; details?: unknown } | null;
+    const message = payload?.message ?? payload?.error ?? `خطای سرور (${res.status})`;
+    throw new ApiError(message, res.status, payload?.code, payload?.details);
   }
   return data as T;
 }

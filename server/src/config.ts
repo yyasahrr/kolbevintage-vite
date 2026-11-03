@@ -22,5 +22,11 @@ export const config = {
   isProd: process.env.NODE_ENV === "production",
   /** protect admin mutations with the session cookie (set to "1" in production) */
   requireAdminAuth: process.env.REQUIRE_ADMIN_AUTH === "1",
+  /**
+   * Separate passcode for the protected superadmin subject. Refund approval
+   * is fail-closed: with no passcode configured nobody can elevate, so live
+   * money movement stays blocked.
+   */
+  superadminPasscode: process.env.SUPERADMIN_PASSCODE ?? "",
   sessionDays: 30,
 };

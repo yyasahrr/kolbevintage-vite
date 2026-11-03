@@ -12,7 +12,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
-    "start": "SERVE_STATIC=1 REQUIRE_ADMIN_AUTH=1 NODE_ENV=production tsx server/src/index.ts"
+    "start": "SERVE_STATIC=1 REQUIRE_ADMIN_AUTH=1 NODE_ENV=production tsx server/src/index.ts",
+    "test:commerce": "node --import tsx --test server/test/commerce.test.ts",
+    "test": "npm run test:commerce"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

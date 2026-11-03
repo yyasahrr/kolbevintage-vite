@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { CreditCard, Lock, PackageCheck, ShieldCheck, ShoppingBag, Truck, Wallet, Zap } from "lucide-react";
+import { CreditCard, Loader2, Lock, PackageCheck, ShieldCheck, ShoppingBag, Truck, Wallet, Zap } from "lucide-react";
 import { useCart } from "@/state/cart";
 import { useAuth } from "@/state/auth";
 import { addCashback, formField, getOps } from "@/state/ops";
@@ -13,8 +13,9 @@ import {
   type Order,
   type OrderLine,
 } from "@/state/admin";
-import { computeDiscounts, validateCode, type AppliedDiscount } from "@/state/discounts";
-import { api } from "@/lib/api";
+import { computeDiscounts } from "@/state/discounts";
+import { ApiError, api } from "@/lib/api";
+import { commerce, type CommerceConfig, type CommerceItem, type ServerQuote, type Shortage } from "@/lib/commerce";
 import { formatPrice } from "@/data/looks";
 
 import { PageIntro, buttonStyles } from "@/components/ui";
@@ -38,27 +39,92 @@ export function CheckoutPage() {
   const [code, setCode] = useState("");
   const [appliedCode, setAppliedCode] = useState("");
   const [codeMsg, setCodeMsg] = useState<{ ok: boolean; message: string } | null>(null);
-  const [order, setOrder] = useState<{ id: string; total: number; items: number; discounts: AppliedDiscount[] } | null>(null);
+  const [order, setOrder] = useState<{
+    id: string;
+    total: number;
+    items: number;
+    discounts: { id: string; name: string; amount: number; note?: string }[];
+    status?: string;
+    note?: string;
+  } | null>(null);
+  const [serverQuote, setServerQuote] = useState<ServerQuote | null>(null);
+  const [cfg, setCfg] = useState<CommerceConfig | null>(null);
+  const [method, setMethod] = useState<"online" | "bnpl4">("online");
+  const [placing, setPlacing] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [shortages, setShortages] = useState<Shortage[]>([]);
+  const attemptKey = useRef(`co-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
   const linesLite = useMemo(
     () => lines.map((l) => ({ productId: l.productId, name: l.name, price: l.price, qty: l.qty })),
     [lines],
   );
 
+  const items = useMemo<CommerceItem[]>(
+    () => lines.map((l) => ({ productId: l.productId, colorId: l.colorId, sizeId: l.sizeId, quantity: l.qty })),
+    [lines],
+  );
+  const itemsKey = items.map((i) => `${i.productId}:${i.colorId}:${i.sizeId}:${i.quantity}`).join("|");
+
   const discount = useMemo(() => computeDiscounts(linesLite, appliedCode || undefined), [linesLite, appliedCode]);
   const finalShipping = lines.length === 0 ? 0 : shipping === "express" ? (discount.freeship ? 0 : settings.expressCost) : discount.freeship ? 0 : 12;
   const total = Math.max(0, discount.afterDiscount + finalShipping);
 
-  const applyCode = () => {
-    const r = validateCode(code, discount.subtotal);
-    setCodeMsg(r);
-    setAppliedCode(r.ok ? code.trim().toUpperCase() : "");
+  // authoritative totals come from the server quote; the local engine is only
+  // a placeholder until the quote arrives (or when the API is offline)
+  const viewSubtotal = serverQuote?.subtotal ?? discount.subtotal;
+  const viewDiscounts: { id: string; name: string; amount: number }[] = serverQuote
+    ? serverQuote.discounts.map((d) => ({ id: d.id, name: d.name, amount: d.amount }))
+    : discount.applied;
+  const viewShipping = serverQuote ? serverQuote.shippingTotal : finalShipping;
+  const viewTotal = serverQuote ? serverQuote.grandTotal : total;
+  const bnplPlan = serverQuote?.installments.find((i) => i.method === "bnpl4");
+
+  useEffect(() => {
+    commerce.config().then(setCfg).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!items.length) {
+      setServerQuote(null);
+      return;
+    }
+    let alive = true;
+    commerce
+      .quote(items, { couponCode: appliedCode || undefined, shippingMethod: shipping })
+      .then((q) => {
+        if (alive) setServerQuote(q);
+      })
+      .catch(() => {
+        if (alive) setServerQuote(null);
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsKey, appliedCode, shipping]);
+
+  const applyCode = async () => {
+    const trimmed = code.trim();
+    if (!trimmed) {
+      setAppliedCode("");
+      setCodeMsg(null);
+      return;
+    }
+    try {
+      const q = await commerce.quote(items, { couponCode: trimmed, shippingMethod: shipping });
+      setServerQuote(q);
+      setAppliedCode(q.couponCode ?? trimmed.toUpperCase());
+      setCodeMsg({ ok: true, message: "کد تخفیف روی سرور اعمال شد." });
+    } catch (err) {
+      setAppliedCode("");
+      setCodeMsg({ ok: false, message: err instanceof Error ? err.message : "کد تخفیف اعمال نشد." });
+    }
   };
 
-  const placeOrder = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  /** offline / backend-unreachable fallback: keeps the demo flow working */
+  const placeOrderOffline = (form: FormData) => {
     if (!lines.length) return;
-    const form = new FormData(e.currentTarget);
     void lines;
     const id = `VL-${Math.floor(10000 + Math.random() * 89999)}`;
     const linesFull: OrderLine[] = lines.map((l) => ({
@@ -113,11 +179,99 @@ export function CheckoutPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  /**
+   * Checkout against the commerce core:
+   * quote → reserve stock → payment attempt → server-side verify → order.
+   * The amount charged is the server's, never the number rendered here.
+   */
+  const placeOrder = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!lines.length || placing) return;
+    const form = new FormData(e.currentTarget);
+    const address = {
+      receiver: `${form.get("given") ?? ""} ${form.get("family") ?? ""}`.trim(),
+      phone: String(form.get("tel") ?? ""),
+      province: String(form.get("province") ?? ""),
+      city: String(form.get("city") ?? ""),
+      street: String(form.get("street") ?? ""),
+      postal: String(form.get("postal") ?? ""),
+      note: String(form.get("note") ?? ""),
+    };
+
+    setPlacing(true);
+    setCheckoutError(null);
+    setShortages([]);
+    try {
+      const created = await commerce.checkout({
+        items,
+        address,
+        shippingMethod: shipping,
+        couponCode: appliedCode || undefined,
+        idempotencyKey: attemptKey.current,
+      });
+      setServerQuote(created.checkout.quote);
+
+      const pay = await commerce.pay(created.checkout.id, method, `pay-${attemptKey.current}`);
+      if (pay.payment?.redirectUrl) {
+        window.location.href = pay.payment.redirectUrl;
+        return;
+      }
+      if (!pay.payment?.mock) {
+        setCheckoutError("درگاه پاسخ قابل تأیید نداد؛ سفارش ثبت نشد.");
+        return;
+      }
+
+      // the demo gateway is verified server-side, exactly like a real callback
+      const settled = await commerce.simulate(pay.attempt.id, "success");
+      if (settled.status === "settled" && settled.orderId) {
+        const paid = Number(settled.total ?? created.checkout.quote.grandTotal);
+        setOrder({
+          id: settled.orderId,
+          total: paid,
+          items: lines.reduce((n, l) => n + l.qty, 0),
+          discounts: viewDiscounts,
+          status: settled.orderStatus,
+          note:
+            settled.orderStatus === "exception"
+              ? "پرداخت ثبت شد اما موجودی رزروشده آزاد شده بود؛ سفارش برای بررسی مالی به حالت استثنا رفت."
+              : undefined,
+        });
+        clear();
+        notify("پرداخت تأیید شد", `سفارش ${settled.orderId} ثبت شد و موجودی از انبار کسر شد.`);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      setCheckoutError(settled.message ?? "پرداخت تأیید نشد؛ دوباره تلاش کن.");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.code === "insufficient_stock") {
+          const details = err.details as { shortages?: Shortage[] } | undefined;
+          setShortages(details?.shortages ?? []);
+        }
+        if (err.code === "quote_stale") {
+          const details = err.details as { quote?: ServerQuote } | undefined;
+          if (details?.quote) setServerQuote(details.quote);
+        }
+        setCheckoutError(err.message);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      // network failure: fall back to the local demo checkout
+      placeOrderOffline(form);
+    } finally {
+      setPlacing(false);
+    }
+  };
+
   /* ---------- success ---------- */
   if (order) {
     return (
       <div className="pb-16">
-        <PageIntro crumbs={[{ label: "تسویه حساب" }]} title="سفارش شما ثبت شد" description="این نسخه نمایشی است؛ پرداخت واقعی انجام نشده و سفارش در پنل مدیریت ثبت شد." />
+        <PageIntro
+        crumbs={[{ label: "تسویه حساب" }]}
+        title="سفارش شما ثبت شد"
+        description="مبلغ نهایی و موجودی را سرور تأیید کرده است. پرداخت درگاه شبیه‌سازی‌شده اما با همان قرارداد verify و idempotency واقعی ثبت می‌شود."
+      />
         <div className="mx-auto max-w-[520px] px-4">
           <div className="rounded-2xl border border-black/[0.08] bg-paper p-6 text-center">
             <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-ink text-bone">
@@ -138,6 +292,14 @@ export function CheckoutPage() {
                 <dd className="mt-1 font-semibold text-ink">{formatPrice(order.total)}</dd>
               </div>
             </dl>
+            {order.note && (
+              <p className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2 text-[11.5px] leading-relaxed text-amber-900">
+                {order.note}
+              </p>
+            )}
+            {order.status === "exception" && (
+              <p className="mt-2 text-[11px] text-ember" dir="ltr">status: exception</p>
+            )}
             {order.discounts.length > 0 && (
               <ul className="mt-3 space-y-1 text-[11.5px] text-ink-70">
                 {order.discounts.map((d) => (
@@ -188,6 +350,27 @@ export function CheckoutPage() {
         title="تسویه حساب"
         description="اطلاعات ارسال را کامل کن. تخفیف‌های فعال فروشگاه به‌صورت خودکار روی سبد اعمال می‌شوند."
       />
+
+      {(checkoutError || shortages.length > 0) && (
+        <div className="mx-auto mb-4 w-full max-w-[1200px] px-4 sm:px-6 lg:px-8">
+          <div className="rounded-2xl border border-ember/30 bg-ember/[0.06] p-4">
+            {checkoutError && <p className="text-[12.5px] font-medium text-ember">{checkoutError}</p>}
+            {shortages.length > 0 && (
+              <ul className="mt-2 list-inside list-disc space-y-1 text-[11.5px] text-ink-70">
+                {shortages.map((item) => (
+                  <li key={item.variantId}>
+                    یکی از اقلام سبد — درخواستی {item.requested.toLocaleString("fa-IR")} عدد،
+                    موجود {item.available.toLocaleString("fa-IR")} عدد
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-[11px] text-ink-45">
+              تعداد را در سبد اصلاح کن یا محصول دیگری انتخاب کن؛ سبد خریدت حفظ می‌شود.
+            </p>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={placeOrder} className="mx-auto grid w-full max-w-[1200px] gap-6 px-4 sm:px-6 lg:grid-cols-[1.35fr_0.75fr] lg:items-start lg:px-8">
         <div className="space-y-4">
@@ -241,17 +424,51 @@ export function CheckoutPage() {
             <h3 className="mb-4 flex items-center gap-2 text-[13px] font-semibold text-ink">
               <Wallet size={15} /> پرداخت
             </h3>
-            <div className="flex items-center gap-3 rounded-xl bg-[#f4efe7] p-4">
-              <CreditCard className="h-5 w-5 text-ink-70" />
-              <div className="flex-1">
-                <p className="text-[12.5px] font-medium text-ink">{gateway}</p>
-                <p className="text-[11px] text-ink-45">
-                  {admin.integrations.payment.enabled
-                    ? `حالت ${admin.integrations.payment.mode === "test" ? "تست" : "حقیقی"} — در این نسخه پرداخت شبیه‌سازی می‌شود.`
-                    : "درگاه در پنل مدیریت پیکربندی نشده — پرداخت شبیه‌سازی می‌شود."}
-                </p>
-              </div>
-              <ShieldCheck className="h-4 w-4 text-ink-45" />
+            <div className="grid gap-2">
+              <button
+                type="button"
+                onClick={() => setMethod("online")}
+                aria-pressed={method === "online"}
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-4 text-start transition-colors",
+                  method === "online" ? "border-ink bg-ink/[0.04]" : "border-black/10 hover:border-ink/35",
+                )}
+              >
+                <CreditCard className="mt-0.5 h-5 w-5 text-ink-70" />
+                <span className="flex-1">
+                  <span className="block text-[12.5px] font-medium text-ink">پرداخت آنلاین — {gateway}</span>
+                  <span className="mt-0.5 block text-[11px] text-ink-45">
+                    {admin.integrations.payment.enabled
+                      ? `حالت ${admin.integrations.payment.mode === "test" ? "تست" : "حقیقی"}.`
+                      : "درگاه شبیه‌سازی‌شده؛ تأیید نهایی سمت سرور انجام می‌شود."}
+                  </span>
+                </span>
+                <ShieldCheck className="h-4 w-4 text-ink-45" />
+              </button>
+
+              {cfg?.bnpl4.enabled && (
+                <button
+                  type="button"
+                  onClick={() => setMethod("bnpl4")}
+                  aria-pressed={method === "bnpl4"}
+                  className={cn(
+                    "flex items-start gap-3 rounded-xl border p-4 text-start transition-colors",
+                    method === "bnpl4" ? "border-ink bg-ink/[0.04]" : "border-black/10 hover:border-ink/35",
+                  )}
+                >
+                  <Wallet className="mt-0.5 h-5 w-5 text-ink-70" />
+                  <span className="flex-1">
+                    <span className="block text-[12.5px] font-medium text-ink">
+                      پرداخت {cfg.bnpl4.installments} قسطی — کل سفارش
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-ink-45">
+                      {bnplPlan
+                        ? `هر قسط حدود ${formatPrice(bnplPlan.perInstallment)} (بدون کارمزد) · تصمیم نهایی با ارائه‌دهنده`
+                        : "مبلغ کل سفارش به اقساط مساوی تقسیم می‌شود؛ تصمیم نهایی با ارائه‌دهنده است."}
+                    </span>
+                  </span>
+                </button>
+              )}
             </div>
           </section>
         </div>
@@ -289,9 +506,9 @@ export function CheckoutPage() {
           <dl className="mt-4 space-y-1.5 border-t border-black/[0.07] pt-3 text-[12px]">
             <div className="flex justify-between">
               <dt className="text-ink-45">جمع اقلام</dt>
-              <dd className="text-ink">{formatPrice(discount.subtotal)}</dd>
+              <dd className="text-ink">{formatPrice(viewSubtotal)}</dd>
             </div>
-            {discount.applied.map((d) => (
+            {viewDiscounts.map((d) => (
               <div key={d.id} className="flex justify-between text-emerald-700">
                 <dt className="min-w-0 truncate pe-2">{d.name}</dt>
                 <dd className="shrink-0">{d.amount > 0 ? `− ${formatPrice(d.amount)}` : "ارسال رایگان"}</dd>
@@ -299,21 +516,21 @@ export function CheckoutPage() {
             ))}
             <div className="flex justify-between">
               <dt className="text-ink-45">ارسال {shipping === "express" ? "سریع" : "استاندارد"}</dt>
-              <dd className={cn("text-ink", finalShipping === 0 && "text-emerald-700")}>{finalShipping === 0 ? "رایگان" : formatPrice(finalShipping)}</dd>
+              <dd className={cn("text-ink", viewShipping === 0 && "text-emerald-700")}>{viewShipping === 0 ? "رایگان" : formatPrice(viewShipping)}</dd>
             </div>
             <div className="flex items-baseline justify-between border-t border-black/[0.07] pt-2">
               <dt className="text-[12.5px] font-medium text-ink">مبلغ نهایی</dt>
-              <dd className="font-display text-[24px] font-medium text-ink">{formatPrice(total)}</dd>
+              <dd className="font-display text-[24px] font-medium text-ink">{formatPrice(viewTotal)}</dd>
             </div>
           </dl>
 
-          <button type="submit" className={buttonStyles("solid", "lg", "mt-4 w-full")}>
-            <Lock className="h-3.5 w-3.5" />
-            ثبت سفارش نمایشی
+          <button type="submit" disabled={placing} className={buttonStyles("solid", "lg", "mt-4 w-full disabled:opacity-60")}>
+            {placing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
+            {placing ? "در حال رزرو موجودی و پرداخت…" : "پرداخت و ثبت سفارش"}
           </button>
           <p className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-ink-45">
             <Zap className="h-3 w-3" />
-            موجودی انبار بعد از ثبت سفارش کسر می‌شود
+            با ورود به این مرحله موجودی تا {cfg?.reservationHoldMinutes ?? 10} دقیقه رزرو می‌شود؛ سبد خرید به‌تنهایی موجودی را نگه نمی‌دارد.
           </p>
         </aside>
       </form>

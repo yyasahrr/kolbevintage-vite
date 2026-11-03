@@ -1,4 +1,5 @@
 import { query } from "./db";
+import { ensureCommerceSettings } from "./commerce/settings";
 import { seed, syncProjection } from "./projection";
 import { hashPassword } from "./security";
 
@@ -71,4 +72,6 @@ export async function seedDatabase() {
       JSON.stringify(DEMO_ADDRESSES),
     ],
   );
+
+  await ensureCommerceSettings();
 }

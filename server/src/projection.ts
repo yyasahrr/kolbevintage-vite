@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import { config } from "./config";
 import { withTransaction } from "./db";
+import { syncPromotions } from "./commerce/promotions";
+import { syncVariants } from "./commerce/variants";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Doc = Record<string, any>;
@@ -203,6 +205,11 @@ export async function syncProjection(admin: Doc, ops: Doc) {
       );
     }
   });
+
+  // campaigns/coupons + the variant catalogue are derived from the same
+  // documents, so pricing and stock never drift from what the admin panel shows
+  await syncPromotions(admin);
+  await syncVariants();
 }
 
 export function baseProductById(id: string) {

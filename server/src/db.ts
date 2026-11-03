@@ -52,6 +52,26 @@ function runningClusterPort(): number | null {
   return null;
 }
 
+/** creates the application database when the cluster predates it (tests, new installs) */
+async function ensureDatabase(port: number) {
+  const admin = new pg.Client({
+    host: "127.0.0.1",
+    port,
+    user: config.pgUser,
+    password: config.pgPassword,
+    database: "postgres",
+  });
+  await admin.connect();
+  try {
+    const exists = await admin.query("select 1 from pg_database where datname = $1", [config.databaseName]);
+    if (exists.rowCount === 0) {
+      await admin.query(`create database "${config.databaseName.replace(/"/g, '""')}"`);
+    }
+  } finally {
+    await admin.end();
+  }
+}
+
 async function startEmbedded() {
   fs.mkdirSync(config.dataDir, { recursive: true });
 
@@ -59,6 +79,7 @@ async function startEmbedded() {
   if (running) {
     // reuse the cluster left running by a previous process instead of failing
     pgPort = running;
+    await ensureDatabase(pgPort);
     return;
   }
 
