@@ -1,0 +1,287 @@
+/*
+ * Theme layer.
+ * Tokens (colours, radii, shadows, fonts) are written as CSS variables by
+ * ThemeProvider. This file holds the structural and aesthetic differences that
+ * tokens alone cannot express across 7 distinct modern UI paradigms.
+ */
+
+/* ---------- transition when switching ---------- */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow, border-radius, backdrop-filter !important;
+  transition-duration: 480ms !important;
+  transition-timing-function: cubic-bezier(0.22, 0.61, 0.24, 1) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-switching,
+  html.theme-switching * {
+    transition: none !important;
+  }
+}
+
+/* ---------- shared (all themes) ---------- */
+html[data-theme] :where([class*="border-black/"]) {
+  border-color: var(--line);
+}
+
+html[data-theme] :where(.bg-paper, .rounded-xl.border, .rounded-2xl.border, .rounded-lg.border) {
+  box-shadow: var(--card-shadow);
+}
+
+html[data-theme] ::selection {
+  background: var(--color-ink);
+  color: var(--color-bone);
+}
+
+/* ================================================================== */
+/* 1. SOFT UI                                                         */
+/* ================================================================== */
+html[data-theme="soft"] body {
+  background-image:
+    radial-gradient(1100px 620px at 12% -12%, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0) 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(233, 214, 190, 0.35), rgba(233, 214, 190, 0) 65%);
+  background-attachment: fixed;
+}
+
+html[data-theme="soft"] button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* ================================================================== */
+/* 2. MINIMAL (SWISS GRID)                                            */
+/* ================================================================== */
+html[data-theme="minimal"] :where([class*="shadow"]) {
+  box-shadow: none !important;
+}
+
+html[data-theme="minimal"] :where([class*="bg-[#"]) {
+  background-color: var(--surface-tint) !important;
+}
+
+html[data-theme="minimal"] .font-display {
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+html[data-theme="minimal"] :where(button.rounded-full, a.rounded-full) {
+  border-radius: var(--btn-radius);
+}
+
+/* ================================================================== */
+/* 3. MATERIAL UI (M3 DYNAMIC)                                        */
+/* ================================================================== */
+html[data-theme="material"] :where([class*="bg-[#"]) {
+  background-color: var(--surface-tint) !important;
+}
+
+html[data-theme="material"] .font-display {
+  font-weight: 500;
+}
+
+html[data-theme="material"] button:not(:disabled):hover {
+  background-image: linear-gradient(rgb(43 39 102 / 0.07), rgb(43 39 102 / 0.07));
+}
+
+html[data-theme="material"] button:not(:disabled):active {
+  background-image: linear-gradient(rgb(43 39 102 / 0.13), rgb(43 39 102 / 0.13));
+}
+
+html[data-theme="material"] :focus-visible {
+  outline-width: 3px;
+}
+
+/* ================================================================== */
+/* 4. NEO-BRUTALISM                                                   */
+/* ================================================================== */
+html[data-theme="neo-brutalism"] body {
+  background-color: var(--color-bone);
+}
+
+/* Hard outlines and zero-blur offset block shadows */
+html[data-theme="neo-brutalism"] :where(.bg-paper, .rounded-xl.border, .rounded-2xl.border, article.group) {
+  border: 2px solid #0a0a0a !important;
+  box-shadow: 4px 4px 0 #0a0a0a !important;
+}
+
+html[data-theme="neo-brutalism"] :where(header.sticky, footer.border-t) {
+  border-bottom: 2px solid #0a0a0a !important;
+  border-top: 2px solid #0a0a0a !important;
+}
+
+/* Buttons with tactile retro press */
+html[data-theme="neo-brutalism"] button:not(:disabled),
+html[data-theme="neo-brutalism"] a[class*="rounded"] {
+  border: 2px solid #0a0a0a;
+  box-shadow: var(--btn-shadow);
+  transition: transform 120ms ease, box-shadow 120ms ease !important;
+}
+
+html[data-theme="neo-brutalism"] button:not(:disabled):hover,
+html[data-theme="neo-brutalism"] a[class*="rounded"]:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #0a0a0a !important;
+}
+
+html[data-theme="neo-brutalism"] button:not(:disabled):active,
+html[data-theme="neo-brutalism"] a[class*="rounded"]:active {
+  transform: translate(2px, 2px) !important;
+  box-shadow: 1px 1px 0 #0a0a0a !important;
+}
+
+html[data-theme="neo-brutalism"] .font-display {
+  font-weight: 700;
+}
+
+html[data-theme="neo-brutalism"] :where(input, select, textarea) {
+  border: 2px solid #0a0a0a !important;
+  box-shadow: 2px 2px 0 #0a0a0a !important;
+}
+
+/* ================================================================== */
+/* 5. GLASSMORPHISM (LIQUID GLASS & AURORA)                           */
+/* ================================================================== */
+html[data-theme="glassmorphism"] body {
+  background-color: #f2edf7;
+  background-image:
+    radial-gradient(at 10% 15%, rgba(224, 194, 255, 0.55) 0px, transparent 48%),
+    radial-gradient(at 88% 10%, rgba(186, 230, 253, 0.5) 0px, transparent 48%),
+    radial-gradient(at 50% 85%, rgba(254, 215, 215, 0.45) 0px, transparent 52%);
+  background-attachment: fixed;
+}
+
+/* Frosted glass surface treatment */
+html[data-theme="glassmorphism"] :where(.bg-paper, .rounded-xl.border, .rounded-2xl.border) {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(18px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
+  border-color: rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 16px 40px -18px rgba(110, 70, 170, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.95) !important;
+}
+
+html[data-theme="glassmorphism"] header.sticky {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(24px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.6) !important;
+}
+
+html[data-theme="glassmorphism"] :where([class*="bg-[#"]) {
+  background-color: rgba(255, 255, 255, 0.78) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+}
+
+html[data-theme="glassmorphism"] :where(input, select, textarea) {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  border-color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* ================================================================== */
+/* 6. NOIR (HAUTE COUTURE DARK & GOLD)                                */
+/* ================================================================== */
+html[data-theme="noir"] {
+  color-scheme: dark;
+}
+
+html[data-theme="noir"] body {
+  background-color: #0d0c0a;
+  background-image:
+    radial-gradient(circle at 50% -10%, rgba(229, 193, 88, 0.08) 0%, transparent 60%),
+    radial-gradient(circle at 100% 40%, rgba(229, 193, 88, 0.04) 0%, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* Convert light containers and white surfaces to dark luxury obsidian */
+html[data-theme="noir"] :where([class*="bg-white"], .bg-paper, .bg-\[\#f1ebe2\], .bg-\[\#efe8dd\], .bg-\[\#efe9e0\], .bg-\[\#f3ede4\]) {
+  background-color: var(--color-paper) !important;
+  color: var(--color-ink) !important;
+}
+
+html[data-theme="noir"] :where(input, select, textarea) {
+  background-color: var(--surface-tint) !important;
+  color: var(--color-ink) !important;
+  border-color: var(--line) !important;
+}
+
+html[data-theme="noir"] :where([class*="bg-[#"]) {
+  background-color: var(--surface-tint) !important;
+}
+
+html[data-theme="noir"] header.sticky {
+  background-color: rgba(14, 13, 11, 0.88) !important;
+  border-bottom-color: rgba(229, 193, 88, 0.16) !important;
+}
+
+html[data-theme="noir"] footer {
+  background-color: #12100d !important;
+  border-top-color: rgba(229, 193, 88, 0.16) !important;
+}
+
+/* Golden luxury accents on borders and hover */
+html[data-theme="noir"] :where([class*="border-black/"]) {
+  border-color: rgba(229, 193, 88, 0.16) !important;
+}
+
+html[data-theme="noir"] .font-display {
+  font-weight: 400;
+}
+
+/* ================================================================== */
+/* 7. CYBER (TECH RUNWAY & NEON CYAN)                                 */
+/* ================================================================== */
+html[data-theme="cyber"] {
+  color-scheme: dark;
+}
+
+html[data-theme="cyber"] body {
+  background-color: #0a0d14;
+  background-image:
+    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+    radial-gradient(circle at 50% 0%, rgba(0, 240, 255, 0.08) 0%, transparent 55%);
+  background-size: 32px 32px, 32px 32px, 100% 100%;
+  background-attachment: fixed;
+}
+
+html[data-theme="cyber"] :where([class*="bg-white"], .bg-paper, .bg-\[\#f1ebe2\], .bg-\[\#efe8dd\], .bg-\[\#efe9e0\], .bg-\[\#f3ede4\]) {
+  background-color: var(--color-paper) !important;
+  color: #d1f3f7 !important;
+}
+
+html[data-theme="cyber"] :where(input, select, textarea) {
+  background-color: var(--surface-tint) !important;
+  color: #00f0ff !important;
+  border-color: var(--line) !important;
+}
+
+html[data-theme="cyber"] :where([class*="bg-[#"]) {
+  background-color: var(--surface-tint) !important;
+}
+
+html[data-theme="cyber"] header.sticky {
+  background-color: rgba(10, 13, 20, 0.9) !important;
+  border-bottom-color: rgba(0, 240, 255, 0.22) !important;
+}
+
+html[data-theme="cyber"] footer {
+  background-color: #0c1018 !important;
+  border-top-color: rgba(0, 240, 255, 0.2) !important;
+}
+
+html[data-theme="cyber"] :where([class*="border-black/"]) {
+  border-color: rgba(0, 240, 255, 0.2) !important;
+}
+
+html[data-theme="cyber"] button:not(:disabled):hover {
+  box-shadow: 0 0 14px rgba(0, 240, 255, 0.35) !important;
+}
+
+html[data-theme="cyber"] .font-display {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}

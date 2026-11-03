@@ -1,0 +1,98 @@
+@import "tailwindcss";
+@import "./theme/themes.css";
+
+@theme {
+  --font-sans: "Vazirmatn", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+  --font-latin: "Instrument Serif", ui-serif, Georgia, "Times New Roman", serif;
+
+  --color-ink: #16130f;
+  --color-ink-70: #4c443b;
+  --color-ink-45: #857c71;
+  --color-bone: #f7f3ed;
+  --color-paper: #fffdfa;
+  --color-sand: #e9e0d4;
+  --color-clay: #c2b09a;
+  --color-ember: #8c4a2f;
+
+  --ease-runway: cubic-bezier(0.22, 0.61, 0.24, 1);
+}
+
+@layer base {
+  html {
+    direction: rtl;
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    overflow-x: hidden;
+    background-color: var(--color-bone);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Persian is a connected script: wide Latin tracking would tear the words
+     apart. Everything keeps normal tracking except explicit Latin marks. */
+  html[dir="rtl"] *:not(.latin-track) {
+    letter-spacing: normal;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  input[type="range"] {
+    accent-color: var(--color-ink);
+  }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #d6ccbd transparent;
+}
+
+@utility tracking-brand {
+  letter-spacing: 0.34em;
+}
+
+/* The runway stage: shared 3D context for all 2D cut-outs. */
+.stage-3d {
+  perspective: 1600px;
+  perspective-origin: 50% 46%;
+  transform-style: preserve-3d;
+}
+
+.model-img {
+  -webkit-user-drag: none;
+  user-select: none;
+  will-change: transform, opacity, filter;
+}
+
+.grain {
+  background-image: radial-gradient(circle at 1px 1px, rgba(22, 19, 15, 0.16) 1px, transparent 0);
+  background-size: 4px 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
