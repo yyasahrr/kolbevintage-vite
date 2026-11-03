@@ -274,6 +274,10 @@ create table if not exists payment_attempts (
 create index if not exists payment_attempts_checkout_idx on payment_attempts (checkout_id);
 create index if not exists payment_attempts_status_idx on payment_attempts (status, created_at);
 
+-- wallet deduction captured with the payment attempt (order total never changes)
+alter table payment_attempts add column if not exists wallet_applied numeric(12, 2) not null default 0;
+alter table payment_attempts add column if not exists wallet_email text;
+
 -- order-level financial columns (the `data` jsonb keeps the legacy admin shape)
 alter table orders add column if not exists checkout_id text;
 alter table orders add column if not exists subtotal numeric(12, 2);
@@ -369,8 +373,14 @@ create table if not exists cashback_ledger (
   created_at timestamptz not null default now()
 );
 alter table cashback_ledger add column if not exists ref_id text;
+-- policy 2026-11-04: earned cashback is held until delivery (+ return window),
+-- can only be spent on a LATER order, and expires (default 12 months)
+alter table cashback_ledger add column if not exists available_at timestamptz;
+alter table cashback_ledger add column if not exists expires_at timestamptz;
 create unique index if not exists cashback_earn_uniq on cashback_ledger (order_id) where kind = 'earn';
 create unique index if not exists cashback_reversal_uniq on cashback_ledger (ref_id) where kind = 'reversal';
+create unique index if not exists cashback_redeem_uniq on cashback_ledger (ref_id) where kind = 'redeem';
+create unique index if not exists cashback_refund_credit_uniq on cashback_ledger (ref_id) where kind = 'refund_credit';
 create index if not exists cashback_ledger_email_idx on cashback_ledger (customer_email, created_at desc);
 create index if not exists cashback_ledger_order_idx on cashback_ledger (order_id);
 

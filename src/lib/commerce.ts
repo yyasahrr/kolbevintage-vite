@@ -25,12 +25,19 @@ export interface CashbackQuote {
 export interface CashbackWallet {
   email: string | null;
   balance: number;
+  /** spendable right now */
+  available: number;
+  /** earned, waiting for delivery (+ return window) */
+  pending: number;
   earned: number;
   reversed: number;
+  spent: number;
+  expired: number;
+  nextExpiry: string | null;
   transactions: {
     id: string;
     orderId: string | null;
-    kind: "earn" | "reversal";
+    kind: "earn" | "reversal" | "redeem" | "refund_credit";
     baseAmount: number;
     percent: number;
     amount: number;
@@ -55,6 +62,10 @@ export interface CommerceConfig {
     base: "merchandise" | "grand_total";
     tiers: CashbackTier[];
     maxAmount: number;
+    creditTiming: "on_payment" | "on_delivery" | "after_return_window";
+    holdDays: number;
+    expiryMonths: number;
+    redeem: { enabled: boolean; maxPercent: number; combineWithDiscounts: boolean };
   };
 }
 
@@ -148,8 +159,17 @@ export const commerce = {
       "/api/commerce/checkout",
       payload,
     ),
-  pay: (checkoutId: string, method: "online" | "bnpl4", idempotencyKey: string) =>
-    api.post<StartPaymentResult>(`/api/commerce/checkout/${checkoutId}/pay`, { method, idempotencyKey }),
+  pay: (
+    checkoutId: string,
+    method: "online" | "bnpl4",
+    idempotencyKey: string,
+    opts: { useCashback?: boolean } = {},
+  ) =>
+    api.post<StartPaymentResult>(`/api/commerce/checkout/${checkoutId}/pay`, {
+      method,
+      idempotencyKey,
+      useCashback: Boolean(opts.useCashback),
+    }),
   simulate: (attemptId: string, result: "success" | "fail" | "timeout" | "reject") =>
     api.post<SettleResult>(`/api/commerce/payments/${attemptId}/simulate`, { result }),
   cashback: () => api.get<CashbackWallet>("/api/commerce/cashback"),

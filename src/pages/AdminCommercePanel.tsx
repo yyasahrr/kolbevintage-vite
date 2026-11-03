@@ -24,6 +24,12 @@ interface CommerceSettings {
   cashbackBase: "merchandise" | "grand_total";
   cashbackTiers: { min: number; max: number | null; percent: number }[];
   cashbackMaxAmount: number;
+  cashbackCreditTiming: "on_payment" | "on_delivery" | "after_return_window";
+  cashbackHoldDays: number;
+  cashbackExpiryMonths: number;
+  cashbackRedeemEnabled: boolean;
+  cashbackRedeemMaxPercent: number;
+  cashbackCombineWithDiscounts: boolean;
   liveRefundsEnabled: boolean;
   cartMaxQtyPerLine: number;
   currency: string;
@@ -609,6 +615,81 @@ export function CommercePanel() {
                   : "در حال خواندن…"}
               </p>
             </div>
+          </div>
+
+          <hr className="ad-divider" style={{ margin: "14px 0" }} />
+          <h4 style={{ margin: "0 0 6px", fontSize: 13 }}>سیاست مالی کش‌بک (تصویب ۲۰۲۶-۱۱-۰۴)</h4>
+          <p className="ad-hint">
+            کش‌بک هر سفارش فقط برای سفارش‌های <b>بعدی همان مشتری</b> قابل استفاده است، <b>قابل برداشت نقدی نیست</b>
+            و فقط داخل فروشگاه خرج می‌شود؛ تا زمانی که سفارش تحویل نشده (و مهلت مرجوعی تمام نشده) در حالت
+            «در انتظار» می‌ماند و بعد از آن آزاد می‌شود.
+          </p>
+          <div className="ad-two">
+            <label className="ad-field">
+              زمان آزادسازی
+              <select
+                className="ad-select"
+                value={settings.cashbackCreditTiming}
+                onChange={(e) =>
+                  patch({ cashbackCreditTiming: e.target.value as CommerceSettings["cashbackCreditTiming"] })
+                }
+              >
+                <option value="after_return_window">پس از تحویل + مهلت مرجوعی (پیشنهاد)</option>
+                <option value="on_delivery">بلافاصله پس از تحویل</option>
+                <option value="on_payment">همان لحظهٔ پرداخت</option>
+              </select>
+            </label>
+            <label className="ad-field">
+              تعداد روز پس از تحویل
+              <input
+                className="ad-input"
+                type="number"
+                min={0}
+                value={settings.cashbackHoldDays}
+                onChange={(e) => patch({ cashbackHoldDays: Number(e.target.value) || 0 })}
+              />
+            </label>
+          </div>
+          <div className="ad-two">
+            <label className="ad-field">
+              انقضا (ماه، ۰ = بدون انقضا)
+              <input
+                className="ad-input"
+                type="number"
+                min={0}
+                value={settings.cashbackExpiryMonths}
+                onChange={(e) => patch({ cashbackExpiryMonths: Number(e.target.value) || 0 })}
+              />
+            </label>
+            <label className="ad-field">
+              حداکثر سهم هر سفارش (٪ مبلغ کالا)
+              <input
+                className="ad-input"
+                type="number"
+                min={0}
+                max={100}
+                value={settings.cashbackRedeemMaxPercent}
+                onChange={(e) => patch({ cashbackRedeemMaxPercent: Number(e.target.value) || 0 })}
+              />
+            </label>
+          </div>
+          <div className="ad-two" style={{ marginTop: 6 }}>
+            <label className="ad-check">
+              <input
+                type="checkbox"
+                checked={settings.cashbackRedeemEnabled}
+                onChange={(e) => patch({ cashbackRedeemEnabled: e.target.checked })}
+              />
+              استفاده از کش‌بک در پرداخت مجاز باشد
+            </label>
+            <label className="ad-check">
+              <input
+                type="checkbox"
+                checked={settings.cashbackCombineWithDiscounts}
+                onChange={(e) => patch({ cashbackCombineWithDiscounts: e.target.checked })}
+              />
+              هم‌زمان با کوپن/کمپین مجاز باشد
+            </label>
           </div>
         </Panel>
       )}

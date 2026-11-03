@@ -411,7 +411,7 @@ function WalletTab({ email }: { email: string }) {
     wallet && wallet.transactions.length > 0
       ? wallet.transactions.map((t) => ({
           id: t.id,
-          kind: t.kind === "earn" ? ("earn" as const) : ("spend" as const),
+          kind: t.kind === "earn" || t.kind === "refund_credit" ? ("earn" as const) : ("spend" as const),
           at: new Date(t.at).getTime(),
           amount: Math.abs(t.amount),
           orderId: t.orderId ?? "",
@@ -426,9 +426,23 @@ function WalletTab({ email }: { email: string }) {
         <span>موجودی کش‌بک</span>
         <b>{balance.toLocaleString("fa-IR")} تومان</b>
         <small>
+          موجودی کش‌بک <b>قابل برداشت نقدی نیست</b>؛ فقط برای پرداخت سفارش‌های خودت در همین فروشگاه استفاده می‌شود.
+        </small>
+        <small>
           درصد کش‌بک به مبلغ سبد بستگی دارد
           {tiers.length > 0 ? ":" : " و بعد از هر پرداخت به کیف پول اضافه می‌شود."}
         </small>
+        {wallet && (
+          <small className="acc-muted" style={{ display: "block", marginTop: 6 }}>
+            قابل استفاده همین حالا: <b>{wallet.available.toLocaleString("fa-IR")}</b>
+            {wallet.pending > 0
+              ? ` · در انتظار آزادسازی: ${wallet.pending.toLocaleString("fa-IR")} (پس از تحویل و پایان مهلت مرجوعی)`
+              : ""}
+            {wallet.nextExpiry
+              ? ` · نزدیک‌ترین انقضا: ${new Date(wallet.nextExpiry).toLocaleDateString("fa-IR")}`
+              : ""}
+          </small>
+        )}
         {tiers.length > 0 && (
           <span className="acc-cashback-tiers">
             {tiers.map((tier, index) => (

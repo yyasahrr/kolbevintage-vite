@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query, withTransaction } from "../db";
-import { reverseCashbackForRefund } from "./cashback";
+import { creditWalletForRefund, reverseCashbackForRefund, round2 } from "./cashback";
 import { CommerceError, forbidden, notFound } from "./errors";
 import { getOrder } from "./orders";
 import { enqueue } from "./outbox";
@@ -208,10 +208,42 @@ export async function decideRefund(input: {
       goodsTotal,
     });
 
+    /* ---------- money that came from the wallet goes back to the wallet ----
+       The store never collected that share in cash; crediting the wallet keeps
+       the ledger consistent and gives the customer their money back without a
+       bank transfer. The share is proportional to what the wallet covered. */
+    let walletRefunded = 0;
+    const walletRow = await client.query<{ wallet_applied: string; wallet_email: string | null }>(
+      `select coalesce(sum(wallet_applied), 0)::numeric(12,2) as wallet_applied, max(wallet_email) as wallet_email
+         from payment_attempts where order_id = $1 and wallet_applied > 0`,
+      [refund.order_id],
+    );
+    const walletApplied = Number(walletRow.rows[0]?.wallet_applied ?? 0);
+    const walletEmail = walletRow.rows[0]?.wallet_email ?? orderRes.rows[0]?.email ?? null;
+    if (walletApplied > 0 && walletEmail) {
+      const grandRes = await client.query<{ total: string | null }>("select total from orders where id = $1", [
+        refund.order_id,
+      ]);
+      const grand = Number(grandRes.rows[0]?.total ?? 0);
+      const share = grand > 0 ? round2((walletApplied * Number(refund.amount)) / grand) : 0;
+      walletRefunded = await creditWalletForRefund(client, {
+        email: walletEmail,
+        orderId: refund.order_id,
+        refundId: refund.id,
+        amount: share,
+      });
+    }
+
     await enqueue(
       client,
       "refund.settled",
-      { refundId: refund.id, orderId: refund.order_id, amount: Number(refund.amount), cashbackReversed: clawedBack },
+      {
+        refundId: refund.id,
+        orderId: refund.order_id,
+        amount: Number(refund.amount),
+        cashbackReversed: clawedBack,
+        walletRefunded,
+      },
       `refund.settled:${refund.id}`,
     );
 

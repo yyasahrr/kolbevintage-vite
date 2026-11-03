@@ -17,6 +17,7 @@ import { syncPromotions } from "./commerce/promotions";
 import { syncVariants } from "./commerce/variants";
 import { expireReservations } from "./commerce/inventory";
 import { expirePaymentAttempts } from "./commerce/payments";
+import { releasePendingCashback } from "./commerce/cashback";
 import { startOutboxWorker, stopOutboxWorker } from "./commerce/outbox";
 import { getDocument } from "./seed";
 
@@ -108,11 +109,13 @@ async function main() {
   await app.listen({ host: config.host, port: config.port });
   app.log.info(`API ready — ${counts.rows[0].products} products in PostgreSQL`);
 
-  // reservation expiry + outbox delivery keep running in the background
+  // reservation expiry, payment windows and cashback release keep running in the background
   startOutboxWorker();
   const sweeper = setInterval(() => {
     expireReservations().catch(() => undefined);
     expirePaymentAttempts().catch(() => undefined);
+    // cashback becomes spendable only after delivery (+ the return window)
+    releasePendingCashback().catch(() => undefined);
   }, 15_000);
   sweeper.unref?.();
 

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { query } from "../db";
 import type { CashbackTier, CommerceSettings } from "./settings";
+import { loadCommerceSettings } from "./settings";
+import { CommerceError } from "./errors";
 
 /* =====================================================================
    Tiered cashback.
@@ -107,9 +109,17 @@ export async function recordCashback(
   if (!result.enabled || result.amount <= 0 || !input.email) {
     return { ...result, amount: 0, enabled: false };
   }
+  /* availability follows the owner's policy: nothing is spendable before the
+     goods are out of the return risk window (see settings.cashbackCreditTiming) */
+  const timing = input.settings.cashbackCreditTiming;
+  const expiresMonths = Math.max(0, Number(input.settings.cashbackExpiryMonths) || 0);
+  const availableNow = timing === "on_payment";
   const res = await client.query<{ amount: string; percent: string }>(
-    `insert into cashback_ledger (id, customer_email, order_id, kind, base_amount, percent, amount, note)
-     values ($1, $2, $3, 'earn', $4, $5, $6, $7)
+    `insert into cashback_ledger (id, customer_email, order_id, kind, base_amount, percent, amount, note,
+                                  available_at, expires_at)
+     values ($1, $2, $3, 'earn', $4, $5, $6, $7,
+             case when $8::boolean then now() else null end,
+             case when $8::boolean and $9::int > 0 then now() + ($9::int || ' months')::interval else null end)
      on conflict (order_id) where kind = 'earn' do nothing
      returning amount, percent`,
     [
@@ -120,6 +130,8 @@ export async function recordCashback(
       result.percent,
       result.amount,
       result.note,
+      availableNow,
+      expiresMonths,
     ],
   );
   if (!res.rows[0]) return { ...result, amount: 0, enabled: false };
@@ -153,20 +165,184 @@ export async function reverseCashbackForRefund(
   return amount;
 }
 
-export async function cashbackBalance(email: string) {
-  const res = await query<{ balance: string; earned: string; reversed: string }>(
-    `select coalesce(sum(amount), 0)::numeric(12,2) as balance,
-            coalesce(sum(case when kind = 'earn' then amount else 0 end), 0)::numeric(12,2) as earned,
-            coalesce(sum(case when kind = 'reversal' then amount else 0 end), 0)::numeric(12,2) as reversed
-       from cashback_ledger where customer_email = $1`,
+/**
+ * The wallet has two numbers, and mixing them up is how a store pays out money
+ * it does not owe yet:
+ *   - pending: earned, waiting for delivery (+ return window)
+ *   - available: spendable right now (not expired, not already spent)
+ */
+export async function cashbackWallet(email: string) {
+  const res = await query<{
+    order_id: string | null;
+    kind: string;
+    amount: string;
+    available_at: Date | null;
+    expires_at: Date | null;
+  }>(
+    `select order_id, kind, amount, available_at, expires_at from cashback_ledger where customer_email = $1`,
     [email],
   );
-  const row = res.rows[0];
+
+  const now = Date.now();
+  interface Bucket {
+    amount: number;
+    ready: boolean;
+    expired: boolean;
+    expires: Date | null;
+    reversal: number;
+  }
+  const perOrder = new Map<string, Bucket>();
+  let credit = 0;
+  let spent = 0;
+  let earned = 0;
+  let reversed = 0;
+  let expiredTotal = 0;
+
+  // first pass: the earning rows define the buckets
+  for (const row of res.rows) {
+    const amount = Number(row.amount);
+    if (row.kind !== "earn") continue;
+    earned += amount;
+    const readyAt = row.available_at ? new Date(row.available_at).getTime() : null;
+    const expiresAt = row.expires_at ? new Date(row.expires_at).getTime() : null;
+    const expired = expiresAt !== null && expiresAt <= now;
+    const ready = !expired && readyAt !== null && readyAt <= now;
+    if (expired) expiredTotal += amount;
+    perOrder.set(row.order_id ?? "", {
+      amount,
+      ready,
+      expired,
+      expires: row.expires_at ? new Date(row.expires_at) : null,
+      reversal: 0,
+    });
+  }
+
+  // second pass: reversals must land in the bucket of their own order, so the
+  // order of rows in the ledger never changes the answer
+  for (const row of res.rows) {
+    const amount = Number(row.amount);
+    if (row.kind === "reversal") {
+      reversed += amount;
+      const bucket = perOrder.get(row.order_id ?? "");
+      if (bucket) bucket.reversal += amount; // negative
+    } else if (row.kind === "redeem") {
+      spent += -amount;
+    } else if (row.kind === "refund_credit") {
+      credit += amount;
+    }
+  }
+
+  let availableEarn = 0;
+  let pending = 0;
+  let nextExpiry: Date | null = null;
+  for (const bucket of perOrder.values()) {
+    const remaining = bucket.amount + bucket.reversal; // reversal is negative
+    if (bucket.ready) {
+      availableEarn += Math.max(0, remaining);
+      if (bucket.expires && (nextExpiry === null || bucket.expires < nextExpiry)) nextExpiry = bucket.expires;
+    } else if (!bucket.expired) {
+      pending += Math.max(0, remaining);
+    }
+  }
+
+  const available = round2(Math.max(0, availableEarn + credit - spent));
   return {
-    balance: Number(row?.balance ?? 0),
-    earned: Number(row?.earned ?? 0),
-    reversed: Number(row?.reversed ?? 0),
+    available,
+    pending: round2(Math.max(0, pending)),
+    earned: round2(earned),
+    reversed: round2(reversed),
+    spent: round2(spent),
+    expired: round2(expiredTotal),
+    nextExpiry,
+    balance: available,
   };
+}
+
+/** keeps the old shape for callers that only need the totals */
+export async function cashbackBalance(email: string) {
+  const wallet = await cashbackWallet(email);
+  return { balance: wallet.available, earned: wallet.earned, reversed: wallet.reversed };
+}
+
+/**
+ * Release earned cashback once the order is out of the return-risk window.
+ * Runs in the background sweep and after a delivery, and is idempotent: rows
+ * that already have an availability date are never touched twice.
+ */
+export async function releasePendingCashback() {
+  const settings = await loadCommerceSettings();
+  if (settings.cashbackCreditTiming === "on_payment") return 0;
+  const holdDays = settings.cashbackCreditTiming === "on_delivery"
+    ? 0
+    : Math.max(0, Number(settings.cashbackHoldDays) || 0);
+  const months = Math.max(0, Number(settings.cashbackExpiryMonths) || 0);
+
+  const res = await query(
+    `with delivered as (
+       select o.id,
+              coalesce((select max(created_at) from fulfillment_events f where f.order_id = o.id and f.stage = 'deliver'),
+                       o.created_at) as delivered_at
+         from orders o
+        where o.status in ('delivered')
+     )
+     update cashback_ledger c
+        set available_at = d.delivered_at + ($1::int || ' days')::interval,
+            expires_at = case when $2::int > 0
+                              then d.delivered_at + ($1::int || ' days')::interval + ($2::int || ' months')::interval
+                              else null end
+       from delivered d
+      where c.order_id = d.id
+        and c.kind = 'earn'
+        and c.available_at is null
+        and d.delivered_at + ($1::int || ' days')::interval <= now()`,
+    [holdDays, months],
+  );
+  return res.rowCount ?? 0;
+}
+
+/**
+ * Spend the wallet on a checkout. The customer can never pay with cashback
+ * earned by the very order being paid, and the balance is re-checked under a
+ * lock so two concurrent checkouts cannot spend the same money.
+ */
+export async function redeemCashback(
+  client: PoolClient,
+  input: { email: string; orderId: string; amount: number },
+) {
+  const amount = round2(Math.max(0, input.amount));
+  if (amount <= 0) return 0;
+  await client.query("select pg_advisory_xact_lock(hashtext($1))", [`cashback:${input.email}`]);
+  const wallet = await cashbackWallet(input.email);
+  if (wallet.available < amount) {
+    throw new CommerceError(
+      `موجودی قابل استفادهٔ کیف پول ${wallet.available.toLocaleString("fa-IR")} است؛ مبلغ بیشتری قابل کسر نیست.`,
+      409,
+      "cashback_insufficient",
+    );
+  }
+  const res = await client.query(
+    `insert into cashback_ledger (id, customer_email, order_id, kind, amount, ref_id, note, available_at)
+     values ($1, $2, $3, 'redeem', $4, $3, 'استفاده از کش‌بک برای پرداخت این سفارش', now())
+     on conflict (ref_id) where kind = 'redeem' do nothing`,
+    [`cb_${randomUUID()}`, input.email, input.orderId, -amount],
+  );
+  return (res.rowCount ?? 0) > 0 ? amount : 0;
+}
+
+/** a refund paid back into the wallet (the store keeps the cash) */
+export async function creditWalletForRefund(
+  client: PoolClient,
+  input: { email: string; orderId: string; refundId: string; amount: number },
+) {
+  const amount = round2(Math.max(0, input.amount));
+  if (amount <= 0) return 0;
+  const res = await client.query(
+    `insert into cashback_ledger (id, customer_email, order_id, kind, amount, ref_id, note, available_at)
+     values ($1, $2, $3, 'refund_credit', $4, $5, 'بازگشت مبلغ کسرشده از کیف پول پس از بازپرداخت', now())
+     on conflict (ref_id) where kind = 'refund_credit' do nothing`,
+    [`cb_${randomUUID()}`, input.email, input.orderId, amount, input.refundId],
+  );
+  return (res.rowCount ?? 0) > 0 ? amount : 0;
 }
 
 export async function cashbackTransactions(email: string, limit = 50) {

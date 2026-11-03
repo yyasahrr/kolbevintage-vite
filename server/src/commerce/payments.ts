@@ -7,6 +7,7 @@ import { recordCashback } from "./cashback";
 import { CommerceError, notFound } from "./errors";
 import { consumeReservations, expireReservations } from "./inventory";
 import { insertOrder, type OrderStatus } from "./orders";
+import { cashbackWallet, redeemCashback, round2 } from "./cashback";
 import { enqueue } from "./outbox";
 import { buildQuote, type Quote } from "./pricing";
 import { loadCommerceSettings, type CommerceSettings } from "./settings";
@@ -31,6 +32,8 @@ export interface PaymentAttemptRow {
   provider: string;
   method: "online" | "bnpl4";
   amount: string | number;
+  wallet_applied: string | number;
+  wallet_email: string | null;
   status: PaymentStatus;
   idempotency_key: string | null;
   provider_ref: string | null;
@@ -130,6 +133,7 @@ export function publicAttempt(row: PaymentAttemptRow) {
     provider: row.provider,
     method: row.method,
     amount: Number(row.amount),
+    walletApplied: Number(row.wallet_applied ?? 0),
     status: row.status,
     providerRef: row.provider_ref,
     verifyAttempts: row.verify_attempts,
@@ -217,6 +221,9 @@ export async function startPayment(input: {
   checkoutId: string;
   method?: "online" | "bnpl4";
   idempotencyKey?: string | null;
+  /** the signed-in customer who wants to pay part of the order from the wallet */
+  walletEmail?: string | null;
+  useCashback?: boolean;
 }) {
   const settings = await loadCommerceSettings();
   await expireReservations();
@@ -279,12 +286,49 @@ export async function startPayment(input: {
     throw new CommerceError("درگاه انتخاب‌شده با روش پرداخت نمی‌خواند.", 400, "provider_method_mismatch");
   }
 
+  /* ---------- optional wallet payment ----------
+     The invoice total never changes: the wallet only reduces the amount the
+     gateway has to collect. Redemption itself is written (and re-checked) in
+     the settlement transaction, so an abandoned payment never eats the balance. */
+  let walletApplied = 0;
+  const walletEmail = input.useCashback ? input.walletEmail ?? null : null;
+  if (input.useCashback && !walletEmail) {
+    throw new CommerceError("برای استفاده از کش‌بک باید وارد حساب شوی.", 401, "cashback_login_required");
+  }
+  if (walletEmail) {
+    if (!settings.cashbackRedeemEnabled) {
+      throw new CommerceError("استفاده از کش‌بک در پرداخت فعلاً غیرفعال است.", 403, "cashback_redeem_disabled");
+    }
+    const quote = checkout.quote;
+    const hasDiscounts = Number(quote.discountTotal ?? 0) > 0;
+    if (hasDiscounts && !settings.cashbackCombineWithDiscounts) {
+      throw new CommerceError(
+        "این سفارش تخفیف دارد و استفادهٔ هم‌زمان کش‌بک مجاز نیست.",
+        409,
+        "cashback_not_combinable",
+      );
+    }
+    const goods = Math.max(0, Number(quote.subtotal ?? 0) - Number(quote.discountTotal ?? 0));
+    const wallet = await cashbackWallet(walletEmail);
+    const cap = Math.max(0, (goods * Math.max(0, Number(settings.cashbackRedeemMaxPercent) || 0)) / 100);
+    walletApplied = round2(Math.min(wallet.available, cap, Number(quote.grandTotal ?? 0)));
+    if (walletApplied <= 0) {
+      throw new CommerceError(
+        "موجودی قابل استفادهٔ کیف پول برای این سفارش کافی نیست (کش‌بک پس از تحویل و پایان مهلت مرجوعی آزاد می‌شود).",
+        409,
+        "cashback_unavailable",
+      );
+    }
+  }
+
   const attemptId = `pay_${randomUUID()}`;
   const expiresAt = new Date(Date.now() + settings.paymentWindowMinutes * 60_000);
+  const chargeable = round2(Math.max(0, Number(checkout.quote.grandTotal) - walletApplied));
   const res = await query<PaymentAttemptRow>(
-    `insert into payment_attempts (id, checkout_id, provider, method, amount, status, idempotency_key, expires_at)
-     values ($1, $2, $3, $4, $5, 'initiated', $6, $7) returning *`,
-    [attemptId, checkout.id, provider.id, method, checkout.quote.grandTotal, idempotencyKey, expiresAt],
+    `insert into payment_attempts (id, checkout_id, provider, method, amount, wallet_applied, wallet_email,
+                                   status, idempotency_key, expires_at)
+     values ($1, $2, $3, $4, $5, $6, $7, 'initiated', $8, $9) returning *`,
+    [attemptId, checkout.id, provider.id, method, chargeable, walletApplied, walletApplied > 0 ? walletEmail : null, idempotencyKey, expiresAt],
   );
 
   const initiated = await provider.initiate(res.rows[0]);
@@ -367,11 +411,11 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
       }
     }
 
-    const needsReview = late || Boolean(couponProblem);
-    const status: OrderStatus = needsReview ? "exception" : "paid";
-    const exceptionReason = late
+    let needsReview = late || Boolean(couponProblem);
+    let exceptionReason = late
       ? "پرداخت پس از آزادسازی رزرو موجودی تأیید شد؛ نیازمند بررسی اپراتور مالی (بدون ارسال خودکار)."
       : couponProblem;
+    const status: OrderStatus = needsReview ? "exception" : "paid";
     const order = await insertOrder(client, {
       checkout,
       quote,
@@ -388,6 +432,35 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
         where id = $1`,
       [current.id, order.id, outcome.providerRef, JSON.stringify(outcome.raw)],
     );
+    /* ---------- wallet deduction happens now, with the order ----------
+       The balance was checked when the attempt started; here it is re-checked
+       under a lock. If the money moved in the meantime the payment is already
+       captured, so the order becomes an exception instead of silently
+       discounting a basket nobody paid for. */
+    const walletApplied = Number(current.wallet_applied ?? 0);
+    if (walletApplied > 0 && current.wallet_email) {
+      try {
+        const spent = await redeemCashback(client, {
+          email: current.wallet_email,
+          orderId: order.id,
+          amount: walletApplied,
+        });
+        if (spent <= 0) throw new Error("کیف پول قبلاً برای این سفارش کسر شده است.");
+        await client.query(
+          `update orders set data = jsonb_set(data, '{walletApplied}', to_jsonb($2::numeric)) where id = $1`,
+          [order.id, walletApplied],
+        );
+      } catch (error) {
+        needsReview = true;
+        exceptionReason = `کسر کیف پول انجام نشد (${(error as Error).message})؛ پرداخت ثبت شد و سفارش نیازمند بررسی مالی است.`;
+        await client.query(
+          `update orders set status = 'exception', exception_reason = $2,
+                  data = jsonb_set(data, '{status}', to_jsonb('exception'::text)) where id = $1`,
+          [order.id, exceptionReason],
+        );
+      }
+    }
+
     // cashback only exists for real paid orders, never for exceptions
     const earned = needsReview
       ? null

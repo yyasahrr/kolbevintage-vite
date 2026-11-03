@@ -775,7 +775,9 @@ test("a paid order credits exactly one cashback entry and a refund claws back it
   assert.equal(settled.cashback.amount, checkout.quote.cashback.amount);
 
   const wallet = await client.get("/api/commerce/cashback");
-  assert.equal(wallet.body.balance, settled.cashback.amount);
+  // policy 2026-11-04: money is credited but NOT spendable before delivery
+  assert.equal(wallet.body.balance, 0, "nothing is spendable before delivery");
+  assert.equal(wallet.body.pending, settled.cashback.amount);
   assert.equal(wallet.body.transactions.length, 1);
   assert.equal(wallet.body.transactions[0].kind, "earn");
 
@@ -801,7 +803,7 @@ test("a paid order credits exactly one cashback entry and a refund claws back it
   assert.equal(approved.status, 200);
 
   const afterRefund = await client.get("/api/commerce/cashback");
-  assert.ok(afterRefund.body.balance < wallet.body.balance, "half of the cashback is clawed back");
+  assert.equal(afterRefund.body.pending, settled.cashback.amount / 2, "half of the pending cashback is clawed back");
   assert.equal(afterRefund.body.reversed, -settled.cashback.amount / 2);
 });
 
@@ -813,4 +815,173 @@ test("guest orders never earn cashback", async () => {
   assert.ok(checkout.quote.cashback.amount > 0, "the quote still advertises the earn rate");
   const rows = await query("select count(*)::int as n from cashback_ledger where order_id = $1", [settled.orderId]);
   assert.equal(rows.rows[0].n, 0);
+});
+
+/* ---------------------------------------------------------------------
+   Cashback financial policy (owner decision 2026-11-04):
+   earn → hold until delivery (+ return window) → spend only on a LATER
+   order → expire. Guests never touch the wallet.
+   --------------------------------------------------------------------- */
+
+async function deliverOrder(orderId: string, sku: string) {
+  const admin = await adminClient();
+  for (const [path, body] of [
+    ["picking", { sku }],
+    ["packing", { confirm: true }],
+    ["ship", {}],
+    ["deliver", {}],
+  ] as const) {
+    const res = await admin.post(`/api/commerce/orders/${orderId}/${path}`, body);
+    assert.equal(res.status, 200, `${path}: ${JSON.stringify(res.body)}`);
+  }
+}
+
+test("earned cashback stays pending until delivery and then becomes spendable", async () => {
+  const variantId = await setStock(SKU, 6);
+  const client = await customerClient();
+  await query("delete from price_rules");
+  const s = await import("../src/commerce/settings");
+  await s.saveCommerceSettings({ cashbackHoldDays: 0, cashbackCreditTiming: "after_return_window" });
+
+  const first = await payAndSettle(client, [{ variantId, quantity: 2 }]);
+  assert.ok(first.settled.cashback.amount > 0);
+
+  // 1) before delivery the balance cannot be used
+  const blocked = await client.post(`/api/commerce/checkout/${
+    (await startCheckout(client, [{ variantId, quantity: 1 }])).body.checkout.id
+  }/pay`, { method: "online", useCashback: true });
+  assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
+  assert.equal(blocked.body.code, "cashback_unavailable");
+
+  // 2) delivery releases it (hold = 0 days in this test)
+  const order = await query("select sku from order_lines where order_id = $1 limit 1", [first.settled.orderId]);
+  await deliverOrder(first.settled.orderId, order.rows[0].sku);
+  const cashback = await import("../src/commerce/cashback");
+  await cashback.releasePendingCashback();
+
+  const wallet = await client.get("/api/commerce/cashback");
+  assert.equal(wallet.body.pending, 0, "delivery releases the pending balance");
+  assert.equal(wallet.body.available, first.settled.cashback.amount);
+
+  // 3) the wallet now pays part of a newer order, the gateway collects the rest
+  const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
+  const checkoutId = checkout.body.checkout.id;
+  const pay = await client.post(`/api/commerce/checkout/${checkoutId}/pay`, { method: "online", useCashback: true });
+  assert.equal(pay.status, 200, JSON.stringify(pay.body));
+  const applied = pay.body.attempt.walletApplied;
+  assert.ok(applied > 0, "the wallet must cover part of the order");
+  assert.equal(pay.body.attempt.amount, Math.round((checkout.body.checkout.quote.grandTotal - applied) * 100) / 100);
+
+  const settled = await client.post(`/api/commerce/payments/${pay.body.attempt.id}/simulate`, { result: "success" });
+  assert.equal(settled.body.status, "settled", JSON.stringify(settled.body));
+
+  const after = await client.get("/api/commerce/cashback");
+  assert.equal(after.body.available, 0, "the spent part is gone from the wallet");
+  assert.equal(after.body.spent, applied);
+
+  const redeem = await query("select kind, amount from cashback_ledger where kind = 'redeem'");
+  assert.equal(redeem.rows.length, 1);
+  assert.equal(Number(redeem.rows[0].amount), -applied);
+});
+
+test("a guest cannot pay with the wallet", async () => {
+  const variantId = await setStock(SKU, 2);
+  const guest = makeClient();
+  const checkout = await startCheckout(guest, [{ variantId, quantity: 1 }]);
+  const pay = await guest.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, {
+    method: "online",
+    useCashback: true,
+  });
+  assert.equal(pay.status, 401, JSON.stringify(pay.body));
+  assert.equal(pay.body.code, "cashback_login_required");
+});
+
+test("a refund returns the wallet share to the wallet, not to the gateway", async () => {
+  const variantId = await setStock(SKU, 6);
+  const client = await customerClient();
+  await query("delete from price_rules");
+  const settings = await import("../src/commerce/settings");
+  await settings.saveCommerceSettings({ cashbackHoldDays: 0 });
+
+  const first = await payAndSettle(client, [{ variantId, quantity: 2 }]);
+  const sku = (await query("select sku from order_lines where order_id = $1 limit 1", [first.settled.orderId])).rows[0].sku;
+  await deliverOrder(first.settled.orderId, sku);
+  const cashback = await import("../src/commerce/cashback");
+  await cashback.releasePendingCashback();
+
+  const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
+  const pay = await client.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, {
+    method: "online",
+    useCashback: true,
+  });
+  const applied = pay.body.attempt.walletApplied;
+  assert.ok(applied > 0);
+  const settled = await client.post(`/api/commerce/payments/${pay.body.attempt.id}/simulate`, { result: "success" });
+  assert.equal(settled.body.status, "settled");
+
+  const order = await client.get(`/api/commerce/orders/${settled.body.orderId}`);
+  const requested = await client.post(`/api/commerce/orders/${settled.body.orderId}/returns`, {
+    lineId: order.body.lines[0].id,
+    quantity: 1,
+    reason: "مرجوعی تست کیف پول",
+  });
+  assert.equal(requested.status, 201, JSON.stringify(requested.body));
+
+  const superAdmin = await superAdminClient();
+  await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
+  const approved = await superAdmin.post(`/api/commerce/admin/refunds/${requested.body.refund.id}`, {
+    decision: "approve",
+  });
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+
+  const credit = await query("select amount from cashback_ledger where kind = 'refund_credit'");
+  assert.equal(credit.rows.length, 1);
+  assert.ok(Number(credit.rows[0].amount) > 0, "the wallet share comes back to the wallet");
+  const after = await client.get("/api/commerce/cashback");
+  assert.ok(after.body.available > 0);
+});
+
+test("cashback is not withdrawable and never crosses accounts", async () => {
+  // 1) there is no cash-out route at all: money only exists as a store credit
+  const client = await customerClient();
+  const withdraw = await client.post("/api/commerce/cashback/withdraw", { amount: 10 });
+  assert.equal(withdraw.status, 404, "cashback must never be paid out as cash");
+
+  // 2) a wallet belongs to its own account: another customer cannot spend it
+  const variantId = await setStock(SKU, 4);
+  await query("delete from price_rules");
+  const settings = await import("../src/commerce/settings");
+  await settings.saveCommerceSettings({ cashbackHoldDays: 0 });
+
+  const owner = await customerClient();
+  const first = await payAndSettle(owner, [{ variantId, quantity: 2 }]);
+  assert.ok(first.settled.cashback.amount > 0);
+  const sku = (await query("select sku from order_lines where order_id = $1 limit 1", [first.settled.orderId])).rows[0].sku;
+  await deliverOrder(first.settled.orderId, sku);
+  const cashback = await import("../src/commerce/cashback");
+  await cashback.releasePendingCashback();
+  const ownerWallet = await owner.get("/api/commerce/cashback");
+  assert.ok(ownerWallet.body.available > 0);
+
+  // a different signed-in customer has an empty wallet, even with the same basket
+  const other = makeClient();
+  const signup = await other.post("/api/auth/register", {
+    name: "کی‌میای تست",
+    email: `second-${Date.now()}@example.com`,
+    password: "demo1234",
+  });
+  assert.equal(signup.status === 200 || signup.status === 201, true, JSON.stringify(signup.body));
+  const otherWallet = await other.get("/api/commerce/cashback");
+  assert.equal(otherWallet.body.available, 0);
+
+  const checkout = await startCheckout(other, [{ variantId, quantity: 1 }]);
+  const pay = await other.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, {
+    method: "online",
+    useCashback: true,
+  });
+  assert.equal(pay.status, 409, JSON.stringify(pay.body));
+  assert.equal(pay.body.code, "cashback_unavailable");
+
+  const unchanged = await owner.get("/api/commerce/cashback");
+  assert.equal(unchanged.body.available, ownerWallet.body.available, "another account must not touch this wallet");
 });

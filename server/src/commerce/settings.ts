@@ -59,6 +59,23 @@ export interface CommerceSettings {
   cashbackTiers: CashbackTier[];
   /** safety cap so a misconfigured bracket cannot pay out a fortune */
   cashbackMaxAmount: number;
+  /**
+   * Cashback financial policy (owner decision 2026-11-04):
+   * - earned money is held until the order is delivered (+ a return window),
+   *   so "earn → return the goods" can never pay out real cash;
+   * - it can only be spent on a LATER order (never on the one that earned it);
+   * - it expires, and a single order can only be partly paid with it.
+   */
+  cashbackCreditTiming: "on_payment" | "on_delivery" | "after_return_window";
+  /** days after delivery before the balance becomes spendable */
+  cashbackHoldDays: number;
+  /** months of validity after the balance becomes spendable (0 = never expires) */
+  cashbackExpiryMonths: number;
+  cashbackRedeemEnabled: boolean;
+  /** at most this share of the goods value can be paid from the wallet */
+  cashbackRedeemMaxPercent: number;
+  /** wallet + coupon/campaign on the same order is allowed by default */
+  cashbackCombineWithDiscounts: boolean;
   /** mock provider controls (simulate success/fail/timeout) — never in production */
   allowMockControls: boolean;
   /** test hook: make the outbox SMS handler fail */
@@ -92,6 +109,12 @@ export const DEFAULT_COMMERCE_SETTINGS: CommerceSettings = {
     { min: 3000, max: null, percent: 1 },
   ],
   cashbackMaxAmount: 500,
+  cashbackCreditTiming: "after_return_window",
+  cashbackHoldDays: 7,
+  cashbackExpiryMonths: 12,
+  cashbackRedeemEnabled: true,
+  cashbackRedeemMaxPercent: 50,
+  cashbackCombineWithDiscounts: true,
   allowMockControls: true,
   smsSimulateDown: false,
   paymentProvider: "mock",

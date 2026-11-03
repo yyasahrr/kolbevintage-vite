@@ -4,7 +4,7 @@ import { query } from "../db";
 import { createSession, setSessionCookie } from "../sessions";
 import { actorOf, currentSession, requireAdminSession, requireSuperadmin } from "./auth";
 import {
-  cashbackBalance,
+  cashbackWallet,
   cashbackOverview,
   cashbackTransactions,
   normalizeTiers,
@@ -94,6 +94,16 @@ export async function commerceRoutes(app: FastifyInstance) {
         base: settings.cashbackBase,
         tiers: normalizeTiers(settings.cashbackTiers),
         maxAmount: settings.cashbackMaxAmount,
+        // financial policy visible to the storefront: nothing can be spent
+        // before it is released, and a single order can only be partly paid
+        creditTiming: settings.cashbackCreditTiming,
+        holdDays: settings.cashbackHoldDays,
+        expiryMonths: settings.cashbackExpiryMonths,
+        redeem: {
+          enabled: settings.cashbackRedeemEnabled,
+          maxPercent: settings.cashbackRedeemMaxPercent,
+          combineWithDiscounts: settings.cashbackCombineWithDiscounts,
+        },
       },
     };
   });
@@ -189,12 +199,17 @@ export async function commerceRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string }; Body: { method?: "online" | "bnpl4"; idempotencyKey?: string } }>(
     "/api/commerce/checkout/:id/pay",
-    async (req) =>
-      startPayment({
+    async (req) => {
+      const session = await currentSession(req);
+      return startPayment({
         checkoutId: req.params.id,
         method: req.body?.method,
         idempotencyKey: req.body?.idempotencyKey ?? null,
-      }),
+        // the wallet belongs to the signed-in customer, never to a body field
+        walletEmail: session?.kind === "customer" ? session.subject : null,
+        useCashback: Boolean((req.body as { useCashback?: boolean } | undefined)?.useCashback),
+      });
+    },
   );
 
   app.post<{ Params: { id: string }; Body: { result?: string } }>("/api/commerce/payments/:id/simulate", async (req) =>
@@ -331,11 +346,11 @@ export async function commerceRoutes(app: FastifyInstance) {
     if (session?.kind !== "customer") {
       return { email: null, balance: 0, earned: 0, reversed: 0, transactions: [] };
     }
-    const [balance, transactions] = await Promise.all([
-      cashbackBalance(session.subject),
+    const [wallet, transactions] = await Promise.all([
+      cashbackWallet(session.subject),
       cashbackTransactions(session.subject),
     ]);
-    return { email: session.subject, ...balance, transactions };
+    return { email: session.subject, ...wallet, transactions };
   });
 
   app.get<{ Querystring: { targetType?: string; targetId?: string; limit?: string } }>(
@@ -374,6 +389,9 @@ export async function commerceRoutes(app: FastifyInstance) {
       "paymentWindowMinutes", "quoteTtlMinutes", "shippingFlat", "shippingExpress",
       "freeShippingThreshold", "shippingThresholdBasis", "discountStacking", "liveRefundsEnabled",
       "taxRate", "currency", "paymentProvider",
+      "cashbackEnabled", "cashbackMode", "cashbackBase", "cashbackTiers", "cashbackMaxAmount",
+      "cashbackCreditTiming", "cashbackHoldDays", "cashbackExpiryMonths",
+      "cashbackRedeemEnabled", "cashbackRedeemMaxPercent", "cashbackCombineWithDiscounts",
     ];
     const patch: Partial<CommerceSettings> = {};
     for (const key of allowed) {

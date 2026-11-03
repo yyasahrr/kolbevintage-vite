@@ -7,7 +7,14 @@ import { formField } from "@/state/ops";
 import { getAdmin } from "@/state/admin";
 import { computeDiscounts } from "@/state/discounts";
 import { ApiError } from "@/lib/api";
-import { commerce, type CommerceConfig, type CommerceItem, type ServerQuote, type Shortage } from "@/lib/commerce";
+import {
+  commerce,
+  type CashbackWallet,
+  type CommerceConfig,
+  type CommerceItem,
+  type ServerQuote,
+  type Shortage,
+} from "@/lib/commerce";
 import { formatPrice } from "@/data/looks";
 
 import { PageIntro, buttonStyles } from "@/components/ui";
@@ -43,6 +50,8 @@ export function CheckoutPage() {
   const [serverQuote, setServerQuote] = useState<ServerQuote | null>(null);
   const [cfg, setCfg] = useState<CommerceConfig | null>(null);
   const [method, setMethod] = useState<"online" | "bnpl4">("online");
+  const [wallet, setWallet] = useState<CashbackWallet | null>(null);
+  const [useWallet, setUseWallet] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [shortages, setShortages] = useState<Shortage[]>([]);
@@ -73,9 +82,33 @@ export function CheckoutPage() {
   const viewTotal = serverQuote ? serverQuote.grandTotal : total;
   const bnplPlan = serverQuote?.installments.find((i) => i.method === "bnpl4");
 
+  /* ---------- wallet (cashback) payment ----------
+     Only money already released by the server policy is offered here, and the
+     cap is a share of the goods value. The server re-checks both at pay time. */
+  const walletAvailable = wallet?.available ?? 0;
+  const walletCapPercent = cfg?.cashback.redeem.maxPercent ?? 0;
+  const goodsAfterDiscount = serverQuote
+    ? Math.max(0, serverQuote.subtotal - serverQuote.discountTotal)
+    : discount.afterDiscount;
+  const walletCap = Math.max(0, (goodsAfterDiscount * walletCapPercent) / 100);
+  const walletApplied = useWallet ? Math.min(walletAvailable, walletCap, viewTotal) : 0;
+  const payableNow = Math.max(0, viewTotal - walletApplied);
+
   useEffect(() => {
     commerce.config().then(setCfg).catch(() => undefined);
   }, []);
+
+  // the wallet belongs to the signed-in account; guests simply have none
+  useEffect(() => {
+    if (!auth.account?.email) {
+      setWallet(null);
+      return;
+    }
+    commerce
+      .cashback()
+      .then(setWallet)
+      .catch(() => setWallet(null));
+  }, [auth.account?.email]);
 
   useEffect(() => {
     if (!items.length) {
@@ -147,7 +180,9 @@ export function CheckoutPage() {
       });
       setServerQuote(created.checkout.quote);
 
-      const pay = await commerce.pay(created.checkout.id, method, `pay-${attemptKey.current}`);
+      const pay = await commerce.pay(created.checkout.id, method, `pay-${attemptKey.current}`, {
+        useCashback: useWallet && walletApplied > 0,
+      });
       if (pay.payment?.redirectUrl) {
         window.location.href = pay.payment.redirectUrl;
         return;
@@ -415,6 +450,33 @@ export function CheckoutPage() {
                   </span>
                 </button>
               )}
+
+              {cfg?.cashback.redeem.enabled && walletAvailable > 0 && (
+                <label
+                  className={cn(
+                    "flex items-start gap-3 rounded-xl border p-4 text-start transition-colors",
+                    useWallet ? "border-ink bg-ink/[0.04]" : "border-black/10 hover:border-ink/35",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 accent-ink"
+                    checked={useWallet}
+                    onChange={(e) => setUseWallet(e.target.checked)}
+                  />
+                  <span className="flex-1">
+                    <span className="block text-[12.5px] font-medium text-ink">
+                      استفاده از کش‌بک — تا {formatPrice(Math.min(walletAvailable, walletCap))}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-ink-45">
+                      موجودی قابل استفاده {formatPrice(walletAvailable)}
+                      {wallet && wallet.pending > 0 ? ` · ${formatPrice(wallet.pending)} پس از تحویل آزاد می‌شود` : ""}
+                      {" · "}حداکثر {walletCapPercent.toLocaleString("fa-IR")}٪ مبلغ کالا · غیرقابل برداشت
+                    </span>
+                  </span>
+                  <Wallet className="h-4 w-4 text-ink-45" />
+                </label>
+              )}
             </div>
           </section>
         </div>
@@ -475,7 +537,9 @@ export function CheckoutPage() {
             )}
             <div className="flex items-baseline justify-between border-t border-black/[0.07] pt-2">
               <dt className="text-[12.5px] font-medium text-ink">مبلغ نهایی</dt>
-              <dd className="font-display text-[24px] font-medium text-ink">{formatPrice(viewTotal)}</dd>
+              <dd className="font-display text-[24px] font-medium text-ink">
+                {formatPrice(walletApplied > 0 ? payableNow : viewTotal)}
+              </dd>
             </div>
           </dl>
 
