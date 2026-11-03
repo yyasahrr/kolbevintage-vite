@@ -23,11 +23,13 @@ import {
 } from "@/components/ui";
 import { cn } from "@/utils/cn";
 import { useOps } from "@/state/ops";
+import { useAdmin } from "@/state/admin";
 import { resolveImg } from "@/builder/stock";
 
 const VALID_SORTS = new Set<string>(SORTS.map((s) => s.id));
 
 export function ProductsPage() {
+  useAdmin();
   const [params, setParams] = useSearchParams();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const { categories } = useOps();

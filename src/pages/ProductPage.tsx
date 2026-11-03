@@ -11,10 +11,11 @@ import {
   Truck,
   Undo2,
 } from "lucide-react";
-import { getProduct, productsOfLook, relatedProducts, totalStock } from "@/data/catalog";
+import { complementProducts, getProduct, liveGetProduct, productsOfLook, relatedProducts, totalStock } from "@/data/catalog";
 import { ProductGallery } from "@/components/ProductGallery";
 import { SmartSizeGuide } from "@/components/SmartSizeGuide";
 import { useAuth } from "@/state/auth";
+import { useAdmin } from "@/state/admin";
 import { useOps, requestTryon, tryonBalance, type TryOnPackage } from "@/state/ops";
 import { formatPrice, stockOf } from "@/data/looks";
 import { useCart } from "@/state/cart";
@@ -33,7 +34,9 @@ import { cn } from "@/utils/cn";
 
 export function ProductPage() {
   const { productId } = useParams();
-  const product = getProduct(productId);
+  // subscribe to the admin store so edits, new products and complements render live
+  useAdmin();
+  const product = liveGetProduct(productId);
   const { add, toggleWish, isWished, setCartOpen, notify } = useCart();
 
   const [colorId, setColorId] = useState(product?.colors[0]?.id ?? "");
@@ -57,7 +60,13 @@ export function ProductPage() {
     return () => {
       document.title = "ولور — خرید بر اساس استایل | رانوی تعاملی";
     };
-  }, [product]);
+  }, [productId]);
+
+  useEffect(() => {
+    if (!product) return;
+    if (!product.colors.some((c) => c.id === colorId)) setColorId(product.colors[0]?.id ?? "");
+    if (!product.sizes.some((s) => s.id === sizeId)) setSizeId(product.sizes[0]?.id ?? "");
+  }, [product, colorId, sizeId]);
 
   if (!product) return <NotFoundPage />;
 
@@ -68,6 +77,7 @@ export function ProductPage() {
   const wished = isWished(product.id);
 
   const lookProducts = productsOfLook(product.lookId).filter((p) => p.id !== product.id);
+  const complements = complementProducts(product.id);
   const related = relatedProducts(product, 4);
   const colorAvailability = (id: string) => product.sizes.some((s) => stockOf(product, id, s.id) > 0);
 
@@ -396,6 +406,30 @@ export function ProductPage() {
             </div>
             <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
               {lookProducts.slice(0, 4).map((p) => (
+                <ProductCard key={p.id} product={p} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ---------------- complementary products ---------------- */}
+      {complements.length > 0 && (
+        <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
+          <div className="rounded-2xl border border-black/[0.07] bg-[#f1ebe2] p-4 sm:p-6">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-[10px] text-ink-45">کالاهای مکمل</p>
+                <h2 className="mt-1.5 font-display text-[clamp(1.3rem,2.6vw,1.8rem)] font-medium text-ink">
+                  این قطعه را با این‌ها کامل کن
+                </h2>
+              </div>
+              <Link to="/products" className={buttonStyles("solid", "md", "gap-1.5")}>
+                همهٔ محصولات <ArrowLeft className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
+              {complements.slice(0, 8).map((p) => (
                 <ProductCard key={p.id} product={p} />
               ))}
             </div>

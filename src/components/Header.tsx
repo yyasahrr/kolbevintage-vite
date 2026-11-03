@@ -4,13 +4,14 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, ChevronDown, Heart, LayoutTemplate, Menu, Search, ShieldCheck, ShoppingBag, Sparkles, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { useCart } from "@/state/cart";
-import { CATALOG, COLLECTIONS, productsInCollection } from "@/data/catalog";
+import { COLLECTIONS, liveCatalog, productsInCollection } from "@/data/catalog";
 import { formatPrice } from "@/data/looks";
 import { ProductThumb } from "./ProductThumb";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 import { useTheme } from "@/theme/ThemeProvider";
 import { useAuth } from "@/state/auth";
 import { useOps } from "@/state/ops";
+import { useAdmin } from "@/state/admin";
 import { UserRound } from "lucide-react";
 
 const NAV = [
@@ -216,6 +217,7 @@ export function Header() {
 /* ------------------------------------------------------------------ */
 
 function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+  useAdmin();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -236,7 +238,7 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
   const results = useMemo(() => {
     const q = query.trim();
     if (!q) return [];
-    return CATALOG.filter((p) =>
+    return liveCatalog().filter((p) =>
       [p.name, p.category, p.lookName, ...p.colors.map((c) => c.name)].some((v) => v.includes(q)),
     ).slice(0, 5);
   }, [query]);

@@ -1,4 +1,4 @@
-import { CATALOG, type CatalogProduct } from "@/data/catalog";
+import { liveCatalog, type CatalogProduct } from "@/data/catalog";
 import { stockOf } from "@/data/looks";
 import type { ColorOption, GarmentKind } from "@/types";
 
@@ -245,7 +245,7 @@ export interface ChosenPiece {
 }
 
 export function suggestFor(slot: Slot, profile: Profile, chosen: ChosenPiece[], limit = 6): Suggestion[] {
-  const pool = CATALOG.filter((p) => slot.kinds.includes(p.garment) && p.sizes.some((s) => p.colors.some((c) => stockOf(p, c.id, s.id) > 0)));
+  const pool = liveCatalog().filter((p) => slot.kinds.includes(p.garment) && p.sizes.some((s) => p.colors.some((c) => stockOf(p, c.id, s.id) > 0)));
   const chosenHexes = chosen.map((c) => c.color).filter(Boolean);
   const out: Suggestion[] = [];
 

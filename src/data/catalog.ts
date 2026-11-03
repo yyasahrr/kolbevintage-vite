@@ -151,19 +151,28 @@ export const CATALOG: CatalogProduct[] = LOOKS.flatMap((look) =>
   }),
 );
 
-export const getProduct = (id: string | undefined) => CATALOG.find((p) => p.id === id);
+export const getProduct = (id: string | undefined) => liveGetProduct(id);
 
 export const getLook = (slug: string | undefined) => LOOKS.find((l) => l.id === slug);
 
-export const productsOfLook = (lookId: string) => CATALOG.filter((p) => p.lookId === lookId);
+export const productsOfLook = (lookId: string) => liveCatalog().filter((p) => p.lookId === lookId);
 
 export const relatedProducts = (product: CatalogProduct, count = 4) => {
-  const sameCategory = CATALOG.filter((p) => p.id !== product.id && p.category === product.category);
-  const sameLook = CATALOG.filter((p) => p.id !== product.id && p.lookId === product.lookId);
-  const rest = CATALOG.filter((p) => p.id !== product.id);
+  const all = liveCatalog();
+  const sameCategory = all.filter((p) => p.id !== product.id && p.category === product.category);
+  const sameLook = all.filter((p) => p.id !== product.id && p.lookId === product.lookId);
+  const rest = all.filter((p) => p.id !== product.id);
   const merged = [...sameLook, ...sameCategory, ...rest];
   const seen = new Set<string>();
   return merged.filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true))).slice(0, count);
+};
+
+/** admin-defined complementary products for a product, in the chosen order */
+export const complementProducts = (productId: string) => {
+  const ids = getAdmin().complements[productId] ?? [];
+  return ids
+    .map((id) => liveGetProduct(id))
+    .filter((p): p is CatalogProduct => !!p && p.id !== productId);
 };
 
 /** Three framings of the same runway photograph + one full-length frame. */
@@ -228,9 +237,24 @@ const customToCatalog = (cp: CustomProduct): CatalogProduct => {
   };
 };
 
+/** merge an admin edit over the original catalogue entry */
+const withEdit = (p: CatalogProduct): CatalogProduct => {
+  const edit = getAdmin().productEdits[p.id];
+  if (!edit) return p;
+  return {
+    ...p,
+    ...edit,
+    description: edit.description ?? p.description,
+    stock: edit.stock ? { ...p.stock, ...edit.stock } : p.stock,
+  };
+};
+
 export const liveCatalog = (): CatalogProduct[] => {
   const admin = getAdmin();
-  return [...CATALOG, ...admin.customProducts.filter((c) => c.active).map(customToCatalog)];
+  return [
+    ...CATALOG.map(withEdit),
+    ...admin.customProducts.filter((c) => c.active).map(customToCatalog),
+  ];
 };
 
 export const liveGetProduct = (id: string | undefined) => (id ? liveCatalog().find((p) => p.id === id) : undefined);

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { galleryFor, type CatalogProduct } from "@/data/catalog";
-import { useOps } from "@/state/ops";
+import { IMAGE_ROLE_LABEL, useOps } from "@/state/ops";
 import type { ColorOption, Crop } from "@/types";
 
 interface Slide {
@@ -30,22 +30,33 @@ export function ProductGallery({ product, color }: { product: CatalogProduct; co
 
   const slides = useMemo<Slide[]>(() => {
     const out: Slide[] = [];
-    const colorMap = ops.colorMedia[product.id] ?? {};
-    const push = (urls: string[], c?: ColorOption) => {
-      urls.filter(Boolean).forEach((url) => {
-        out.push({ kind: "image", image: url, label: c ? c.name : "تصویر", colorName: c?.name, colorHex: c?.hex });
+    const all = ops.productImages[product.id] ?? [];
+    const rank = { main: 0, gallery: 1, detail: 2, hover: 9 } as const;
+    // hover-only pictures never enter the gallery
+    const usable = all.filter((i) => i.role !== "hover").sort((a, b) => rank[a.role] - rank[b.role]);
+    const forColor = (colorId: string) => usable.filter((i) => i.colorId === "*" || i.colorId === colorId);
+    const push = (list: typeof usable) => {
+      list.forEach((img) => {
+        const c = product.colors.find((x) => x.id === img.colorId);
+        out.push({
+          kind: "image",
+          image: img.url,
+          label: IMAGE_ROLE_LABEL[img.role],
+          colorName: c?.name,
+          colorHex: c?.hex,
+        });
       });
     };
-    push(colorMap[color.id] ?? [], color);
+    push(forColor(color.id));
     for (const c of product.colors) {
       if (c.id === color.id) continue;
-      push(colorMap[c.id] ?? [], c);
+      push(usable.filter((i) => i.colorId === c.id));
     }
     if (out.length === 0) {
       for (const f of galleryFor(product)) out.push({ kind: "frame", crop: f, label: f.label });
     }
     return out;
-  }, [ops.colorMedia, product, color]);
+  }, [ops.productImages, product, color]);
 
   useEffect(() => {
     setIndex(0);

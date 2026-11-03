@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { GarmentKind } from "@/types";
+import type { GarmentKind, ProductImage, ProductImageRole } from "@/types";
 
 /* =====================================================================
    Operations store — everything the admin panel edits that is NOT the
@@ -45,8 +45,24 @@ export interface SizeSet {
 }
 
 export type MediaMap = Record<string, { hoverImage?: string; hoverVideo?: string }>;
-/** productId → colorId → image list */
+/** productId → colorId → image list (legacy, migrated into productImages) */
 export type ColorMedia = Record<string, Record<string, string[]>>;
+/** productId → ordered gallery where each image knows its colour and role */
+export type ProductImageMap = Record<string, ProductImage[]>;
+
+export const IMAGE_ROLE_LABEL: Record<ProductImageRole, string> = {
+  main: "تصویر شاخص",
+  gallery: "گالری",
+  hover: "نمایش در هاور",
+  detail: "جزئیات / بافت",
+};
+
+export const IMAGE_ROLE_HINT: Record<ProductImageRole, string> = {
+  main: "اول گالری محصول دیده می‌شود",
+  gallery: "بین بقیهٔ تصاویر گالری",
+  hover: "وقتی نشانگر روی کارت محصول می‌رود",
+  detail: "برای نمای نزدیک پارچه و دوخت",
+};
 
 export interface CustomerLabel {
   id: string;
@@ -171,6 +187,9 @@ export interface OpsState {
   brand: Brand;
   categories: CategoryDef[];
   sizeSets: SizeSet[];
+  /** productId → ordered gallery, each image with its own colour + role */
+  productImages: ProductImageMap;
+  /** kept for backwards compatibility with older saved data */
   colorMedia: ColorMedia;
   hoverMedia: MediaMap;
   labels: CustomerLabel[];
@@ -227,6 +246,7 @@ const DEFAULT: OpsState = {
   },
   categories: CATEGORIES,
   sizeSets: SIZE_SETS,
+  productImages: {},
   colorMedia: {},
   hoverMedia: {},
   labels: [
@@ -323,6 +343,31 @@ const DEFAULT: OpsState = {
   lookImages: {},
 };
 
+/** fold the old per-colour / hover uploads into the unified image gallery */
+function migrateImages(p: Partial<OpsState>): ProductImageMap {
+  const out: ProductImageMap = {};
+  for (const [productId, list] of Object.entries(p.productImages ?? {})) {
+    if (Array.isArray(list)) out[productId] = list.filter((i) => !!i?.url);
+  }
+  for (const [productId, perColor] of Object.entries(p.colorMedia ?? {})) {
+    if (out[productId]?.length) continue;
+    const list: ProductImage[] = [];
+    for (const [colorId, urls] of Object.entries(perColor ?? {})) {
+      (urls ?? []).forEach((url, i) => {
+        if (url) list.push({ id: `mig-${productId}-${colorId}-${i}`, url, colorId, role: "gallery" });
+      });
+    }
+    const hover = p.hoverMedia?.[productId];
+    if (hover?.hoverImage) list.push({ id: `mig-hover-${productId}`, url: hover.hoverImage, colorId: "*", role: "hover" });
+    if (list.length) out[productId] = list;
+  }
+  for (const [productId, hover] of Object.entries(p.hoverMedia ?? {})) {
+    if (!hover?.hoverImage || out[productId]?.some((i) => i.role === "hover")) continue;
+    out[productId] = [...(out[productId] ?? []), { id: `mig-hover-${productId}`, url: hover.hoverImage, colorId: "*", role: "hover" }];
+  }
+  return out;
+}
+
 function read(): OpsState {
   try {
     const raw = localStorage.getItem(KEY);
@@ -331,6 +376,7 @@ function read(): OpsState {
     return {
       ...DEFAULT,
       ...p,
+      productImages: migrateImages(p),
       brand: { ...DEFAULT.brand, ...(p.brand ?? {}) },
       security: { ...DEFAULT.security, ...(p.security ?? {}) },
     };
@@ -382,6 +428,26 @@ export const sizesForGarment = (g: GarmentKind): string[] => {
 };
 
 /* ---------------- media ---------------- */
+export const productImagesOf = (productId: string): ProductImage[] => cache.productImages[productId] ?? [];
+export const setProductImages = (productId: string, images: ProductImage[]) =>
+  patchOps({ productImages: { ...cache.productImages, [productId]: images } });
+export const updateProductImage = (productId: string, imageId: string, p: Partial<ProductImage>) =>
+  setProductImages(productId, productImagesOf(productId).map((i) => (i.id === imageId ? { ...i, ...p } : i)));
+export const removeProductImage = (productId: string, imageId: string) =>
+  setProductImages(productId, productImagesOf(productId).filter((i) => i.id !== imageId));
+
+/** gallery images for a colour, main first, then gallery, then close-ups */
+export const galleryImagesOf = (productId: string, colorId?: string) => {
+  const rank: Record<ProductImageRole, number> = { main: 0, gallery: 1, detail: 2, hover: 9 };
+  return productImagesOf(productId)
+    .filter((i) => i.role !== "hover" && (!colorId || i.colorId === "*" || i.colorId === colorId))
+    .sort((a, b) => rank[a.role] - rank[b.role]);
+};
+/** the picture a product card shows while hovered */
+export const hoverImageOf = (productId: string) => productImagesOf(productId).find((i) => i.role === "hover")?.url;
+/** the picture that replaces the runway crop as the product's visual */
+export const coverImageOf = (productId: string) => galleryImagesOf(productId)[0]?.url;
+
 export const setColorMedia = (productId: string, colorId: string, images: string[]) =>
   patchOps({ colorMedia: { ...cache.colorMedia, [productId]: { ...(cache.colorMedia[productId] ?? {}), [colorId]: images } } });
 export const removeColorMedia = (productId: string, colorId: string) => {

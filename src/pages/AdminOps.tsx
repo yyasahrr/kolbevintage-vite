@@ -32,6 +32,7 @@ import { cn } from "@/utils/cn";
 import { liveCatalog, liveGetProduct } from "@/data/catalog";
 import { LOOKS, formatPrice } from "@/data/looks";
 import { ProductThumb } from "@/components/ProductThumb";
+import { ProductMediaEditor } from "@/components/ProductMediaEditor";
 import { fileToDataUrl } from "@/builder/ControlsUI";
 import { resolveImg } from "@/builder/stock";
 import { timeAgo } from "@/builder/util";
@@ -55,8 +56,8 @@ import {
   saveSizeSet,
   saveSmsTemplate,
   saveTryonPackage,
-  setColorMedia,
-  setHoverMedia,
+  productImagesOf,
+  setProductImages,
   setLookProducts,
   setLookImage,
   setReturnStatus,
@@ -330,39 +331,21 @@ export function MediaPanel() {
   const catalog = liveCatalog();
   const [q, setQ] = useState("");
   const [openProduct, setOpenProduct] = useState<string | null>(null);
-  const [colorId, setColorId] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const hoverRef = useRef<HTMLInputElement>(null);
 
   const list = useMemo(() => {
     const s = q.trim();
-    const base = catalog.filter((p) => !s || p.name.includes(s));
-    return base.slice(0, 40);
+    return catalog.filter((p) => !s || p.name.includes(s)).slice(0, 40);
   }, [catalog, q]);
 
   const product = openProduct ? liveGetProduct(openProduct) : null;
-  const hover = product ? ops.hoverMedia[product.id] : undefined;
-  const colorImgs = product && colorId ? (ops.colorMedia[product.id]?.[colorId] ?? []) : [];
-
-  const uploadColor = async (files: FileList | null) => {
-    if (!files || !product || !colorId) return;
-    const urls: string[] = [];
-    for (const f of Array.from(files)) urls.push(await fileToDataUrl(f, 1200));
-    setColorMedia(product.id, colorId, [...colorImgs, ...urls]);
-    addLog({ actor: "مدیر", action: "افزودن تصویر رنگ", target: product.name, meta: colorId });
-  };
-
-  const uploadHover = async (f: File | undefined) => {
-    if (!f || !product) return;
-    const url = await fileToDataUrl(f, 1200);
-    if (f.type.startsWith("video/")) setHoverMedia(product.id, { hoverVideo: url });
-    else setHoverMedia(product.id, { hoverImage: url });
-    addLog({ actor: "مدیر", action: "رسانهٔ هاور", target: product.name });
-  };
+  const images = product ? productImagesOf(product.id) : [];
 
   return (
     <>
-      <PanelHead title="تصاویر محصول" sub="برای هر رنگ تصاویر مخصوص خودش را بگذار و برای کارت محصول، تصویر یا ویدیوی کوتاه هاور تعیین کن." />
+      <PanelHead
+        title="تصاویر محصول"
+        sub="یک گالری برای هر محصول؛ تصاویر را داخل باکس بریز و زیر هر عکس رنگ و نقشش را انتخاب کن — شاخص، گالری، هاور یا جزئیات."
+      />
 
       <div className="ad-toolbar">
         <input className="ad-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="جست‌وجوی محصول…" aria-label="جست‌وجوی محصول" />
@@ -370,16 +353,15 @@ export function MediaPanel() {
 
       <div className="ad-media-grid">
         {list.map((p) => {
-          const media = ops.colorMedia[p.id] ?? {};
-          const hover = ops.hoverMedia[p.id];
-          const count = Object.values(media).reduce((n, arr) => n + arr.length, 0);
+          const imgs = ops.productImages[p.id] ?? [];
+          const hovered = imgs.some((i) => i.role === "hover");
           return (
-            <button key={p.id} type="button" className={cn("ad-media-card", openProduct === p.id && "is-on")} onClick={() => { setOpenProduct(openProduct === p.id ? null : p.id); setColorId(p.colors[0]?.id ?? null); }}>
+            <button key={p.id} type="button" className={cn("ad-media-card", openProduct === p.id && "is-on")} onClick={() => setOpenProduct(openProduct === p.id ? null : p.id)}>
               <ProductThumb product={p} className="w-full" />
               <span className="ad-media-name">{p.name}</span>
               <span className="ad-media-badges">
-                <em className={count ? "is-done" : ""}>{count.toLocaleString("fa-IR")} تصویر رنگ</em>
-                {(hover?.hoverImage || hover?.hoverVideo) && <em className="is-done">هاور</em>}
+                <em className={imgs.length ? "is-done" : ""}>{imgs.length.toLocaleString("fa-IR")} تصویر</em>
+                {hovered && <em className="is-done">هاور</em>}
               </span>
             </button>
           );
@@ -388,46 +370,15 @@ export function MediaPanel() {
 
       {product && (
         <Panel title={`تصاویر ${product.name}`} action={<button type="button" className="ad-btn is-sm" onClick={() => setOpenProduct(null)}><X width={13} height={13} /> بستن</button>}>
-          <p className="ad-field-label">رنگ را انتخاب کن</p>
-          <div className="ad-color-tabs">
-            {product.colors.map((c) => (
-              <button key={c.id} type="button" className={cn("ad-color-tab", colorId === c.id && "is-on")} onClick={() => setColorId(c.id)}>
-                <i style={{ background: c.hex }} /> {c.name}
-                <span>{(ops.colorMedia[product.id]?.[c.id] ?? []).length.toLocaleString("fa-IR")}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="ad-upload-row">
-            <button type="button" className="ad-btn is-sm is-primary" onClick={() => fileRef.current?.click()}><Upload width={13} height={13} /> آپلود تصویر برای این رنگ</button>
-            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => void uploadColor(e.target.files)} />
-            <span className="ad-hint">این تصاویر همان رنگ، اول گالری محصول نمایش داده می‌شوند و بقیهٔ رنگ‌ها بعد از آن‌ها می‌آیند.</span>
-          </div>
-
-          <div className="ad-img-grid">
-            {colorImgs.length === 0 && <p className="ad-hint">برای این رنگ تصویری آپلود نشده؛ گالری از برش‌های عکس رانوی استفاده می‌کند.</p>}
-            {colorImgs.map((url, i) => (
-              <div key={i} className="ad-img-cell">
-                <img src={url} alt="" />
-                <button type="button" className="ad-img-x" aria-label="حذف تصویر" onClick={() => setColorMedia(product.id, colorId!, colorImgs.filter((_, n) => n !== i))}><Trash2 width={12} height={12} /></button>
-              </div>
-            ))}
-          </div>
-
-          <p className="ad-field-label" style={{ marginTop: 16 }}>رسانهٔ هاور کارت (تصویر یا ویدیوی کوتاه بدون صدا)</p>
-          <div className="ad-upload-row">
-            <button type="button" className="ad-btn is-sm" onClick={() => hoverRef.current?.click()}><Upload width={13} height={13} /> آپلود تصویر/ویدیو</button>
-            <input ref={hoverRef} type="file" accept="image/*,video/mp4,video/webm" hidden onChange={(e) => void uploadHover(e.target.files?.[0])} />
-            {(hover?.hoverImage || hover?.hoverVideo) && (
-              <button type="button" className="ad-btn is-sm is-danger" onClick={() => setHoverMedia(product.id, { hoverImage: undefined, hoverVideo: undefined })}><Trash2 width={13} height={13} /> حذف</button>
-            )}
-          </div>
-          {(hover?.hoverImage || hover?.hoverVideo) && (
-            <div className="ad-hover-preview">
-              {hover.hoverVideo ? <video src={hover.hoverVideo} muted loop autoPlay playsInline /> : hover.hoverImage ? <img src={hover.hoverImage} alt="" /> : null}
-            </div>
-          )}
-          <p className="ad-hint">اگر رسانهٔ هاور تعیین نکنی، کارت محصول روی هاور عکس کامل رانوی همان قطعه را نشان می‌دهد.</p>
+          <ProductMediaEditor
+            images={images}
+            colors={product.colors}
+            onChange={(next) => {
+              setProductImages(product.id, next);
+              addLog({ actor: "مدیر", action: "ویرایش گالری تصاویر", target: product.name, meta: `${next.length} تصویر` });
+            }}
+          />
+          <p className="ad-hint">ترتیب تصاویر مهم است: «تصویر شاخص» اول گالری می‌آید، عکس «هاور» فقط وقتی نشانگر روی کارت محصول می‌رود دیده می‌شود و «جزئیات» برای نمای نزدیک پارچه است.</p>
         </Panel>
       )}
     </>

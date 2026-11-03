@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { GarmentKind, ColorOption, SizeOption, StockMap } from "@/types";
+import type { Crop, GarmentKind, ColorOption, SizeOption, StockMap } from "@/types";
 
 /* =====================================================================
    Admin data store — the single source of truth the admin panel edits
@@ -102,6 +102,26 @@ export interface CustomProduct {
   active: boolean;
   featured: boolean;
   createdAt: number;
+}
+
+/**
+ * Override applied on top of a base-catalogue product when the admin edits it.
+ * Everything is optional: only the fields the admin actually touched differ
+ * from the original catalogue entry, so materials/editorial copy stay intact.
+ */
+export interface ProductEdit {
+  name?: string;
+  category?: string;
+  garment?: GarmentKind;
+  price?: number;
+  compareAt?: number;
+  description?: string;
+  lookId?: string;
+  crop?: Crop;
+  colors?: ColorOption[];
+  sizes?: SizeOption[];
+  /** stock snapshot for the variants shown in the form */
+  stock?: StockMap;
 }
 
 export const GARMENT_LABEL: Record<string, string> = {
@@ -217,6 +237,10 @@ export interface AdminState {
   stock: { productId: string; colorId: string; sizeId: string; qty: number }[];
   lookOrder: string[];
   customProducts: CustomProduct[];
+  /** base product id → field overrides (base catalogue products are editable too) */
+  productEdits: Record<string, ProductEdit>;
+  /** product id → product ids that complete the look ("کالاهای مکمل") */
+  complements: Record<string, string[]>;
   movements: StockMove[];
   campaigns: Campaign[];
   rules: DiscountRule[];
@@ -276,6 +300,8 @@ const DEFAULT_ADMIN: AdminState = {
       createdAt: Date.now() - 86400000 * 20,
     },
   ],
+  productEdits: {},
+  complements: {},
   movements: [],
   campaigns: [
     {
@@ -421,6 +447,21 @@ export const updateCustomProduct = (id: string, p: Partial<CustomProduct>) =>
   patch({ customProducts: cache.customProducts.map((c) => (c.id === id ? { ...c, ...p } : c)) });
 export const removeCustomProduct = (id: string) =>
   patch({ customProducts: cache.customProducts.filter((c) => c.id !== id) });
+
+/* ---------------- base products: edit / reset ---------------- */
+export const saveProductEdit = (id: string, edit: ProductEdit) =>
+  patch({ productEdits: { ...cache.productEdits, [id]: { ...(cache.productEdits[id] ?? {}), ...edit } } });
+export const resetProductEdit = (id: string) => {
+  const next = { ...cache.productEdits };
+  delete next[id];
+  patch({ productEdits: next });
+};
+export const productEditOf = (id: string) => cache.productEdits[id];
+
+/* ---------------- complementary products ---------------- */
+export const setComplements = (productId: string, ids: string[]) =>
+  patch({ complements: { ...cache.complements, [productId]: ids } });
+export const complementsOf = (productId: string) => cache.complements[productId] ?? [];
 
 /* ---------------- stock ---------------- */
 const variantKey = (c: string, s: string) => `${c}:${s}`;

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   BarChart3,
   Boxes,
   Bot,
+  Check,
   CheckCircle2,
   ClipboardList,
   CreditCard,
@@ -23,7 +24,9 @@ import {
   Package,
   Palette,
   Plus,
+  RotateCcw,
   Save,
+  Search,
   Send,
   Settings,
   ShoppingBag,
@@ -33,7 +36,6 @@ import {
   Trash2,
   Truck,
   TrendingUp,
-  Upload,
   Users,
   Warehouse,
   Wifi,
@@ -50,20 +52,21 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { COLLECTIONS, liveCatalog, liveGetProduct } from "@/data/catalog";
+import { COLLECTIONS, liveCatalog, liveGetProduct, type CatalogProduct } from "@/data/catalog";
 import { LOOKS, formatPrice, stockOf } from "@/data/looks";
 import { computeDiscounts } from "@/state/discounts";
 import { ProductThumb } from "@/components/ProductThumb";
+import { ProductMediaEditor } from "@/components/ProductMediaEditor";
 import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
 import { THEMES } from "@/theme/themes";
-import { useAdmin, addOrder, setOrderStatus, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, consumeStock } from "@/state/admin";
+import { useAdmin, addOrder, setOrderStatus, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, consumeStock, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
-import { sizeSetOf, setColorMedia, useOps, setHoverMedia, getOps, recordFailedLogin } from "@/state/ops";
+import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
 import { resolveImg } from "@/builder/stock";
-import { fileToDataUrl } from "@/builder/ControlsUI";
 import { useCart as useNotifyCart } from "@/state/cart";
-import type { AdminState, Campaign, CustomProduct, DiscountRule, OrderLine, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
+import type { AdminState, Campaign, DiscountRule, OrderLine, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
+import type { GarmentKind, ProductImage } from "@/types";
 import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel } from "./AdminOps";
 import "@/styles/admin.css";
 
@@ -561,7 +564,7 @@ function Products() {
   const admin = useAdmin();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("all");
-  const [editing, setEditing] = useState<CustomProduct | "new" | null>(null);
+  const [editing, setEditing] = useState<string | "new" | null>(null);
   const [stockFor, setStockFor] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const toggleSel = (id: string) => setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -626,6 +629,8 @@ function Products() {
                 <h4>{p.name}</h4>
                 <p className="ad-product-meta">
                   {formatPrice(p.price)} · {fa(p.colors.length)} رنگ · {fa(p.sizes.length)} سایز
+                  {(admin.complements[p.id]?.length ?? 0) > 0 && <> · {fa(admin.complements[p.id].length)} مکمل</>}
+                  {isCustom ? "" : admin.productEdits[p.id] ? " · ویرایش‌شده" : ""}
                 </p>
                 <div className="ad-stock-bar"><span style={{ width: `${Math.min(100, (stock / 60) * 100)}%` }} className={stock === 0 ? "is-out" : stock <= 12 ? "is-low" : ""} /></div>
                 <p className={cn("ad-stock-label", stock === 0 && "is-out", stock > 0 && stock <= 12 && "is-low")}>
@@ -633,12 +638,10 @@ function Products() {
                 </p>
               </div>
               <div className="ad-product-actions">
-                {isCustom && (
-                  <button type="button" className="ad-icon" title="ویرایش محصول" aria-label={`ویرایش ${p.name}`}
-                    onClick={() => setEditing(admin.customProducts.find((c) => c.id === p.id) ?? null)}>
-                    <FileText width={14} height={14} />
-                  </button>
-                )}
+                <button type="button" className="ad-icon" title="ویرایش محصول" aria-label={`ویرایش ${p.name}`}
+                  onClick={() => setEditing(p.id)}>
+                  <FileText width={14} height={14} />
+                </button>
                 <button type="button" className="ad-icon" title="موجودی واریانت‌ها" aria-label={`موجودی ${p.name}`} onClick={() => setStockFor(p.id)}>
                   <Boxes width={14} height={14} />
                 </button>
@@ -658,7 +661,13 @@ function Products() {
         {list.length === 0 && <Empty text="محصولی با این فیلتر پیدا نشد." />}
       </div>
 
-      {editing && <ProductForm initial={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <ProductForm
+          key={editing}
+          product={editing === "new" ? null : liveGetProduct(editing) ?? null}
+          onClose={() => setEditing(null)}
+        />
+      )}
       {stockFor && <StockModal productId={stockFor} onClose={() => setStockFor(null)} />}
     </>
   );
@@ -666,65 +675,132 @@ function Products() {
 
 /* ---------- product form (add / edit) ---------- */
 
-function ProductForm({ initial, onClose }: { initial: CustomProduct | null; onClose: () => void }) {
-  const [name, setName] = useState(initial?.name ?? "");
-  const [category, setCategory] = useState(initial?.category ?? "اکسسوری");
-  const [garment, setGarment] = useState(initial?.garment ?? "accessory");
-  const [lookId, setLookId] = useState(initial?.lookId ?? LOOKS[0].id);
-  const [crop, setCrop] = useState(initial?.crop ?? { cx: 0.5, cy: 0.4, zoom: 0.6 });
-  const [price, setPrice] = useState(initial?.price ?? 100);
-  const [compareAt, setCompareAt] = useState(initial?.compareAt ?? 0);
-  const [colors, setColors] = useState(initial?.colors ?? [{ id: "c1", name: "مشکی", hex: "#16130f" }]);
-  const [sizes, setSizes] = useState(initial?.sizes ?? [{ id: "one-size", label: "یک سایز" }]);
-  const [stock, setStock] = useState<Record<string, number>>(initial?.stock ?? { "c1:one-size": 10 });
-  const [err, setErr] = useState("");
+/** which garment kinds make a good pairing, used to float suggestions up */
+const COMPLEMENT_HINT: Record<GarmentKind, GarmentKind[]> = {
+  coat: ["knit", "tee", "trousers", "boot", "bag", "accessory"],
+  jacket: ["tee", "knit", "trousers", "skirt", "loafer", "bag"],
+  knit: ["trousers", "skirt", "coat", "boot", "bag", "accessory"],
+  tee: ["trousers", "skirt", "jacket", "sneaker", "loafer", "bag"],
+  dress: ["coat", "jacket", "heel", "boot", "bag", "accessory"],
+  skirt: ["knit", "tee", "jacket", "heel", "bag", "accessory"],
+  trousers: ["knit", "tee", "coat", "loafer", "boot", "bag"],
+  bag: ["coat", "dress", "trousers", "heel", "knit"],
+  loafer: ["trousers", "skirt", "coat", "bag", "knit"],
+  heel: ["dress", "skirt", "bag", "accessory", "coat"],
+  boot: ["trousers", "coat", "knit", "bag", "skirt"],
+  sneaker: ["trousers", "tee", "jacket", "bag"],
+  accessory: ["dress", "knit", "bag", "heel", "coat"],
+};
+
+const DEFAULT_CROP = { cx: 0.5, cy: 0.4, zoom: 0.6 };
+
+const stockMapOf = (p: CatalogProduct | null) => {
+  const out: Record<string, number> = {};
+  if (!p) return { "c1:one-size": 10 };
+  for (const c of p.colors) for (const s of p.sizes) out[`${c.id}:${s.id}`] = stockOf(p, c.id, s.id);
+  return out;
+};
+
+function ProductForm({ product, onClose }: { product: CatalogProduct | null; onClose: () => void }) {
+  const admin = useAdmin();
   const ops = useOps();
+  const custom = product ? admin.customProducts.find((c) => c.id === product.id) : undefined;
+
+  const [name, setName] = useState(product?.name ?? "");
+  const [category, setCategory] = useState(product?.category ?? "اکسسوری");
+  const [garment, setGarment] = useState<GarmentKind>(product?.garment ?? "accessory");
+  const [price, setPrice] = useState(product?.price ?? 100);
+  const [compareAt, setCompareAt] = useState(product?.compareAt ?? 0);
+  const [description, setDescription] = useState(product?.description ?? "");
+  const [colors, setColors] = useState(product?.colors ?? [{ id: "c1", name: "مشکی", hex: "#16130f" }]);
+  const [sizes, setSizes] = useState(product?.sizes ?? [{ id: "one-size", label: "یک سایز" }]);
+  const [stock, setStock] = useState<Record<string, number>>(() => stockMapOf(product));
+  const [images, setImages] = useState<ProductImage[]>(() => (product ? [...productImagesOf(product.id)] : []));
+  const [picked, setPicked] = useState<string[]>(() => (product ? [...complementsOf(product.id)] : []));
+  const [compQuery, setCompQuery] = useState("");
   const [customSize, setCustomSize] = useState("");
-  const [media, setMedia] = useState<Record<string, string[]>>(() => (initial ? (ops.colorMedia[initial.id] ?? {}) : {}));
-  const [activeColorId, setActiveColorId] = useState<string>(colors[0]?.id ?? "c1");
-  const [hover, setHover] = useState<{ hoverImage?: string; hoverVideo?: string }>(initial ? (ops.hoverMedia[initial.id] ?? {}) : {});
-  const mediaRef = useRef<HTMLInputElement>(null);
-  const hoverRef = useRef<HTMLInputElement>(null);
+  const [err, setErr] = useState("");
+
   const catSizeSet = sizeSetOf(ops.categories.find((c) => c.name === category)?.sizeSetId ?? ops.categories[0]?.sizeSetId ?? "");
   const poolSizes = catSizeSet?.sizes ?? ["XS", "S", "M", "L", "XL", "یک سایز"];
 
-  const addMedia = async (files: FileList | null, colorId: string) => {
-    if (!files?.length) return;
-    const urls: string[] = [];
-    for (const f of Array.from(files)) urls.push(await fileToDataUrl(f, 1200));
-    setMedia((m) => ({ ...m, [colorId]: [...(m[colorId] ?? []), ...urls] }));
-  };
-  const addHover = async (f: File | undefined) => {
-    if (!f) return;
-    const url = await fileToDataUrl(f, 1200);
-    setHover(f.type.startsWith("video/") ? { ...hover, hoverVideo: url } : { ...hover, hoverImage: url });
+  const catalogue = liveCatalog();
+  const hint = COMPLEMENT_HINT[garment] ?? [];
+  const rankOf = (g: GarmentKind) => (hint.includes(g) ? hint.indexOf(g) : 99);
+  const compCandidates = catalogue
+    .filter((p) => p.id !== product?.id)
+    .filter((p) => {
+      const q = compQuery.trim();
+      return !q || `${p.name} ${p.category}`.includes(q);
+    })
+    .sort((a, b) => rankOf(a.garment) - rankOf(b.garment) || a.name.localeCompare(b.name, "fa"));
+
+  const coverPreview = images.find((i) => i.role === "main")?.url ?? images.find((i) => i.role !== "hover")?.url;
+  const previewProduct: CatalogProduct = product ?? {
+    id: "preview",
+    name: name || "پیش‌نمایش",
+    category,
+    garment,
+    price,
+    compareAt: compareAt || undefined,
+    colors,
+    sizes,
+    stock,
+    crop: DEFAULT_CROP,
+    image: LOOKS[0].image,
+    aspect: LOOKS[0].aspect,
+    lookId: LOOKS[0].id,
+    lookName: "پیش‌نمایش",
+    lookSlug: LOOKS[0].id,
+    lookOrder: 0,
+    description,
+    material: "",
+    care: "",
+    fit: "",
+    origin: "",
   };
 
-  const preview = { id: "preview", name: name || "پیش‌نمایش", category, garment, price, compareAt: compareAt || undefined, colors, sizes, stock, image: LOOKS.find((l) => l.id === lookId)!.image, aspect: LOOKS.find((l) => l.id === lookId)!.aspect, crop } as never;
+  const removeColor = (index: number) => {
+    const gone = colors[index];
+    setColors(colors.filter((_, n) => n !== index));
+    if (gone) setImages((list) => list.map((img) => (img.colorId === gone.id ? { ...img, colorId: "*" } : img)));
+  };
 
   const save = () => {
     if (!name.trim()) { setErr("نام محصول را بنویس."); return; }
     if (!colors.length || !sizes.length) { setErr("حداقل یک رنگ و یک سایز لازم است."); return; }
-    const cp: CustomProduct = {
-      id: initial?.id ?? `cp-${uid()}`,
+    const id = product?.id ?? `cp-${uid()}`;
+    const payload = {
       name: name.trim(),
       category,
       garment,
-      lookId,
-      crop,
       price: Math.max(0, price),
       compareAt: compareAt > price ? compareAt : undefined,
+      description: description.trim() || undefined,
       colors,
       sizes,
-      stock: Object.fromEntries(Object.entries(stock).filter(([, v]) => v > 0)),
-      active: initial?.active ?? true,
-      featured: initial?.featured ?? false,
-      createdAt: initial?.createdAt ?? Date.now(),
+      // base products keep every variant (a zero is meaningful); new/custom ones only keep the positive ones
+      stock: product && !custom
+        ? { ...stock }
+        : Object.fromEntries(Object.entries(stock).filter(([, v]) => v > 0)),
     };
-    for (const [colorId, urls] of Object.entries(media)) setColorMedia(cp.id, colorId, urls);
-    if (hover.hoverImage || hover.hoverVideo) setHoverMedia(cp.id, hover);
-    if (initial) updateCustomProduct(initial.id, cp);
-    else addCustomProduct(cp);
+    if (custom) {
+      updateCustomProduct(custom.id, payload);
+    } else if (product) {
+      saveProductEdit(product.id, payload);
+    } else {
+      addCustomProduct({
+        ...payload,
+        id,
+        lookId: LOOKS[0].id,
+        crop: DEFAULT_CROP,
+        active: true,
+        featured: false,
+        createdAt: Date.now(),
+      });
+    }
+    setProductImages(id, images);
+    setComplements(id, picked);
     onClose();
   };
 
@@ -733,8 +809,8 @@ function ProductForm({ initial, onClose }: { initial: CustomProduct | null; onCl
       <div className="ad-modal is-wide" role="dialog" aria-modal="true" aria-label="فرم محصول">
         <header className="ad-modal-head">
           <div>
-            <h3>{initial ? "ویرایش محصول" : "افزودن محصول"}</h3>
-            <p>تصویر محصول از عکس رانوی برمی‌دارد؛ کادر را با اسلایدرها تنظیم کن.</p>
+            <h3>{product ? `ویرایش ${product.name}` : "افزودن محصول"}</h3>
+            <p>همهٔ فیلدها قابل ویرایش‌اند؛ تصاویر را در گالری بریز و برای هر عکس رنگ و نقشش را انتخاب کن.</p>
           </div>
           <button type="button" className="ad-icon" aria-label="بستن" onClick={onClose}><X width={16} height={16} /></button>
         </header>
@@ -749,7 +825,7 @@ function ProductForm({ initial, onClose }: { initial: CustomProduct | null; onCl
                 </select>
               </label>
               <label className="ad-field">نوع قطعه
-                <select className="ad-select" value={garment} onChange={(e) => setGarment(e.target.value as CustomProduct["garment"])}>
+                <select className="ad-select" value={garment} onChange={(e) => setGarment(e.target.value as GarmentKind)}>
                   {Object.entries(GARMENT_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </label>
@@ -758,13 +834,16 @@ function ProductForm({ initial, onClose }: { initial: CustomProduct | null; onCl
               <label className="ad-field">قیمت (یورو)<input className="ad-input" type="number" min={0} value={price} onChange={(e) => setPrice(Number(e.target.value) || 0)} /></label>
               <label className="ad-field">قیمت قبل از تخفیف (اختیاری)<input className="ad-input" type="number" min={0} value={compareAt || ""} onChange={(e) => setCompareAt(Number(e.target.value) || 0)} /></label>
             </div>
+            <label className="ad-field">توضیح کوتاه (اختیاری)
+              <textarea className="ad-input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+            </label>
 
             <p className="ad-field-label">رنگ‌ها</p>
             {colors.map((c, i) => (
               <div key={c.id} className="ad-color-row">
                 <input type="color" value={c.hex} aria-label={`رنگ ${i + 1}`} onChange={(e) => setColors(colors.map((x, n) => (n === i ? { ...x, hex: e.target.value } : x)))} />
                 <input className="ad-input" value={c.name} aria-label={`نام رنگ ${i + 1}`} onChange={(e) => setColors(colors.map((x, n) => (n === i ? { ...x, name: e.target.value } : x)))} />
-                <button type="button" className="ad-icon is-danger" aria-label="حذف رنگ" onClick={() => setColors(colors.filter((_, n) => n !== i))}><Trash2 width={13} height={13} /></button>
+                <button type="button" className="ad-icon is-danger" aria-label="حذف رنگ" onClick={() => removeColor(i)}><Trash2 width={13} height={13} /></button>
               </div>
             ))}
             <button type="button" className="ad-btn is-sm" onClick={() => setColors([...colors, { id: `c${uid()}`, name: "رنگ جدید", hex: "#8c4a2f" }])}><Plus width={13} height={13} /> رنگ</button>
@@ -805,57 +884,66 @@ function ProductForm({ initial, onClose }: { initial: CustomProduct | null; onCl
           </div>
 
           <div className="ad-form-col">
-            <p className="ad-field-label">منبع تصویر (از رانوی)</p>
-            <div className="ad-look-pick">
-              {LOOKS.map((l) => (
-                <button key={l.id} type="button" className={cn("ad-look-btn", lookId === l.id && "is-on")} onClick={() => setLookId(l.id)} aria-label={l.name}>
-                  <img src={l.image} alt="" />
-                </button>
-              ))}
-            </div>
+            <p className="ad-field-label">پیش‌نمایش</p>
             <div className="ad-form-preview">
-              <ProductThumb product={preview} className="w-full" />
-              <div className="ad-crop-sliders">
-                <label>نقطهٔ افقی<input type="range" min={0.2} max={0.8} step={0.02} value={crop.cx} onChange={(e) => setCrop({ ...crop, cx: Number(e.target.value) })} /></label>
-                <label>نقطهٔ عمودی<input type="range" min={0.05} max={0.95} step={0.02} value={crop.cy} onChange={(e) => setCrop({ ...crop, cy: Number(e.target.value) })} /></label>
-                <label>بزرگ‌نمایی<input type="range" min={0.2} max={1.4} step={0.05} value={crop.zoom} onChange={(e) => setCrop({ ...crop, zoom: Number(e.target.value) })} /></label>
+              <div className="ad-preview-thumb">
+                {coverPreview ? (
+                  <img src={resolveImg(coverPreview)} alt="" className="w-full rounded-[10px]" />
+                ) : (
+                  <ProductThumb product={previewProduct} className="w-full" />
+                )}
               </div>
             </div>
 
-            <p className="ad-field-label">تصاویر مخصوص هر رنگ</p>
-            <div className="ad-color-tabs">
-              {colors.map((c) => (
-                <button key={c.id} type="button" className={cn("ad-color-tab", activeColorId === c.id && "is-on")} onClick={() => setActiveColorId(c.id)}>
-                  <i style={{ background: c.hex }} /> {c.name}
-                  <span>{(media[c.id] ?? []).length.toLocaleString("fa-IR")}</span>
-                </button>
-              ))}
-            </div>
-            <div className="ad-upload-row">
-              <button type="button" className="ad-btn is-sm is-primary" onClick={() => mediaRef.current?.click()}><Upload width={13} height={13} /> آپلود برای رنگ انتخاب‌شده</button>
-              <input ref={mediaRef} type="file" accept="image/*" multiple hidden onChange={(e) => void addMedia(e.target.files, activeColorId)} />
-              <span className="ad-hint">اول گالری محصول همین تصاویر را نشان می‌دهد و بعد بقیهٔ رنگ‌ها.</span>
-            </div>
-            <div className="ad-img-grid">
-              {(media[activeColorId] ?? []).map((url, i) => (
-                <div key={i} className="ad-img-cell">
-                  <img src={resolveImg(url)} alt="" />
-                  <button type="button" className="ad-img-x" aria-label="حذف تصویر" onClick={() => setMedia((m) => ({ ...m, [activeColorId]: (m[activeColorId] ?? []).filter((_, n) => n !== i) }))}><Trash2 width={12} height={12} /></button>
-                </div>
-              ))}
-            </div>
+            <p className="ad-field-label">گالری تصاویر</p>
+            <ProductMediaEditor images={images} colors={colors} onChange={setImages} />
 
-            <p className="ad-field-label">رسانهٔ هاور کارت (تصویر یا ویدیوی کوتاه بی‌صدا)</p>
-            <div className="ad-upload-row">
-              <button type="button" className="ad-btn is-sm" onClick={() => hoverRef.current?.click()}><Upload width={13} height={13} /> آپلود</button>
-              <input ref={hoverRef} type="file" accept="image/*,video/mp4,video/webm" hidden onChange={(e) => void addHover(e.target.files?.[0])} />
-              {(hover.hoverImage || hover.hoverVideo) && <button type="button" className="ad-btn is-sm is-danger" onClick={() => setHover({})}><Trash2 width={13} height={13} /> حذف</button>}
+            <p className="ad-field-label" style={{ marginTop: 16 }}>کالاهای مکمل</p>
+            <div className="ad-complement-picked">
+              {picked.length === 0 && <span className="ad-hint">هنوز مکملی انتخاب نشده؛ از فهرست پایین اضافه کن.</span>}
+              {picked.map((id) => {
+                const p = catalogue.find((x) => x.id === id);
+                if (!p) return null;
+                return (
+                  <span key={id} className="ad-complement-chip">
+                    <ProductThumb product={p} className="w-[26px]" />
+                    <span>{p.name}</span>
+                    <button type="button" className="ad-complement-x" aria-label={`حذف ${p.name}`} onClick={() => setPicked(picked.filter((x) => x !== id))}>
+                      <X width={11} height={11} />
+                    </button>
+                  </span>
+                );
+              })}
             </div>
-            {(hover.hoverImage || hover.hoverVideo) && (
-              <div className="ad-hover-preview">{hover.hoverVideo ? <video src={hover.hoverVideo} muted loop autoPlay playsInline /> : <img src={resolveImg(hover.hoverImage!)} alt="" />}</div>
-            )}
+            <div className="ad-comp-search">
+              <Search width={13} height={13} />
+              <input className="ad-input" value={compQuery} onChange={(e) => setCompQuery(e.target.value)} placeholder="جست‌وجوی کالا برای مکمل…" aria-label="جست‌وجوی کالای مکمل" />
+            </div>
+            <div className="ad-complement-list">
+              {compCandidates.map((p) => {
+                const on = picked.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={cn("ad-complement-pick", on && "is-on")}
+                    aria-pressed={on}
+                    onClick={() => setPicked(on ? picked.filter((x) => x !== p.id) : [...picked, p.id])}
+                  >
+                    <ProductThumb product={p} className="w-[34px]" />
+                    <span className="ad-complement-name">
+                      <b>{p.name}</b>
+                      <small>{GARMENT_LABEL[p.garment]} · {formatPrice(p.price)}</small>
+                    </span>
+                    {on ? <Check width={13} height={13} /> : <Plus width={13} height={13} />}
+                  </button>
+                );
+              })}
+              {compCandidates.length === 0 && <p className="ad-hint">کالایی با این جست‌وجو پیدا نشد.</p>}
+            </div>
+            <p className="ad-hint">قطعه‌هایی که با این کالا ست می‌شوند؛ مثلاً برای پیراهن نارنجی: شلوار مشکی، شلوار سرمه‌ای، ساعت و کفش چرمی. در صفحهٔ محصول زیر «تکمیل استایل» نمایش داده می‌شوند.</p>
 
-            <p className="ad-field-label">موجودی اولیهٔ هر واریانت</p>
+            <p className="ad-field-label">موجودی هر واریانت</p>
             <div className="ad-stock-matrix">
               {colors.map((c) => (
                 <div key={c.id} className="ad-stock-matrix-row">
@@ -871,14 +959,19 @@ function ProductForm({ initial, onClose }: { initial: CustomProduct | null; onCl
         </div>
 
         <footer className="ad-modal-foot">
-          {initial && (
-            <button type="button" className="ad-btn is-danger" onClick={() => { removeCustomProduct(initial.id); onClose(); }}>
+          {custom && (
+            <button type="button" className="ad-btn is-danger" onClick={() => { removeCustomProduct(custom.id); onClose(); }}>
               <Trash2 width={13} height={13} /> حذف محصول
+            </button>
+          )}
+          {product && !custom && productEditOf(product.id) && (
+            <button type="button" className="ad-btn is-danger" onClick={() => { resetProductEdit(product.id); onClose(); }}>
+              <RotateCcw width={13} height={13} /> بازگرداندن به نسخهٔ اصلی
             </button>
           )}
           <div className="ad-actions-spacer" />
           <button type="button" className="ad-btn" onClick={onClose}>انصراف</button>
-          <button type="button" className="ad-btn is-primary" onClick={save}><Save width={13} height={13} /> {initial ? "ذخیرهٔ تغییرات" : "ایجاد محصول"}</button>
+          <button type="button" className="ad-btn is-primary" onClick={save}><Save width={13} height={13} /> {product ? "ذخیرهٔ تغییرات" : "ایجاد محصول"}</button>
         </footer>
       </div>
     </div>
