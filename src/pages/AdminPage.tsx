@@ -485,7 +485,7 @@ function Orders() {
         </div>
       )}
       <div className="ad-filters">
-        {(["all", "pending", "processing", "shipped", "done", "cancelled"] as const).map((f) => (
+        {(["all", "pending", "processing", "shipped", "done", "cancelled", "exception"] as const).map((f) => (
           <button key={f} type="button" className={cn("ad-chip", filter === f && "is-on")} onClick={() => setFilter(f)}>
             {f === "all" ? "همه" : ORDER_STATUS_LABEL[f]}
           </button>

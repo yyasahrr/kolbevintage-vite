@@ -181,10 +181,11 @@ export async function buildQuote(params: {
       combinable: boolean;
       usage_limit: number | null;
       used_count: number;
+      max_discount: string | null;
       expired: boolean;
       started: boolean;
     }>(
-      `select code, kind, value, min_subtotal, combinable, usage_limit, used_count,
+      `select code, kind, value, min_subtotal, combinable, usage_limit, used_count, max_discount,
               (ends_at is not null and ends_at < now()) as expired,
               (starts_at is not null and starts_at > now()) as started
          from coupons where code = $1 and active`,
@@ -197,7 +198,10 @@ export async function buildQuote(params: {
     if (coupon.usage_limit !== null && coupon.used_count >= coupon.usage_limit) {
       throw new CommerceError("ظرفیت استفاده از این کد تخفیف تمام شده است.", 400, "coupon_exhausted");
     }
-    if (subtotal < Number(coupon.min_subtotal)) {
+    // the minimum is compared against the same base the discount is applied to,
+    // otherwise a running campaign and the coupon disagree about the basket value
+    const couponBase = round2(Math.max(0, subtotal - campaignDiscount));
+    if (couponBase < Number(coupon.min_subtotal)) {
       throw new CommerceError(
         `این کد برای خرید بالای ${Number(coupon.min_subtotal).toLocaleString("fa-IR")} فعال است.`,
         400,
@@ -224,11 +228,13 @@ export async function buildQuote(params: {
     }
 
     const value = Number(coupon.value);
+    const maxDiscount = coupon.max_discount === null ? null : Number(coupon.max_discount);
     couponDiscount =
       coupon.kind === "percent"
-        ? round2(((subtotal - campaignDiscount) * value) / 100)
-        : round2(Math.min(value, subtotal - campaignDiscount));
-    couponDiscount = round2(Math.max(0, couponDiscount));
+        ? round2((couponBase * Math.min(100, Math.max(0, value))) / 100)
+        : round2(Math.min(value, couponBase));
+    if (maxDiscount !== null && couponDiscount > maxDiscount) couponDiscount = round2(maxDiscount);
+    couponDiscount = round2(Math.min(couponBase, Math.max(0, couponDiscount)));
     if (couponDiscount > 0) {
       discounts.push({ id: code, name: `کد تخفیف ${code}`, kind: coupon.kind, amount: couponDiscount, source: "coupon" });
     }

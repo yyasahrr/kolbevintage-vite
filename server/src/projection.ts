@@ -3,6 +3,7 @@ import { config } from "./config";
 import { withTransaction } from "./db";
 import { syncPromotions } from "./commerce/promotions";
 import { syncVariants } from "./commerce/variants";
+import { recordAudit } from "./commerce/audit";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Doc = Record<string, any>;
@@ -134,6 +135,12 @@ export async function syncProjection(admin: Doc, ops: Doc) {
   }
 
   await withTransaction(async (client) => {
+    const previous = await client.query<{ id: string; price: string }>(
+      "select id, price from products where id = any($1::text[])",
+      [rows.map((r) => r.id)],
+    );
+    const previousPrice = new Map(previous.rows.map((row) => [row.id, Number(row.price)]));
+
     for (const r of rows) {
       await client.query(
         `insert into products (
@@ -160,6 +167,29 @@ export async function syncProjection(admin: Doc, ops: Doc) {
         ],
       );
     }
+    // every catalogue price change keeps its own history: the order snapshot is
+    // immutable, but we still need to prove what the shelf price was and when it moved
+    for (const r of rows) {
+      const before = previousPrice.get(r.id);
+      const after = Number(r.price);
+      if (before === undefined || before === after) continue;
+      await client.query(
+        "insert into price_history (product_id, old_price, new_price, actor, source) values ($1,$2,$3,$4,'admin_state_doc')",
+        [r.id, before, after, "admin"],
+      );
+      await recordAudit(
+        {
+          actor: "admin",
+          action: "catalog.price_changed",
+          targetType: "product",
+          targetId: r.id,
+          before: { price: before },
+          after: { price: after },
+        },
+        client,
+      );
+    }
+
     await client.query("delete from products where not (id = any($1::text[]))", [ids]);
 
     await client.query("delete from product_images");
@@ -183,9 +213,7 @@ export async function syncProjection(admin: Doc, ops: Doc) {
       await client.query(
         `insert into orders (id, created_at, customer, email, status, total, data)
          values ($1, $2, $3, $4, $5, $6, $7)
-         on conflict (id) do update set
-           customer = excluded.customer, email = excluded.email, status = excluded.status,
-           total = excluded.total, data = excluded.data`,
+         on conflict (id) do nothing`,
         [o.id, new Date(o.at ?? Date.now()), o.customer ?? null, o.email ?? null, o.status ?? null, num(o.total), JSON.stringify(o)],
       );
     }

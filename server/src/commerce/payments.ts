@@ -343,12 +343,35 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
 
     const consumed = await consumeReservations(client, checkout.id);
     const late = !consumed.ok;
-    const status: OrderStatus = late ? "exception" : "paid";
-    const exceptionReason = late
-      ? "پرداخت پس از آزادسازی رزرو موجودی تأیید شد؛ نیازمند بررسی اپراتور مالی (بدون ارسال خودکار)."
-      : null;
 
     const quote = checkout.quote as Quote;
+
+    /* ---------- coupon capacity is consumed exactly once, under a lock ----
+       Capacity used to be checked at quote time and never counted, so a
+       single-use code stayed reusable forever. The increment happens here,
+       in the same transaction as the order, and only for a successful sale.
+       If the capacity disappeared between quote and payment the money is
+       already captured, so the order is created as an exception for a human
+       instead of silently granting an unbudgeted discount. */
+    let couponProblem: string | null = null;
+    const couponCode = String(checkout.coupon_code ?? quote.couponCode ?? "").trim().toUpperCase();
+    if (couponCode && !late) {
+      const coupon = await client.query<{ used_count: number; usage_limit: number | null }>(
+        `update coupons set used_count = used_count + 1, updated_at = now()
+          where code = $1 and active and (usage_limit is null or used_count < usage_limit)
+          returning used_count, usage_limit`,
+        [couponCode],
+      );
+      if ((coupon.rowCount ?? 0) === 0) {
+        couponProblem = `کد تخفیف ${couponCode} بین ثبت سفارش و پرداخت از ظرفیت خارج شد؛ پرداخت ثبت شد و سفارش نیازمند بررسی مالی است.`;
+      }
+    }
+
+    const needsReview = late || Boolean(couponProblem);
+    const status: OrderStatus = needsReview ? "exception" : "paid";
+    const exceptionReason = late
+      ? "پرداخت پس از آزادسازی رزرو موجودی تأیید شد؛ نیازمند بررسی اپراتور مالی (بدون ارسال خودکار)."
+      : couponProblem;
     const order = await insertOrder(client, {
       checkout,
       quote,
@@ -366,7 +389,7 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
       [current.id, order.id, outcome.providerRef, JSON.stringify(outcome.raw)],
     );
     // cashback only exists for real paid orders, never for exceptions
-    const earned = late
+    const earned = needsReview
       ? null
       : await recordCashback(client, {
           orderId: order.id,
@@ -377,13 +400,13 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
 
     await client.query(
       "update checkout_sessions set status = $2, updated_at = now() where id = $1",
-      [checkout.id, late ? "exception" : "completed"],
+      [checkout.id, needsReview ? "exception" : "completed"],
     );
     if (checkout.cart_id) {
       await client.query("update carts set status = 'converted', updated_at = now() where id = $1", [checkout.cart_id]);
     }
 
-    if (late) {
+    if (needsReview) {
       await enqueue(
         client,
         "order.exception",

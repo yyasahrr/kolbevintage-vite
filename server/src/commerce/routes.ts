@@ -51,6 +51,7 @@ import {
   type AdjustmentRow,
 } from "./refunds";
 import { loadCommerceSettings, saveCommerceSettings, type CommerceSettings } from "./settings";
+import { diffSettings, listAudit, recordAudit } from "./audit";
 import { productVariants, publicVariant } from "./variants";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -337,6 +338,18 @@ export async function commerceRoutes(app: FastifyInstance) {
     return { email: session.subject, ...balance, transactions };
   });
 
+  app.get<{ Querystring: { targetType?: string; targetId?: string; limit?: string } }>(
+    "/api/commerce/admin/audit",
+    async (req) => {
+      await requireAdminSession(req);
+      return listAudit({
+        targetType: req.query.targetType,
+        targetId: req.query.targetId,
+        limit: req.query.limit ? Number(req.query.limit) : 100,
+      });
+    },
+  );
+
   app.get("/api/commerce/admin/cashback", async (req) => {
     await requireAdminSession(req);
     return cashbackOverview();
@@ -348,10 +361,10 @@ export async function commerceRoutes(app: FastifyInstance) {
   });
 
   app.put<{ Body: Partial<CommerceSettings> }>("/api/commerce/admin/settings", async (req) => {
-    await requireAdminSession(req);
+    const session = await requireAdminSession(req);
+    const current = await loadCommerceSettings(true);
     // turning live money movement on is reserved for the superadmin subject
     if (req.body && "liveRefundsEnabled" in req.body) {
-      const current = await loadCommerceSettings(true);
       if (Boolean(req.body.liveRefundsEnabled) !== current.liveRefundsEnabled) {
         await requireSuperadmin(req);
       }
@@ -367,7 +380,23 @@ export async function commerceRoutes(app: FastifyInstance) {
       if (req.body && key in req.body) (patch as Record<string, unknown>)[key] = req.body[key];
     }
     if (patch.cashbackTiers) patch.cashbackTiers = normalizeTiers(patch.cashbackTiers);
-    return saveCommerceSettings(patch);
+    const saved = await saveCommerceSettings(patch);
+    const changes = diffSettings(current as unknown as Record<string, unknown>, patch as Record<string, unknown>);
+    if (Object.keys(changes).length > 0) {
+      // the BNPL master switch is a financial control: it gets its own action name
+      await recordAudit({
+        actor: actorOf(session),
+        action: "bnpl4Enabled" in changes ? "settings.bnpl_toggle" : "settings.update",
+        targetType: "commerce_settings",
+        targetId: "store",
+        before: Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, v.from])),
+        after: Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, v.to])),
+        reason: typeof (req.body as { reason?: string } | undefined)?.reason === "string"
+          ? (req.body as { reason?: string }).reason
+          : null,
+      });
+    }
+    return saved;
   });
 
   /** elevation to the protected superadmin subject (separate passcode) */
@@ -451,12 +480,26 @@ export async function commerceRoutes(app: FastifyInstance) {
     "/api/commerce/admin/inventory/adjustments/:id",
     async (req) => {
       const session = await requireAdminSession(req);
-      return decideAdjustment({
+      const before = await query<{ status: string; delta: number; variant_id: string }>(
+        "select status, delta, variant_id from inventory_adjustments where id = $1",
+        [req.params.id],
+      );
+      const result = await decideAdjustment({
         id: req.params.id,
         decision: req.body?.decision === "reject" ? "reject" : "approve",
         actor: actorOf(session),
         note: req.body?.note,
       });
+      await recordAudit({
+        actor: actorOf(session),
+        action: `stock_adjustment.${req.body?.decision === "reject" ? "reject" : "approve"}`,
+        targetType: "inventory_adjustment",
+        targetId: req.params.id,
+        before: before.rows[0] ? { status: before.rows[0].status, delta: before.rows[0].delta } : null,
+        after: { status: result.adjustment.status, approvedBy: result.adjustment.approvedBy },
+        reason: typeof req.body?.note === "string" ? req.body.note : null,
+      });
+      return result;
     },
   );
 
@@ -523,12 +566,26 @@ export async function commerceRoutes(app: FastifyInstance) {
     "/api/commerce/admin/refunds/:id",
     async (req) => {
       const session = await requireSuperadmin(req);
-      return decideRefund({
+      const before = await query<{ status: string; amount: string; order_id: string }>(
+        "select status, amount, order_id from refunds where id = $1",
+        [req.params.id],
+      );
+      const result = await decideRefund({
         refundId: req.params.id,
         decision: req.body?.decision === "reject" ? "reject" : "approve",
         actor: actorOf(session),
         note: req.body?.note,
       });
+      await recordAudit({
+        actor: actorOf(session),
+        action: `refund.${req.body?.decision === "reject" ? "reject" : "approve"}`,
+        targetType: "refund",
+        targetId: req.params.id,
+        before: before.rows[0] ? { status: before.rows[0].status, amount: Number(before.rows[0].amount) } : null,
+        after: { status: result.refund?.status ?? null, orderId: before.rows[0]?.order_id ?? null },
+        reason: typeof req.body?.note === "string" ? req.body.note : null,
+      });
+      return result;
     },
   );
 

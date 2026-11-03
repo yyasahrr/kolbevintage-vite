@@ -229,6 +229,9 @@ create table if not exists coupons (
   updated_at timestamptz not null default now()
 );
 
+-- additive: percent coupons need a hard ceiling (no 100% giveaway)
+alter table coupons add column if not exists max_discount numeric(12, 2);
+
 create table if not exists checkout_sessions (
   id text primary key,
   cart_id text,
@@ -370,3 +373,46 @@ create unique index if not exists cashback_earn_uniq on cashback_ledger (order_i
 create unique index if not exists cashback_reversal_uniq on cashback_ledger (ref_id) where kind = 'reversal';
 create index if not exists cashback_ledger_email_idx on cashback_ledger (customer_email, created_at desc);
 create index if not exists cashback_ledger_order_idx on cashback_ledger (order_id);
+
+/* =====================================================================
+   Audit trail — append-only. Every privileged money/stock/catalog action
+   writes actor + before + after in the same transaction as the change.
+   UPDATE/DELETE are rejected by a trigger so history cannot be rewritten.
+   ===================================================================== */
+create table if not exists audit_events (
+  id bigserial primary key,
+  at timestamptz not null default now(),
+  actor text not null,
+  action text not null,
+  target_type text not null,
+  target_id text,
+  before jsonb,
+  after jsonb,
+  reason text,
+  request_id text
+);
+create index if not exists audit_events_at_idx on audit_events (at desc);
+create index if not exists audit_events_target_idx on audit_events (target_type, target_id);
+
+create or replace function kv_audit_append_only() returns trigger as $$
+begin
+  raise exception 'audit_events is append-only';
+end;
+$$ language plpgsql;
+
+drop trigger if exists audit_events_append_only on audit_events;
+create trigger audit_events_append_only
+  before update or delete on audit_events
+  for each row execute function kv_audit_append_only();
+
+-- every catalogue price change keeps its history; invoices keep their own snapshot
+create table if not exists price_history (
+  id bigserial primary key,
+  at timestamptz not null default now(),
+  product_id text not null,
+  old_price numeric(10, 2),
+  new_price numeric(10, 2) not null,
+  actor text,
+  source text not null default 'admin'
+);
+create index if not exists price_history_product_idx on price_history (product_id, at desc);

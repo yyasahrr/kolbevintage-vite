@@ -31,6 +31,42 @@ interface CommerceSettings {
   superadmins: string[];
 }
 
+interface CommerceOrderLine {
+  id: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  sizeLabel: string;
+  colorName: string;
+  refundedQuantity: number;
+}
+
+interface CommerceOrder {
+  id: string;
+  createdAt: string;
+  status: string;
+  paymentStatus: string;
+  fulfillmentStatus: string;
+  exceptionReason: string | null;
+  customer: string | null;
+  email: string | null;
+  total: number;
+  currency: string;
+  lines: CommerceOrderLine[];
+}
+
+interface AuditEntry {
+  id: string;
+  at: string;
+  actor: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  before: unknown;
+  after: unknown;
+  reason: string | null;
+}
+
 interface Refund {
   id: string;
   orderId: string;
@@ -102,6 +138,9 @@ export function CommercePanel() {
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [cashback, setCashback] = useState<CashbackOverview | null>(null);
+  const [orders, setOrders] = useState<CommerceOrder[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [skuPick, setSkuPick] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [superCode, setSuperCode] = useState("");
@@ -109,16 +148,20 @@ export function CommercePanel() {
 
   const load = useCallback(async () => {
     try {
-      const [s, r, a, c] = await Promise.all([
+      const [s, r, a, c, o, log] = await Promise.all([
         api.get<CommerceSettings>("/api/commerce/admin/settings"),
         api.get<Refund[]>("/api/commerce/admin/refunds"),
         api.get<Adjustment[]>("/api/commerce/admin/inventory/adjustments"),
         api.get<CashbackOverview>("/api/commerce/admin/cashback"),
+        api.get<CommerceOrder[]>("/api/commerce/orders?all=1&limit=50"),
+        api.get<AuditEntry[]>("/api/commerce/admin/audit?limit=50"),
       ]);
       setSettings(s);
       setRefunds(r);
       setAdjustments(a);
       setCashback(c);
+      setOrders(o);
+      setAudit(log);
     } catch (error) {
       setMessage({ ok: false, text: error instanceof Error ? error.message : "خواندن تنظیمات ناموفق بود." });
     }
@@ -171,6 +214,37 @@ export function CommercePanel() {
       await load();
     } catch (error) {
       setMessage({ ok: false, text: error instanceof Error ? error.message : "عملیات ناموفق بود." });
+    }
+  };
+
+  /**
+   * The fulfilment lifecycle lives on the server: picking needs the scanned
+   * SKU, packing needs an explicit confirmation, shipping and delivery move the
+   * order forward. The panel is only a caller here — it can never invent a
+   * status jump, and every step is recorded in the audit trail.
+   */
+  const advance = async (id: string, action: "picking" | "packing" | "ship" | "deliver") => {
+    try {
+      const sku = skuPick[id];
+      if (action === "picking" && !sku) {
+        setMessage({ ok: false, text: "برای برداشت، اول SKU را انتخاب کن." });
+        return;
+      }
+      await api.post(`/api/commerce/orders/${id}/${action}`, action === "picking" ? { sku } : { confirm: true });
+      setMessage({ ok: true, text: "وضعیت سفارش به‌روز شد." });
+      await load();
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "تغییر وضعیت ناموفق بود." });
+    }
+  };
+
+  const cancelOrder = async (id: string) => {
+    try {
+      await api.post(`/api/commerce/orders/${id}/cancel`, { reason: "cancelled in admin" });
+      setMessage({ ok: true, text: "سفارش لغو شد و موجودی آزاد شد." });
+      await load();
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "لغو سفارش ناموفق بود." });
     }
   };
 
@@ -611,6 +685,125 @@ export function CommercePanel() {
                           تأیید
                         </button>
                       )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="سفارش‌های سرور — چرخهٔ پرداخت و ارسال">
+        {orders.length === 0 ? (
+          <p className="ad-hint">هنوز سفارشی از مسیر تجارت ثبت نشده است.</p>
+        ) : (
+          <div className="ad-table-wrap">
+            <table className="ad-table">
+              <thead>
+                <tr>
+                  <th>شناسه</th>
+                  <th>مشتری</th>
+                  <th>مبلغ</th>
+                  <th>وضعیت</th>
+                  <th>اقلام</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map((o) => (
+                  <tr key={o.id}>
+                    <td dir="ltr">{o.id}</td>
+                    <td dir="ltr">{o.email ?? o.customer ?? "—"}</td>
+                    <td>{money(o.total)}</td>
+                    <td>
+                      {o.status === "exception" ? (
+                        <span className="ad-pill is-pending" title={o.exceptionReason ?? undefined}>
+                          استثنا — بررسی مالی
+                        </span>
+                      ) : (
+                        o.status
+                      )}
+                    </td>
+                    <td>{o.lines.reduce((n, l) => n + l.quantity, 0)}</td>
+                    <td>
+                      <div className="ad-actions" style={{ flexWrap: "wrap", gap: 6 }}>
+                        {(o.status === "paid" || (o.status === "preparing" && o.fulfillmentStatus !== "packed")) && (
+                          <>
+                            <select
+                              className="ad-input"
+                              value={skuPick[o.id] ?? ""}
+                              onChange={(e) => setSkuPick((m) => ({ ...m, [o.id]: e.target.value }))}
+                            >
+                              <option value="">SKU را انتخاب کن</option>
+                              {o.lines.map((l) => (
+                                <option key={l.id} value={l.sku}>
+                                  {l.sku} — {l.name} ({l.colorName}/{l.sizeLabel})
+                                </option>
+                              ))}
+                            </select>
+                            <button type="button" className="ad-btn is-sm" onClick={() => void advance(o.id, "picking")}>
+                              برداشت
+                            </button>
+                          </>
+                        )}
+                        {(o.status === "paid" || o.status === "preparing") && (
+                          <button type="button" className="ad-btn is-sm" onClick={() => void advance(o.id, "packing")}>
+                            بسته‌بندی
+                          </button>
+                        )}
+                        {(o.status === "paid" || o.status === "preparing") && (
+                          <button type="button" className="ad-btn is-sm" onClick={() => void advance(o.id, "ship")}>
+                            ارسال
+                          </button>
+                        )}
+                        {o.status !== "paid" && (
+                          <span className="ad-hint">مرحلهٔ جاری: {o.fulfillmentStatus}</span>
+                        )}
+                        {o.status === "shipped" && (
+                          <button type="button" className="ad-btn is-sm" onClick={() => void advance(o.id, "deliver")}>
+                            تحویل
+                          </button>
+                        )}
+                        {["paid", "preparing"].includes(o.status) && (
+                          <button type="button" className="ad-btn is-sm is-danger" onClick={() => void cancelOrder(o.id)}>
+                            لغو
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="ردپای تغییرات (Audit)">
+        {audit.length === 0 ? (
+          <p className="ad-hint">هنوز تغییری ثبت نشده است.</p>
+        ) : (
+          <div className="ad-table-wrap">
+            <table className="ad-table">
+              <thead>
+                <tr>
+                  <th>زمان</th>
+                  <th>کاربر</th>
+                  <th>عمل</th>
+                  <th>هدف</th>
+                  <th>قبل → بعد</th>
+                </tr>
+              </thead>
+              <tbody>
+                {audit.map((row) => (
+                  <tr key={row.id}>
+                    <td dir="ltr">{new Date(row.at).toLocaleString("fa-IR")}</td>
+                    <td dir="ltr">{row.actor}</td>
+                    <td dir="ltr">{row.action}</td>
+                    <td dir="ltr">{row.targetId ?? row.targetType}</td>
+                    <td dir="ltr" style={{ fontSize: 11, maxWidth: 320, wordBreak: "break-all" }}>
+                      {JSON.stringify(row.before)} → {JSON.stringify(row.after)}
                     </td>
                   </tr>
                 ))}

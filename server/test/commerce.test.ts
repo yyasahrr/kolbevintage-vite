@@ -182,7 +182,8 @@ beforeEach(async () => {
      delete from payment_attempts; delete from checkout_sessions; delete from cart_lines; delete from carts;
      delete from stock_reservations; delete from inventory_movements; delete from inventory_adjustments;
      delete from outbox_events; delete from price_rules where id like 'test-%';
-     update product_variants set on_hand = last_catalog_qty, quarantined = 0;`,
+     update product_variants set on_hand = last_catalog_qty, quarantined = 0;
+     update coupons set used_count = 0;`,
   );
   const settings = await import("../src/commerce/settings");
   await settings.saveCommerceSettings({
@@ -311,6 +312,140 @@ test("a coupon is refused when an active campaign is already applied", async () 
   const quote = await client.post(`/api/commerce/checkout/${id}/quote`, { couponCode: "VELOURS10" });
   assert.equal(quote.status, 409);
   assert.equal(quote.body.code, "coupon_not_combinable");
+});
+
+/* ---------------------------------------------------------------------
+   Coupon capacity, coupon ceiling, audit trail, legacy order write path.
+   --------------------------------------------------------------------- */
+
+test("coupon capacity is consumed once and the last unit cannot be sold twice", async () => {
+  const variantId = await setStock(SKU, 5);
+  await query(
+    `insert into coupons (code, kind, value, min_subtotal, combinable, usage_limit, used_count, active)
+     values ('ONEUSE', 'percent', 10, 0, false, 1, 0, true)
+     on conflict (code) do update set kind = 'percent', value = 10, min_subtotal = 0,
+       combinable = false, usage_limit = 1, used_count = 0, max_discount = null, active = true`,
+  );
+
+  const first = await startCheckout(makeClient(), [{ variantId, quantity: 1 }], { couponCode: "ONEUSE" });
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  assert.ok(first.body.checkout.quote.couponDiscount > 0);
+
+  const pay = await first.body.checkout.id;
+  const attempt = await makeClient().post(`/api/commerce/checkout/${pay}/pay`, { method: "online" });
+  assert.equal(attempt.status, 200, JSON.stringify(attempt.body));
+  const settled = await makeClient().post(`/api/commerce/payments/${attempt.body.attempt.id}/simulate`, {
+    result: "success",
+  });
+  assert.equal(settled.body.status, "settled", JSON.stringify(settled.body));
+
+  const after = await query("select used_count, usage_limit from coupons where code = 'ONEUSE'");
+  assert.equal(Number(after.rows[0].used_count), 1, "a paid order must consume one unit of capacity");
+
+  const second = await startCheckout(makeClient(), [{ variantId, quantity: 1 }], { couponCode: "ONEUSE" });
+  assert.equal(second.status, 400, JSON.stringify(second.body));
+  assert.equal(second.body.code, "coupon_exhausted");
+});
+
+test("a percent coupon never exceeds its max_discount or the payable subtotal", async () => {
+  const variantId = await setStock(SKU, 3);
+  await query(
+    `insert into coupons (code, kind, value, min_subtotal, combinable, usage_limit, used_count, max_discount, active)
+     values ('CAP5', 'percent', 80, 0, false, null, 0, 5, true)
+     on conflict (code) do update set kind = 'percent', value = 80, max_discount = 5, active = true, used_count = 0`,
+  );
+  const checkout = await startCheckout(makeClient(), [{ variantId, quantity: 1 }], { couponCode: "CAP5" });
+  assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
+  const quote = checkout.body.checkout.quote;
+  assert.equal(quote.couponDiscount, 5, "a 80% coupon must be capped at its configured ceiling");
+  assert.ok(quote.grandTotal >= quote.shippingTotal, "the basket can never go negative");
+  await query("delete from coupons where code = 'CAP5'");
+});
+
+test("the minimum-spend rule uses the same base as the discount", async () => {
+  const variantId = await setStock(SKU, 3);
+  const price = await query("select p.price from product_variants v join products p on p.id = v.product_id where v.id = $1", [variantId]);
+  const unit = Number(price.rows[0].price);
+  await query(
+    `insert into coupons (code, kind, value, min_subtotal, combinable, usage_limit, used_count, active)
+     values ('MINX', 'amount', 1, $1, false, null, 0, true)
+     on conflict (code) do update set kind = 'amount', value = 1, min_subtotal = $1, used_count = 0, active = true`,
+    [unit + 1],
+  );
+  const checkout = await startCheckout(makeClient(), [{ variantId, quantity: 1 }], { couponCode: "MINX" });
+  assert.equal(checkout.status, 400, JSON.stringify(checkout.body));
+  assert.equal(checkout.body.code, "coupon_min_subtotal");
+  await query("delete from coupons where code = 'MINX'");
+});
+
+test("the legacy order endpoint is not writable from the storefront", async () => {
+  const anonymous = await makeClient().post("/api/orders", {
+    lines: [{ name: "جعل", price: 1 }],
+    total: 1,
+    status: "paid",
+  });
+  assert.equal(anonymous.status, 401, JSON.stringify(anonymous.body));
+
+  const admin = await adminClient();
+  const manual = await admin.post("/api/orders", { lines: [{ name: "سفارش تلفنی", price: 10 }], total: 10 });
+  assert.equal(manual.status, 200, JSON.stringify(manual.body));
+  const audit = await admin.get("/api/commerce/admin/audit?targetType=order&limit=10");
+  assert.ok(audit.body.some((row: any) => row.action === "order.legacy_create"), "manual entry must be audited");
+
+  // a commerce order can no longer be moved by a free-text status write
+  const variantId = await setStock(SKU, 2);
+  const { settled } = await payAndSettle(makeClient(), [{ variantId, quantity: 1 }]);
+  const blocked = await admin.patch(`/api/orders/${settled.orderId}`, { status: "done" });
+  assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
+  assert.equal(blocked.body.code, "commerce_order_status_locked");
+});
+
+test("settings changes are audited with before and after, and the trail is append-only", async () => {
+  const admin = await adminClient();
+  const saved = await admin.put("/api/commerce/admin/settings", { reservationHoldMinutes: 11 });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+
+  const audit = await admin.get("/api/commerce/admin/audit?targetType=commerce_settings&limit=20");
+  const entry = audit.body.find((row: any) => row.after?.reservationHoldMinutes === 11);
+  assert.ok(entry, "the settings change must appear in the audit trail");
+  assert.equal(entry.before.reservationHoldMinutes, 10);
+  assert.equal(entry.action, "settings.update");
+
+  const toggle = await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: true });
+  assert.equal(toggle.status, 200, JSON.stringify(toggle.body));
+  const afterToggle = await admin.get("/api/commerce/admin/audit?targetType=commerce_settings&limit=20");
+  const bnpl = afterToggle.body.find((row: any) => row.action === "settings.bnpl_toggle");
+  assert.ok(bnpl, "the BNPL master switch gets its own audit action");
+  assert.equal(bnpl.before.bnpl4Enabled, false);
+  assert.equal(bnpl.after.bnpl4Enabled, true);
+
+  await assert.rejects(
+    () => query("update audit_events set actor = 'rewritten' where id = $1", [entry.id]),
+    /append-only/,
+  );
+
+  await admin.put("/api/commerce/admin/settings", { reservationHoldMinutes: 10, bnpl4Enabled: false });
+});
+
+test("an exception order is stored with its own status instead of looking pending", async () => {
+  const variantId = await setStock(SKU, 1);
+  const client = makeClient();
+  const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
+  assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
+  const checkoutId = checkout.body.checkout.id;
+  const pay = await client.post(`/api/commerce/checkout/${checkoutId}/pay`, { method: "online" });
+  assert.equal(pay.status, 200, JSON.stringify(pay.body));
+
+  // the hold dies before the gateway confirms: money captured, stock gone
+  await query("update stock_reservations set status = 'expired' where checkout_id = $1", [checkoutId]);
+  const settled = await client.post(`/api/commerce/payments/${pay.body.attempt.id}/simulate`, { result: "success" });
+  assert.equal(settled.body.status, "settled", JSON.stringify(settled.body));
+
+  const row = await query("select status, data->>'status' as admin_status from orders where id = $1", [
+    settled.body.orderId,
+  ]);
+  assert.equal(row.rows[0].status, "exception");
+  assert.equal(row.rows[0].admin_status, "exception", "the admin document must keep the exception bucket");
 });
 
 test("a duplicated payment callback settles once and creates one order", async () => {

@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { query } from "../db";
 import { requireAdmin } from "../sessions";
+import { recordAudit } from "../commerce/audit";
+import { actorOf, requireAdminSession } from "../commerce/auth";
 
 interface ProductRow {
   id: string;
@@ -116,7 +118,13 @@ export async function catalogRoutes(app: FastifyInstance) {
     return rows.rows.map((r) => r.data);
   });
 
-  /** checkout: the storefront posts the finished order (id comes from the client) */
+  /**
+   * Legacy manual order entry. The storefront must never call this: an order
+   * that did not come from the commerce checkout has no payment attempt, no
+   * reservation and no lines, so it can never be paid or fulfilled correctly.
+   * It stays available to an authenticated admin (phone orders) and every row
+   * it creates is written to the audit trail.
+   */
   app.post<{
     Body: {
       id?: string;
@@ -128,6 +136,9 @@ export async function catalogRoutes(app: FastifyInstance) {
       lines?: unknown[];
     };
   }>("/api/orders", async (req, reply) => {
+    // a real admin session, not the optional dev guard: this endpoint must never
+    // be reachable by the storefront
+    const session = await requireAdminSession(req);
     const body = req.body ?? {};
     const lines = Array.isArray(body.lines) ? body.lines : [];
     if (lines.length === 0) return reply.code(400).send({ error: "سبد خرید خالی است." });
@@ -142,18 +153,46 @@ export async function catalogRoutes(app: FastifyInstance) {
          total = excluded.total, data = excluded.data`,
       [id, new Date(at), body.customer ?? null, body.email ?? null, body.status ?? "pending", Number(body.total) || 0, JSON.stringify(record)],
     );
+    await recordAudit({
+      actor: actorOf(session),
+      action: "order.legacy_create",
+      targetType: "order",
+      targetId: id,
+      after: { status: body.status ?? "pending", total: Number(body.total) || 0, lines: lines.length },
+      reason: "manual order entry outside the checkout flow",
+    });
     return { ok: true, id };
   });
 
   app.patch<{ Params: { id: string }; Body: { status?: string } }>("/api/orders/:id", async (req, reply) => {
-    await requireAdmin(req);
+    const session = await requireAdminSession(req);
     const status = String(req.body?.status ?? "").trim();
     if (!status) return reply.code(400).send({ error: "وضعیت لازم است." });
+
+    // commerce orders move through the payment/fulfilment state machine only;
+    // a free-text status write here would bypass stock, audit and shipping rules
+    const commerce = await query<{ id: string }>(
+      "select order_id as id from order_lines where order_id = $1 limit 1",
+      [req.params.id],
+    );
+    if (commerce.rowCount) {
+      return reply.code(409).send({
+        error: "این سفارش از مسیر تجارت ثبت شده؛ وضعیتش را فقط از مسیر پرداخت/انبار تغییر بده.",
+        code: "commerce_order_status_locked",
+      });
+    }
     const res = await query<{ data: unknown }>(
       "update orders set status = $1, data = jsonb_set(data, '{status}', to_jsonb($1::text)) where id = $2 returning data",
       [status, req.params.id],
     );
     if (!res.rows[0]) return reply.code(404).send({ error: "سفارش پیدا نشد." });
+    await recordAudit({
+      actor: actorOf(session),
+      action: "order.legacy_status_change",
+      targetType: "order",
+      targetId: req.params.id,
+      after: { status },
+    });
     return { ok: true, order: res.rows[0].data };
   });
 

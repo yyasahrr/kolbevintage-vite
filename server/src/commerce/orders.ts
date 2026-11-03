@@ -23,7 +23,9 @@ const ADMIN_STATUS: Record<OrderStatus | "pending_payment", string> = {
   preparing: "processing",
   shipped: "shipped",
   delivered: "done",
-  exception: "pending",
+  // exceptions are a real queue: showing them as "pending" hid payment
+  // problems inside the normal warehouse backlog
+  exception: "exception",
   cancelled: "cancelled",
 };
 

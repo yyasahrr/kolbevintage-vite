@@ -3,18 +3,10 @@ import { Link } from "react-router-dom";
 import { CreditCard, Loader2, Lock, PackageCheck, ShieldCheck, ShoppingBag, Truck, Wallet, Zap } from "lucide-react";
 import { useCart } from "@/state/cart";
 import { useAuth } from "@/state/auth";
-import { addCashback, formField, getOps } from "@/state/ops";
-import {
-  addOrder,
-  bumpCampaignUse,
-  bumpCouponUse,
-  consumeStock,
-  getAdmin,
-  type Order,
-  type OrderLine,
-} from "@/state/admin";
+import { formField } from "@/state/ops";
+import { getAdmin } from "@/state/admin";
 import { computeDiscounts } from "@/state/discounts";
-import { ApiError, api } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { commerce, type CommerceConfig, type CommerceItem, type ServerQuote, type Shortage } from "@/lib/commerce";
 import { formatPrice } from "@/data/looks";
 
@@ -123,63 +115,6 @@ export function CheckoutPage() {
     }
   };
 
-  /** offline / backend-unreachable fallback: keeps the demo flow working */
-  const placeOrderOffline = (form: FormData) => {
-    if (!lines.length) return;
-    void lines;
-    const id = `VL-${Math.floor(10000 + Math.random() * 89999)}`;
-    const linesFull: OrderLine[] = lines.map((l) => ({
-        name: l.name,
-        productId: l.productId,
-        color: l.colorName,
-        colorId: l.colorId,
-        size: l.sizeLabel,
-        sizeId: l.sizeId,
-        qty: l.qty,
-        price: l.price,
-    }));
-    const campaignHit = discount.applied.find((a) => a.id.startsWith("cmp-"));
-    const couponHit = discount.applied.find((a) => a.id.startsWith("cp-"));
-    const campaignId = campaignHit ? admin.campaigns.find((c) => `cmp-${c.id}` === campaignHit.id)?.id : undefined;
-    const record: Order = {
-      id,
-      at: Date.now(),
-      customer: `${form.get("given") ?? ""} ${form.get("family") ?? ""}`.trim() || "مشتری مهمان",
-      email: String(form.get("email") ?? ""),
-      phone: String(form.get("tel") ?? ""),
-      city: String(form.get("city") ?? ""),
-      address: String(form.get("street") ?? ""),
-      shipping,
-      lines: linesFull,
-      subtotal: discount.subtotal,
-      discounts: discount.applied.map((d) => ({ name: d.name, amount: d.amount })),
-      discountTotal: discount.discountTotal,
-      shippingCost: finalShipping,
-      total,
-      status: "pending",
-      coupon: appliedCode || undefined,
-      campaign: campaignHit?.name,
-      gateway: GATEWAY_LABEL[admin.integrations.payment.gateway],
-    };
-    addOrder(record);
-    // also register the order through the backend's public checkout endpoint
-    api.post<{ ok: boolean; id: string }>("/api/orders", record).catch(() => undefined);
-    if (campaignId) bumpCampaignUse(campaignId);
-    if (couponHit) bumpCouponUse(appliedCode);
-    consumeStock(linesFull.map((l) => ({ productId: l.productId, colorId: l.colorId, sizeId: l.sizeId, qty: l.qty, name: l.name })));
-    const cashback = Math.round((total * getOps().cashbackRate) / 100);
-    if (record.email && cashback > 0) addCashback({ email: record.email.toLowerCase(), orderId: id, amount: cashback, kind: "earn" });
-    setOrder({ id, total, items: lines.reduce((n, l) => n + l.qty, 0), discounts: discount.applied });
-    clear();
-    if (admin.integrations.sms.enabled)
-      notify("پیامک ارسال شد (شبیه‌سازی)", `کد رهگیری ${id} با ${admin.integrations.sms.provider} به ${record.phone || "مشتری"} ارسال شد.`);
-    if (admin.integrations.email.enabled)
-      notify("ایمیل تایید ارسال شد (شبیه‌سازی)", `${record.email || "ایمیل مشتری"} — ${admin.integrations.email.provider}`);
-    if (admin.integrations.shipping.enabled)
-      notify("برگهٔ بار ثبت شد (شبیه‌سازی)", `${admin.integrations.shipping.courier} — سفارش ${id}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
   /**
    * Checkout against the commerce core:
    * quote → reserve stock → payment attempt → server-side verify → order.
@@ -258,8 +193,12 @@ export function CheckoutPage() {
         window.scrollTo({ top: 0, behavior: "smooth" });
         return;
       }
-      // network failure: fall back to the local demo checkout
-      placeOrderOffline(form);
+      // fail closed: an order that the server never created must not be shown
+      // as placed, and stock/coupon/cashback must never be invented in the browser
+      setCheckoutError(
+        "ارتباط با سرور برقرار نشد؛ سفارش ثبت نشد. اتصال را بررسی کن و دوباره تلاش کن. هیچ مبلغی کسر نشده است.",
+      );
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
       setPlacing(false);
     }

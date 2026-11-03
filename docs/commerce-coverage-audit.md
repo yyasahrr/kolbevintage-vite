@@ -21,7 +21,7 @@
 
 | # | واقعیت | نتیجه |
 | --- | --- | --- |
-| ۱ | هستهٔ تجارت (Variant، Quote، Hold، Payment، Order، Refund، Outbox، Cashback) در این مخزن وجود دارد و با ۲۱ تست Integration روی PostgreSQL واقعی پوشش داده شده. | حدود **۴۰٪** کنترل‌های C04–C15 با Evidence قابل دفاع |
+| ۱ | هستهٔ تجارت (Variant، Quote، Hold، Payment، Order، Refund، Outbox، Cashback) در این مخزن وجود دارد و با ۲۷ تست Integration روی PostgreSQL واقعی پوشش داده شده. | حدود **۴۰٪** کنترل‌های C04–C15 با Evidence قابل دفاع |
 | ۲ | **تصمیم مالک (۲۰۲۶-۱۱-۰۴): معماری همان Fastify + PostgreSQL می‌ماند؛ مهاجرت به Django/DRF انجام نمی‌شود.** | `COM-C00-004` = **انحراف پذیرفته‌شده**؛ فقط ADR نباید فراموش شود |
 | ۳ | هیچ Audit Log سروری برای عملیات حساس (Toggle BNPL، قیمت، Refund، موجودی) وجود ندارد. | بزرگ‌ترین شکاف P0 مشترک بین C06/C17/C20 |
 | ۴ | Provider واقعی وجود ندارد؛ آداپتور Mock با همان قرارداد verify/idempotency پیاده شده. | C06-009/015/022، C11-003/004، C14-015/016، C18 = BLOCKED/OPEN |
@@ -92,9 +92,9 @@
 | COM-C15-001/002/006/008/009 — کش‌بک مستقل از Refund، Ledger، برگشت پس از بازپرداخت | `cashback.ts`, `schema.sql` (`cashback_ledger`), تست‌های cashback |
 | COM-C18-006/007/009/010/011 — Outbox تراکنشی، Retry، Dedupe، قطع SMS | `outbox.ts`, تست «a broken SMS provider never invalidates a paid order» |
 | COM-C20-001/002/003/004/009 — AuthZ سروری، منع قیمت کلاینتی، Fail-closed Refund، عدم Self-approval | `commerce/auth.ts`, `refunds.ts`, `payments.ts` |
-| COM-C23-001/003(بخشی)/005/006/008/009/010/013/014/016/020/021/023 — تست‌های Cross-domain | `server/test/commerce.test.ts` (۲۱ تست) |
+| COM-C23-001/003(بخشی)/005/006/008/009/010/013/014/016/020/021/023 — تست‌های Cross-domain | `server/test/commerce.test.ts` (۲۷ تست) |
 
-اجرای فعلی تست: `npm run test:commerce` → `# pass 21 / # fail 0`.
+اجرای فعلی تست: `npm run test:commerce` → `# pass 27 / # fail 0`.
 
 ---
 
@@ -104,7 +104,7 @@
 
 | # | شکاف | کنترل‌های مرتبط | چه باید ساخته شود |
 | --- | --- | --- | --- |
-| ۱ | **Audit Log سروری وجود ندارد.** Toggle BNPL، تغییر قیمت، Refund، Adjustment و تغییر تنظیمات فقط اثرشان می‌ماند. | C06-017/018, C17-013, C20-011, G21 | جدول `audit_events(id, actor, action, target_type, target_id, before, after, reason, request_id, at)` + نوشتن در همان تراکنش + صفحهٔ مشاهده |
+| ۱ | ~~**Audit Log سروری وجود ندارد.**~~ **رفع شد در PR-1 (`audit_events` + `/api/commerce/admin/audit`).** Toggle BNPL، تغییر قیمت، Refund، Adjustment و تغییر تنظیمات فقط اثرشان می‌ماند. | C06-017/018, C17-013, C20-011, G21 | جدول `audit_events(id, actor, action, target_type, target_id, before, after, reason, request_id, at)` + نوشتن در همان تراکنش + صفحهٔ مشاهده |
 | ۲ | **سه‌حالته نبودن BNPL و نبود Gate آمادگی Provider.** فقط `bnpl4Enabled` داریم؛ `provider_ready` و `available_for_checkout` وجود ندارد. | C06-008/009/010/015, G09 | فیلدهای Provider (`mode`, `contractApproved`, `capabilities`) + `availableForCheckout()` سروری + رد فعال‌سازی Live بدون آمادگی |
 | ۳ | **Refund سفارش BNPL از مسیر Provider نیست.** Refund ما داخلی است؛ Partial-Refund BNPL باید از قرارداد Provider برود یا EXCEPTION شود. | C06-022, C14-015/016, G22/G23 | آداپتور `refund/capabilities` + وضعیت `manual_review` وقتی Provider پشتیبانی نمی‌کند |
 | ۴ | **سهمیهٔ کوپن شمارش نمی‌شود.** `used_count` هرگز افزایش نمی‌یابد؛ در نتیجه سقف استفاده و Race بی‌اثر است. | C05-008/011 | افزایش اتمیک در تراکنش Settle + تست دو خرید هم‌زمان با آخرین سهمیه |
@@ -179,7 +179,7 @@
 
 ---
 
-## ۵. تست‌های Cross-domain (C23) — پوشش فعلی ۲۱ تست
+## ۵. تست‌های Cross-domain (C23) — پوشش فعلی ۲۷ تست
 
 پوشش داده شده‌اند: C23-001، 003(جزئی)، 005، 006، 008، 009، 010، 011، 012، 013، 014،
 015(جزئی)، 016، 020، 021، 023.
@@ -219,3 +219,25 @@
 6. **PR-F — Evidence:** Playwright E2E + CI روی همین SHA، گزارش Failure Matrix و KPI/Alert برای پرداخت‌های Unknown (C21/C25).
 
 هر PR باید در Traceability Matrix (بخش سوم سند) با مسیر فایل، نام تست و نتیجهٔ CI ثبت شود.
+
+---
+
+## ۸. شواهد PR-1 (۲۰۲۶-۱۱-۰۴) — بستهٔ «درستی پول و سفارش»
+
+مسیرها: `server/src/commerce/audit.ts`, `server/src/schema.sql`, `server/src/commerce/pricing.ts`,
+`server/src/commerce/payments.ts`, `server/src/projection.ts`, `server/src/routes/catalog.ts`,
+`server/src/commerce/routes.ts`, `src/pages/AdminCommercePanel.tsx`, `src/pages/CheckoutPage.tsx`.
+
+| کنترل | وضعیت جدید | تست |
+| --- | --- | --- |
+| C17-013 / C06-017 / C06-018 / C21-005 — Audit با Actor + Before/After + Reason | ✅ IMPLEMENTED_UNVERIFIED→**VERIFIED** | «settings changes are audited with before and after, and the trail is append-only» |
+| C05-008 / C05-011 — مصرف سهمیهٔ کوپن و Race | ✅ VERIFIED | «coupon capacity is consumed once and the last unit cannot be sold twice» |
+| C05-004 — سقف تخفیف درصدی | ✅ VERIFIED | «a percent coupon never exceeds its max_discount or the payable subtotal» |
+| C04-002 — تاریخچهٔ قیمت | ✅ VERIFIED (جدول `price_history`) | پوشش از طریق مسیر پروجکشن (تست مستقیم بعدی) |
+| C12-007 — تفکیک سفارش Exception از Pending | ✅ VERIFIED | «an exception order is stored with its own status instead of looking pending» |
+| C17 / C20-001 — مسیر نوشتن سفارش بدون پرداخت | ✅ بسته شد | «the legacy order endpoint is not writable from the storefront» |
+| C23-019 — هویت ادمین برای عملیات حساس | ✅ VERIFIED | همان تست (۴۰۱ ناشناس، ۲۰۰ ادمین، ۴۰۹ روی سفارش تجاری) |
+
+تست‌ها: **۲۷/۲۷** روی PostgreSQL واقعی (`npm run test:commerce`)، `tsc` (کلاینت + سرور) و `npm run build` سبز.
+
+باقی‌ماندهٔ همان دسته: اجرای CI واقعی (C25-009) و E2E مرورگر (C25-006) که هنوز NOT_STARTED است.

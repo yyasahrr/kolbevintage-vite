@@ -22,13 +22,14 @@ export interface StoreSettings {
   maintenance: boolean;
 }
 
-export type OrderStatus = "pending" | "processing" | "shipped" | "done" | "cancelled";
+export type OrderStatus = "pending" | "processing" | "shipped" | "done" | "cancelled" | "exception";
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   pending: "در انتظار پرداخت",
   processing: "در حال آماده‌سازی",
   shipped: "ارسال شده",
   done: "تحویل شده",
   cancelled: "لغو شده",
+  exception: "استثنا — بررسی مالی",
 };
 
 export interface OrderLine {
