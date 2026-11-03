@@ -81,12 +81,12 @@ export function ProductPage() {
   const related = relatedProducts(product, 4);
   const colorAvailability = (id: string) => product.sizes.some((s) => stockOf(product, id, s.id) > 0);
 
+  // a size only exists inside a colour: picking a new colour resets the size to the
+  // first one that colour actually has, so the old choice is never carried over silently
   const selectColor = (id: string) => {
     setColorId(id);
-    if (stockOf(product, id, sizeId) === 0) {
-      const next = product.sizes.find((s) => stockOf(product, id, s.id) > 0);
-      if (next) setSizeId(next.id);
-    }
+    const next = product.sizes.find((s) => stockOf(product, id, s.id) > 0) ?? product.sizes[0];
+    if (next) setSizeId(next.id);
   };
 
   useEffect(() => {
