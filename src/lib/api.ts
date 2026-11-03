@@ -21,9 +21,18 @@ export class ApiError extends Error {
   }
 }
 
+function csrfToken(): string {
+  // the server sets a readable `kv_csrf` cookie; we echo it in a header
+  const match = document.cookie.match(/(?:^|;\s*)kv_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
+  const token = csrfToken();
+  const method = (init.method ?? "GET").toUpperCase();
+  if (token && method !== "GET" && method !== "HEAD") headers.set("x-csrf-token", token);
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers,

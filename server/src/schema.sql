@@ -328,6 +328,28 @@ create table if not exists refunds (
   decided_at timestamptz
 );
 create index if not exists refunds_order_idx on refunds (order_id, created_at desc);
+-- staged RMA (2026-11-04): goods must be received and inspected before money or
+-- stock moves; an exchange carries its own price difference
+alter table refunds add column if not exists kind text not null default 'refund';
+alter table refunds add column if not exists target_variant_id text;
+alter table refunds add column if not exists received_at timestamptz;
+alter table refunds add column if not exists qc_result text;
+alter table refunds add column if not exists qc_note text;
+alter table refunds add column if not exists difference_amount numeric(12, 2) not null default 0;
+alter table refunds add column if not exists provider_ref text;
+
+create table if not exists exchange_payments (
+  id text primary key,
+  refund_id text not null references refunds (id) on delete cascade,
+  amount numeric(12, 2) not null,
+  token text not null unique,
+  status text not null default 'unpaid',
+  provider_ref text,
+  paid_at timestamptz,
+  expires_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists exchange_payments_refund_idx on exchange_payments (refund_id);
 
 create table if not exists fulfillment_events (
   id bigserial primary key,

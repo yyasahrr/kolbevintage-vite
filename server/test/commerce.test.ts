@@ -37,9 +37,31 @@ let query: (text: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount
 
 function makeClient(): Client {
   const jar = new Map<string, string>();
-  const call = async (method: string, path: string, body?: Json): Promise<Res> => {
-    const headers: Record<string, string> = {};
+
+  /** the API sets a readable kv_csrf cookie; every write must echo it */
+  const ensureCsrf = async () => {
+    if (jar.has("kv_csrf")) return;
+    const res = await fetch(base + "/api/health", {
+      headers: jar.size ? { cookie: [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ") } : {},
+    });
+    for (const raw of res.headers.getSetCookie?.() ?? []) {
+      const [pair] = raw.split(";");
+      const index = pair.indexOf("=");
+      jar.set(pair.slice(0, index), pair.slice(index + 1));
+    }
+    await res.text();
+  };
+
+  const call = async (
+    method: string,
+    path: string,
+    body?: Json,
+    extraHeaders: Record<string, string> = {},
+  ): Promise<Res> => {
+    if (method !== "GET") await ensureCsrf();
+    const headers: Record<string, string> = { ...extraHeaders };
     if (body !== undefined) headers["content-type"] = "application/json";
+    if (jar.has("kv_csrf") && method !== "GET") headers["x-csrf-token"] = jar.get("kv_csrf") as string;
     if (jar.size) headers.cookie = [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
     const res = await fetch(base + path, {
       method,
@@ -105,7 +127,12 @@ async function stockOf(sku: string) {
   );
   const row = res.rows[0];
   assert.ok(row, `variant ${sku} not found`);
-  return { id: row.id as string, onHand: Number(row.on_hand), available: Number(row.available) };
+  return {
+    id: row.id as string,
+    onHand: Number(row.on_hand),
+    quarantined: Number(row.quarantined),
+    available: Number(row.available),
+  };
 }
 
 async function setStock(sku: string, qty: number) {
@@ -135,6 +162,29 @@ async function payAndSettle(client: Client, items: { variantId: string; quantity
   return { checkout: checkout.body.checkout, attempt: pay.body.attempt, settled: settled.body, payStatus: pay.status };
 }
 
+
+/** provider callbacks must carry a valid HMAC signature (see payments.ts) */
+async function signedCallback(client: Client, attemptId: string, body: Json) {
+  const { signCallbackPayload } = await import("../src/commerce/payments");
+  const settings = await import("../src/commerce/settings");
+  const current = await settings.loadCommerceSettings(true);
+  const headers = {
+    "x-provider-signature": signCallbackPayload(current.providerWebhookSecret, attemptId, body),
+  };
+  const res = await fetch(`${base}/api/commerce/payments/${attemptId}/callback`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headers,
+      cookie: client.cookie(),
+      "x-csrf-token": "",
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  return { status: res.status, body: text ? JSON.parse(text) : null };
+}
+
 const SKU = "P-RIVE-COAT-NOIR-M";
 const SKU2 = "P-RIVE-COAT-CAMEL-L";
 
@@ -149,6 +199,7 @@ before(async () => {
   await settings.saveCommerceSettings({
     allowMockControls: true,
     bnpl4Enabled: false,
+    bnpl4ProviderReady: false,
     liveRefundsEnabled: false,
     smsSimulateDown: false,
     reservationHoldMinutes: 10,
@@ -177,6 +228,8 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  const security = await import("../src/http/security");
+  security.resetRateLimits();
   await query(
     `delete from refunds; delete from fulfillment_events; delete from order_lines; delete from orders;
      delete from payment_attempts; delete from checkout_sessions; delete from cart_lines; delete from carts;
@@ -189,6 +242,7 @@ beforeEach(async () => {
   await settings.saveCommerceSettings({
     allowMockControls: true,
     bnpl4Enabled: false,
+    bnpl4ProviderReady: false,
     liveRefundsEnabled: false,
     smsSimulateDown: false,
     reservationHoldMinutes: 10,
@@ -327,14 +381,16 @@ test("coupon capacity is consumed once and the last unit cannot be sold twice", 
        combinable = false, usage_limit = 1, used_count = 0, max_discount = null, active = true`,
   );
 
-  const first = await startCheckout(makeClient(), [{ variantId, quantity: 1 }], { couponCode: "ONEUSE" });
+  const buyer = makeClient();
+  const first = await startCheckout(buyer, [{ variantId, quantity: 1 }], { couponCode: "ONEUSE" });
   assert.equal(first.status, 201, JSON.stringify(first.body));
   assert.ok(first.body.checkout.quote.couponDiscount > 0);
 
   const pay = await first.body.checkout.id;
-  const attempt = await makeClient().post(`/api/commerce/checkout/${pay}/pay`, { method: "online" });
+  const attempt = await buyer.post(`/api/commerce/checkout/${pay}/pay`, { method: "online" });
   assert.equal(attempt.status, 200, JSON.stringify(attempt.body));
-  const settled = await makeClient().post(`/api/commerce/payments/${attempt.body.attempt.id}/simulate`, {
+  // the sandbox control is bound to the browser that opened this checkout
+  const settled = await buyer.post(`/api/commerce/payments/${attempt.body.attempt.id}/simulate`, {
     result: "success",
   });
   assert.equal(settled.body.status, "settled", JSON.stringify(settled.body));
@@ -411,6 +467,10 @@ test("settings changes are audited with before and after, and the trail is appen
   assert.equal(entry.before.reservationHoldMinutes, 10);
   assert.equal(entry.action, "settings.update");
 
+  const notReady = await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: true });
+  assert.equal(notReady.status, 409, "a master switch without a confirmed provider must be refused");
+  assert.equal(notReady.body.code, "bnpl_provider_not_ready");
+  await admin.put("/api/commerce/admin/settings", { bnpl4ProviderReady: true });
   const toggle = await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: true });
   assert.equal(toggle.status, 200, JSON.stringify(toggle.body));
   const afterToggle = await admin.get("/api/commerce/admin/audit?targetType=commerce_settings&limit=20");
@@ -424,7 +484,7 @@ test("settings changes are audited with before and after, and the trail is appen
     /append-only/,
   );
 
-  await admin.put("/api/commerce/admin/settings", { reservationHoldMinutes: 10, bnpl4Enabled: false });
+  await admin.put("/api/commerce/admin/settings", { reservationHoldMinutes: 10, bnpl4Enabled: false, bnpl4ProviderReady: false });
 });
 
 test("an exception order is stored with its own status instead of looking pending", async () => {
@@ -455,7 +515,7 @@ test("a duplicated payment callback settles once and creates one order", async (
   assert.equal(settled.status, "settled");
   assert.equal(settled.orderStatus, "paid");
 
-  const replay = await client.post(`/api/commerce/payments/${attempt.id}/callback`, { result: "success" });
+  const replay = await signedCallback(client, attempt.id, { result: "success" });
   assert.equal(replay.status, 200);
   assert.equal(replay.body.duplicate ?? replay.body.replayed, true);
   assert.equal(replay.body.orderId, settled.orderId);
@@ -526,6 +586,7 @@ test("the installment gateway is store-wide, not per product", async () => {
   assert.equal(denied.body.code, "bnpl_disabled");
 
   const admin = await adminClient();
+  await admin.put("/api/commerce/admin/settings", { bnpl4ProviderReady: true });
   const enabled = await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: true });
   assert.equal(enabled.status, 200);
   assert.equal(enabled.body.bnpl4Enabled, true);
@@ -569,7 +630,12 @@ test("only a superadmin can approve a refund, and live refunds stay fail-closed"
   assert.equal(notSuper.status, 403);
 
   const superAdmin = await superAdminClient();
-  const blocked = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" });
+  const approved = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" });
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  assert.equal(approved.body.refund.status, "approved", "approval is a decision, not money");
+
+  // fail-closed: the money step is refused while live refunds are off
+  const blocked = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
   assert.equal(blocked.status, 403);
   assert.equal(blocked.body.code, "live_refunds_blocked");
 
@@ -578,16 +644,16 @@ test("only a superadmin can approve a refund, and live refunds stay fail-closed"
 
   const on = await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
   assert.equal(on.status, 200);
-  const approved = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" });
-  assert.equal(approved.status, 200, JSON.stringify(approved.body));
-  assert.equal(approved.body.refund.status, "settled");
-  assert.equal((await stockOf(SKU)).onHand, 2, "the returned unit is back in stock");
+  const settledRefund = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
+  assert.equal(settledRefund.status, 200, JSON.stringify(settledRefund.body));
+  assert.equal(settledRefund.body.refund.status, "settled");
+  assert.equal((await stockOf(SKU)).onHand, 1, "a money-only refund never puts stock back");
 
   const invoice = await admin.get(`/api/commerce/orders/${settled.orderId}/invoice`);
   assert.equal(invoice.body.order.total, Number(settled.total), "the original invoice is not rewritten");
   assert.equal(invoice.body.adjustments.length, 1);
 
-  const replay = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" });
+  const replay = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
   assert.equal(replay.body.unchanged, true);
 });
 
@@ -783,7 +849,7 @@ test("a paid order credits exactly one cashback entry and a refund claws back it
 
   // a duplicated callback must not credit again
   const attempts = await query("select id from payment_attempts where checkout_id = $1", [checkout.id]);
-  await client.post(`/api/commerce/payments/${attempts.rows[0].id}/callback`, { result: "success" });
+  await signedCallback(client, attempts.rows[0].id, { result: "success" });
   const again = await query("select count(*)::int as n from cashback_ledger where kind = 'earn'");
   assert.equal(again.rows[0].n, 1);
 
@@ -801,6 +867,8 @@ test("a paid order credits exactly one cashback entry and a refund claws back it
   await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
   const approved = await superAdmin.post(`/api/commerce/admin/refunds/${requested.body.refund.id}`, { decision: "approve" });
   assert.equal(approved.status, 200);
+  const money = await superAdmin.post(`/api/commerce/admin/refunds/${requested.body.refund.id}/settle`, {});
+  assert.equal(money.status, 200, JSON.stringify(money.body));
 
   const afterRefund = await client.get("/api/commerce/cashback");
   assert.equal(afterRefund.body.pending, settled.cashback.amount / 2, "half of the pending cashback is clawed back");
@@ -933,6 +1001,8 @@ test("a refund returns the wallet share to the wallet, not to the gateway", asyn
     decision: "approve",
   });
   assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  const money = await superAdmin.post(`/api/commerce/admin/refunds/${requested.body.refund.id}/settle`, {});
+  assert.equal(money.status, 200, JSON.stringify(money.body));
 
   const credit = await query("select amount from cashback_ledger where kind = 'refund_credit'");
   assert.equal(credit.rows.length, 1);
@@ -984,4 +1054,282 @@ test("cashback is not withdrawable and never crosses accounts", async () => {
 
   const unchanged = await owner.get("/api/commerce/cashback");
   assert.equal(unchanged.body.available, ownerWallet.body.available, "another account must not touch this wallet");
+});
+
+/* ---------------------------------------------------------------------
+   BNPL readiness gate + transport security.
+   --------------------------------------------------------------------- */
+
+test("BNPL has three states: enabled, provider-ready and actually available", async () => {
+  const admin = await adminClient();
+  await admin.put("/api/commerce/admin/settings", { bnpl4ProviderReady: false, bnpl4Enabled: false });
+
+  const blocked = await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: true });
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.body.code, "bnpl_provider_not_ready");
+
+  let config = await makeClient().get("/api/commerce/config");
+  assert.equal(config.body.bnpl4.enabled, false);
+  assert.equal(config.body.bnpl4.providerReady, false);
+  assert.equal(config.body.bnpl4.availableForCheckout, false);
+
+  await admin.put("/api/commerce/admin/settings", { bnpl4ProviderReady: true });
+  config = await makeClient().get("/api/commerce/config");
+  assert.equal(config.body.bnpl4.providerReady, true);
+  assert.equal(config.body.bnpl4.availableForCheckout, false, "still off until the owner flips the switch");
+
+  await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: true });
+  config = await makeClient().get("/api/commerce/config");
+  assert.equal(config.body.bnpl4.availableForCheckout, true);
+
+  // losing provider readiness immediately blocks new installment payments
+  const variantId = await setStock(SKU, 2);
+  const checkout = await startCheckout(makeClient(), [{ variantId, quantity: 1 }]);
+  await admin.put("/api/commerce/admin/settings", { bnpl4ProviderReady: false });
+  const pay = await makeClient().post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, { method: "bnpl4" });
+  assert.ok(pay.status === 409 || pay.status === 403, JSON.stringify(pay.body));
+  assert.ok(
+    ["bnpl_provider_not_ready", "bnpl_disabled"].includes(pay.body.code),
+    `revoking readiness must stop the gateway, got ${pay.body.code}`,
+  );
+
+  await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: false, bnpl4ProviderReady: false });
+});
+
+test("an unsigned provider callback is refused", async () => {
+  const variantId = await setStock(SKU, 2);
+  const client = makeClient();
+  const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
+  const pay = await client.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, { method: "online" });
+  assert.equal(pay.status, 200, JSON.stringify(pay.body));
+
+  const forged = await client.post(`/api/commerce/payments/${pay.body.attempt.id}/callback`, { result: "success" });
+  assert.equal(forged.status, 401, JSON.stringify(forged.body));
+  assert.equal(forged.body.code, "invalid_callback_signature");
+
+  const order = await query("select count(*)::int as n from orders");
+  assert.equal(order.rows[0].n, 0, "an unsigned callback must never create an order");
+
+  const signed = await signedCallback(client, pay.body.attempt.id, { result: "success" });
+  assert.equal(signed.body.status, "settled", JSON.stringify(signed.body));
+});
+
+test("state-changing requests need the CSRF token and repeated attempts get rate limited", async () => {
+  // a naked POST without the header is rejected before touching any handler
+  const naked = await fetch(`${base}/api/commerce/checkout`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ items: [] }),
+  });
+  assert.equal(naked.status, 403);
+  const payload = (await naked.json()) as { code?: string };
+  assert.equal(payload.code, "csrf_token_invalid");
+
+  // rate limit: shrink the window for one route class and hammer it
+  const security = await import("../src/http/security");
+  security.setRateLimit("admin_login", { max: 3, windowMs: 60_000 });
+  security.resetRateLimits();
+  const client = makeClient();
+  let last = 0;
+  for (let i = 0; i < 5; i += 1) {
+    const res = await client.post("/api/admin/login", { passcode: "wrong" });
+    last = res.status;
+  }
+  assert.equal(last, 429, "brute force must hit the limiter");
+  security.setRateLimit("admin_login", { max: 20, windowMs: 60_000 });
+  security.resetRateLimits();
+});
+
+test("the public bootstrap never leaks the admin passcode, orders or provider secrets", async () => {
+  const guest = makeClient();
+  const boot = await guest.get("/api/bootstrap");
+  assert.equal(boot.status, 200);
+  const admin = boot.body.admin as Record<string, any>;
+  assert.equal(admin.passcode, undefined, "staff passcode must never reach a visitor");
+  assert.equal(admin.orders, undefined);
+  assert.equal(admin.customers, undefined);
+  assert.equal(admin.integrations?.payment?.key, undefined, "provider credentials are admin-only");
+  assert.equal(admin.integrations?.payment?.enabled !== undefined, true, "public capability flags stay");
+  assert.equal(admin.settings?.passcode, undefined, "the passcode inside settings must be stripped too");
+  assert.equal(boot.body.ops?.security?.passcode, undefined, "the ops document must not carry the passcode");
+
+  // plant credential-looking fields straight in the document, then restore it,
+  // so the shared test database is never left in a half-written state
+  const snapshot = await query("select value from state_documents where key = 'admin'");
+  const original = snapshot.rows[0].value as Record<string, any>;
+  const tampered = {
+    ...original,
+    passcode: "1234",
+    integrations: {
+      ...(original.integrations ?? {}),
+      payment: { ...(original.integrations?.payment ?? {}), key: "sk_live_super_secret" },
+    },
+  };
+  await query("update state_documents set value = $1 where key = 'admin'", [JSON.stringify(tampered)]);
+  try {
+    const authed = await (await adminClient()).get("/api/bootstrap");
+    assert.equal(authed.body.admin.integrations.payment.key, "***", "even an admin gets secrets masked");
+    assert.equal(authed.body.admin.passcode, "***", "the staff passcode is never handed back raw");
+
+    const guestAfter = await makeClient().get("/api/bootstrap");
+    assert.equal(guestAfter.body.admin.integrations?.payment?.key, undefined);
+    assert.equal(guestAfter.body.admin.passcode, undefined);
+  } finally {
+    await query("update state_documents set value = $1 where key = 'admin'", [JSON.stringify(original)]);
+  }
+});
+
+/* ---------------------------------------------------------------------
+   Staged RMA: goods → QC → money. Nothing becomes sellable on "approve".
+   --------------------------------------------------------------------- */
+
+test("a returned unit is not restocked before QC and a defective one is quarantined", async () => {
+  const variantId = await setStock(SKU, 4);
+  const client = await customerClient();
+  await query("delete from price_rules");
+  const { settled } = await payAndSettle(client, [{ variantId, quantity: 2 }]);
+
+  const before = await stockOf(SKU);
+  assert.equal(before.onHand, 2, "two units left the shelf");
+
+  const order = await client.get(`/api/commerce/orders/${settled.orderId}`);
+  const requested = await client.post(`/api/commerce/orders/${settled.orderId}/returns`, {
+    lineId: order.body.lines[0].id,
+    quantity: 2,
+    reason: "مرجوعی با QC",
+    kind: "return",
+  });
+  assert.equal(requested.status, 201, JSON.stringify(requested.body));
+  const refundId = requested.body.refund.id;
+
+  const superAdmin = await superAdminClient();
+  await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
+
+  const approved = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" });
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  assert.equal((await stockOf(SKU)).onHand, 2, "approval must not restock anything");
+
+  const early = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
+  assert.equal(early.status, 409, JSON.stringify(early.body));
+  assert.equal(early.body.code, "qc_required");
+
+  const received = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/receive`, {});
+  assert.equal(received.status, 200, JSON.stringify(received.body));
+
+  const defective = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/qc`, {
+    result: "defective",
+    note: "لکه روی پارچه",
+  });
+  assert.equal(defective.status, 200, JSON.stringify(defective.body));
+  assert.equal(defective.body.refund.status, "qc_failed");
+
+  const afterQc = await stockOf(SKU);
+  assert.equal(afterQc.onHand, 2, "a defective unit never returns to saleable stock");
+  assert.equal(afterQc.quarantined, 2, "it sits in quarantine instead");
+  assert.equal(afterQc.available, 0);
+
+  const settledRefund = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
+  assert.equal(settledRefund.status, 200, JSON.stringify(settledRefund.body));
+  assert.equal(settledRefund.body.refund.status, "settled");
+
+  await query("update product_variants set quarantined = 0 where id = $1", [variantId]);
+});
+
+test("a saleable return goes back to stock only after QC", async () => {
+  const variantId = await setStock(SKU, 3);
+  const client = await customerClient();
+  await query("delete from price_rules");
+  const { settled } = await payAndSettle(client, [{ variantId, quantity: 1 }]);
+  const order = await client.get(`/api/commerce/orders/${settled.orderId}`);
+  const requested = await client.post(`/api/commerce/orders/${settled.orderId}/returns`, {
+    lineId: order.body.lines[0].id,
+    quantity: 1,
+    kind: "return",
+  });
+  const refundId = requested.body.refund.id;
+
+  const admin = await adminClient();
+  await admin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" }).catch(() => undefined);
+  const superAdmin = await superAdminClient();
+  await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
+  await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" });
+  await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/receive`, {});
+  const qc = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/qc`, { result: "saleable" });
+  assert.equal(qc.body.refund.status, "qc_passed");
+  assert.equal((await stockOf(SKU)).onHand, 3, "a clean unit returns to saleable stock");
+});
+
+test("a dearer exchange waits for its price difference", async () => {
+  const CHEAP = "P-HEAVY-TEE-CHARCOAL-S";
+  const DEAR = "P-GRAND-TRENCH-CAMEL-L";
+  const variantId = await setStock(CHEAP, 3);
+  const targetId = await setStock(DEAR, 3);
+  const client = await customerClient();
+  await query("delete from price_rules");
+  const { settled } = await payAndSettle(client, [{ variantId, quantity: 1 }]);
+
+  const order = await client.get(`/api/commerce/orders/${settled.orderId}`);
+  const requested = await client.post(`/api/commerce/orders/${settled.orderId}/returns`, {
+    lineId: order.body.lines[0].id,
+    quantity: 1,
+    kind: "exchange",
+    targetVariantId: targetId,
+    reason: "تعویض با مدل گران‌تر",
+  });
+  assert.equal(requested.status, 201, JSON.stringify(requested.body));
+  assert.equal(requested.body.refund.kind, "exchange");
+  assert.equal(requested.body.refund.status, "requested", "the request keeps its place in the queue");
+  assert.ok(requested.body.refund.exchangeToken, "the customer gets exactly one difference link");
+  assert.ok(requested.body.refund.differenceAmount > 0);
+
+  const refundId = requested.body.refund.id;
+  const superAdmin = await superAdminClient();
+  await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
+  await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" });
+  await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/receive`, {});
+  await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/qc`, { result: "saleable" });
+
+  const unpaid = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
+  assert.equal(unpaid.status, 409, JSON.stringify(unpaid.body));
+  assert.equal(unpaid.body.code, "exchange_difference_unpaid");
+
+  const paid = await client.post(`/api/commerce/exchange/${requested.body.refund.exchangeToken}/pay`, {});
+  assert.equal(paid.status, 200, JSON.stringify(paid.body));
+
+  const settledExchange = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
+  assert.equal(settledExchange.status, 200, JSON.stringify(settledExchange.body));
+  assert.equal(settledExchange.body.refund.status, "settled");
+});
+
+test("an installment refund the provider cannot reverse is parked for a human", async () => {
+  const admin = await adminClient();
+  await admin.put("/api/commerce/admin/settings", { bnpl4ProviderReady: true });
+  await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: true });
+
+  const variantId = await setStock(SKU, 3);
+  const client = await customerClient();
+  await query("delete from price_rules");
+  const { settled } = await payAndSettle(client, [{ variantId, quantity: 1 }], "bnpl4");
+  assert.equal(settled.status, "settled");
+
+  const order = await client.get(`/api/commerce/orders/${settled.orderId}`);
+  const requested = await client.post(`/api/commerce/orders/${settled.orderId}/returns`, {
+    lineId: order.body.lines[0].id,
+    quantity: 1,
+    kind: "refund",
+    reason: "بازگشت پول اقساطی",
+  });
+  const refundId = requested.body.refund.id;
+
+  const superAdmin = await superAdminClient();
+  await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
+  await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" });
+  const settle = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
+  assert.equal(settle.status, 200, JSON.stringify(settle.body));
+  assert.equal(settle.body.refund.status, "manual_review", "no fake refund when the provider cannot reverse");
+
+  const line = await query("select refunded_quantity from order_lines where order_id = $1", [settled.orderId]);
+  assert.equal(line.rows[0].refunded_quantity, 0, "a parked refund must not close the line");
+
+  await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: false, bnpl4ProviderReady: false });
 });

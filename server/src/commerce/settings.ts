@@ -26,6 +26,12 @@ export interface CashbackTier {
 export interface CommerceSettings {
   /** the 4-installment gateway is a single store-wide switch (OWN-05 revision) */
   bnpl4Enabled: boolean;
+  /**
+   * Provider readiness is a separate fact from the store switch: a real
+   * installment contract (limits, fees, credit check) must be confirmed before
+   * the switch may be turned on. Enabling without it is refused.
+   */
+  bnpl4ProviderReady: boolean;
   bnpl4Provider: string;
   bnpl4Installments: number;
   /** ceiling safety net; the provider still decides per order */
@@ -81,10 +87,15 @@ export interface CommerceSettings {
   /** test hook: make the outbox SMS handler fail */
   smsSimulateDown: boolean;
   paymentProvider: string;
+  /** HMAC secret for provider callbacks (never rendered to the admin panel) */
+  providerWebhookSecret: string;
+  /** reject unsigned provider callbacks (default on) */
+  requireCallbackSignature: boolean;
 }
 
 export const DEFAULT_COMMERCE_SETTINGS: CommerceSettings = {
   bnpl4Enabled: false,
+  bnpl4ProviderReady: false,
   bnpl4Provider: "mock-bnpl4",
   bnpl4Installments: 4,
   cartMaxQtyPerLine: 5,
@@ -118,6 +129,8 @@ export const DEFAULT_COMMERCE_SETTINGS: CommerceSettings = {
   allowMockControls: true,
   smsSimulateDown: false,
   paymentProvider: "mock",
+  providerWebhookSecret: "dev-webhook-secret",
+  requireCallbackSignature: true,
 };
 
 const SETTINGS_KEY = "commerce";

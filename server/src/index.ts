@@ -20,6 +20,7 @@ import { expirePaymentAttempts } from "./commerce/payments";
 import { releasePendingCashback } from "./commerce/cashback";
 import { startOutboxWorker, stopOutboxWorker } from "./commerce/outbox";
 import { getDocument } from "./seed";
+import { registerSecurity } from "./http/security";
 
 export async function buildServer() {
   const app = Fastify({
@@ -31,20 +32,35 @@ export async function buildServer() {
   await app.register(cookie);
   await app.register(multipart, { limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
 
-  // same-origin in dev (Vite proxy); permissive for direct API calls in the prototype
+  // The SPA talks to the API same-origin (Vite proxy in dev, Fastify in prod).
+  // Credentialed CORS is therefore limited to the request's own host plus an
+  // explicit allow-list — reflecting every Origin would let any site drive the
+  // admin session with the user's cookies.
+  const extraOrigins = new Set(
+    (process.env.CORS_ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
   app.addHook("onRequest", async (req, reply) => {
     const origin = req.headers.origin;
     if (origin) {
-      reply.header("Access-Control-Allow-Origin", origin);
-      reply.header("Access-Control-Allow-Credentials", "true");
-      reply.header("Vary", "Origin");
+      const sameHost = origin === `${req.protocol}://${req.headers.host}`;
+      if (sameHost || extraOrigins.has(origin)) {
+        reply.header("Access-Control-Allow-Origin", origin);
+        reply.header("Access-Control-Allow-Credentials", "true");
+        reply.header("Vary", "Origin");
+      }
     }
     if (req.method === "OPTIONS") {
       reply.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-      reply.header("Access-Control-Allow-Headers", "content-type");
+      reply.header("Access-Control-Allow-Headers", "content-type,x-csrf-token,x-provider-signature");
       return reply.code(204).send();
     }
   });
+
+  // headers, CSRF and rate limits must run before any route handler
+  registerSecurity(app);
 
   // must be registered before the route plugins, otherwise their encapsulated
   // contexts keep Fastify's default error shape

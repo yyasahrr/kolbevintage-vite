@@ -79,6 +79,9 @@ interface Refund {
   quantity: number;
   amount: number;
   status: string;
+  kind?: "refund" | "return" | "exchange";
+  qcResult?: string | null;
+  differenceAmount?: number;
   reason: string | null;
   requestedBy: string | null;
   approvedBy: string | null;
@@ -208,6 +211,16 @@ export function CommercePanel() {
     try {
       await api.post(`/api/commerce/admin/refunds/${id}`, { decision });
       setMessage({ ok: true, text: decision === "approve" ? "بازپرداخت تأیید شد." : "درخواست رد شد." });
+      await load();
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "عملیات ناموفق بود." });
+    }
+  };
+
+  const refundStep = async (id: string, step: "receive" | "qc" | "settle", body: Record<string, unknown> = {}) => {
+    try {
+      await api.post(`/api/commerce/admin/refunds/${id}/${step}`, body);
+      setMessage({ ok: true, text: "مرحلهٔ مرجوعی ثبت شد." });
       await load();
     } catch (error) {
       setMessage({ ok: false, text: error instanceof Error ? error.message : "عملیات ناموفق بود." });
@@ -719,16 +732,47 @@ export function CommercePanel() {
                     <td>{r.status}</td>
                     <td dir="ltr">{r.requestedBy}</td>
                     <td>
-                      {r.status === "requested" && (
-                        <div className="ad-actions">
-                          <button type="button" className="ad-btn is-sm" onClick={() => void decideRefund(r.id, "approve")}>
-                            تأیید
+                      <div className="ad-actions" style={{ flexWrap: "wrap", gap: 6 }}>
+                        {r.status === "requested" && (
+                          <>
+                            <button type="button" className="ad-btn is-sm" onClick={() => void decideRefund(r.id, "approve")}>
+                              تأیید
+                            </button>
+                            <button type="button" className="ad-btn is-sm is-danger" onClick={() => void decideRefund(r.id, "reject")}>
+                              رد
+                            </button>
+                          </>
+                        )}
+                        {r.status === "approved" && r.kind !== "refund" && (
+                          <button type="button" className="ad-btn is-sm" onClick={() => void refundStep(r.id, "receive")}>
+                            دریافت کالا
                           </button>
-                          <button type="button" className="ad-btn is-sm is-danger" onClick={() => void decideRefund(r.id, "reject")}>
-                            رد
+                        )}
+                        {r.status === "received" && (
+                          <>
+                            <button
+                              type="button"
+                              className="ad-btn is-sm"
+                              onClick={() => void refundStep(r.id, "qc", { result: "saleable" })}
+                            >
+                              QC سالم
+                            </button>
+                            <button
+                              type="button"
+                              className="ad-btn is-sm is-danger"
+                              onClick={() => void refundStep(r.id, "qc", { result: "defective" })}
+                            >
+                              QC معیوب (قرنطینه)
+                            </button>
+                          </>
+                        )}
+                        {(r.status === "qc_passed" || r.status === "qc_failed" || r.status === "approved") && (
+                          <button type="button" className="ad-btn is-sm" onClick={() => void refundStep(r.id, "settle")}>
+                            تسویه (Superadmin)
                           </button>
-                        </div>
-                      )}
+                        )}
+                        {r.status === "manual_review" && <span className="ad-hint">نیازمند بازپرداخت دستی</span>}
+                      </div>
                     </td>
                   </tr>
                 ))}

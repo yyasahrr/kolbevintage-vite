@@ -44,6 +44,10 @@ import { buildQuote } from "./pricing";
 import {
   decideAdjustment,
   decideRefund,
+  payExchangeDifference,
+  qcReturn,
+  receiveReturn,
+  settleRefund,
   listRefunds,
   publicAdjustment,
   requestAdjustment,
@@ -51,6 +55,7 @@ import {
   type AdjustmentRow,
 } from "./refunds";
 import { loadCommerceSettings, saveCommerceSettings, type CommerceSettings } from "./settings";
+import { providerCapabilities, verifyCallbackSignature } from "./payments";
 import { diffSettings, listAudit, recordAudit } from "./audit";
 import { productVariants, publicVariant } from "./variants";
 
@@ -71,7 +76,14 @@ export async function commerceRoutes(app: FastifyInstance) {
     return {
       currency: settings.currency,
       bnpl4: {
+        // three distinct facts: the owner switch, the provider contract, and
+        // what the checkout may actually offer right now
         enabled: settings.bnpl4Enabled,
+        providerReady: settings.bnpl4ProviderReady,
+        availableForCheckout:
+          settings.bnpl4Enabled &&
+          settings.bnpl4ProviderReady &&
+          providerCapabilities(settings.bnpl4Provider).bnpl4,
         installments: settings.bnpl4Installments,
         provider: settings.bnpl4Provider,
         // OWN-05 revision: store-wide switch, no per-product eligibility
@@ -177,6 +189,13 @@ export async function commerceRoutes(app: FastifyInstance) {
       couponCode: req.body?.couponCode ?? null,
       idempotencyKey: req.body?.idempotencyKey ?? null,
     });
+    // ties the sandbox /simulate control to the browser that opened the checkout
+    reply.setCookie("kv_checkout", result.checkout.id, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24,
+    });
     return reply.code(201).send(result);
   });
 
@@ -212,13 +231,42 @@ export async function commerceRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { result?: string } }>("/api/commerce/payments/:id/simulate", async (req) =>
-    simulatePayment(req.params.id, String(req.body?.result ?? "success")),
-  );
+  /** the customer pays the price difference of a dearer exchange */
+  app.post<{ Params: { token: string } }>("/api/commerce/exchange/:token/pay", async (req) => {
+    const session = await currentSession(req);
+    return payExchangeDifference({ token: req.params.token, actor: actorOf(session) });
+  });
+
+  app.post<{ Params: { id: string }; Body: { result?: string } }>("/api/commerce/payments/:id/simulate", async (req) => {
+    const session = await currentSession(req);
+    const cookie = req.cookies?.kv_checkout ?? null;
+    return simulatePayment(req.params.id, String(req.body?.result ?? "success"), session, cookie);
+  });
 
   app.post<{ Params: { id: string }; Body: Record<string, unknown> }>(
     "/api/commerce/payments/:id/callback",
-    async (req) => handleCallback(req.params.id, req.body ?? {}),
+    async (req, reply) => {
+      const settings = await loadCommerceSettings();
+      const body = req.body ?? {};
+      if (settings.requireCallbackSignature) {
+        const signature = req.headers["x-provider-signature"];
+        const ok = verifyCallbackSignature(
+          settings.providerWebhookSecret,
+          req.params.id,
+          body,
+          typeof signature === "string" ? signature : undefined,
+        );
+        if (!ok) {
+          // an unsigned callback is an untrusted claim, not a payment
+          return reply.code(401).send({
+            ok: false,
+            code: "invalid_callback_signature",
+            message: "امضای Callback معتبر نیست؛ پرداخت تأیید نشد.",
+          });
+        }
+      }
+      return handleCallback(req.params.id, body);
+    },
   );
 
   app.post<{ Params: { id: string }; Body: { result?: "success" | "fail" | "timeout" } }>(
@@ -320,6 +368,9 @@ export async function commerceRoutes(app: FastifyInstance) {
       quantity: Number(req.body?.quantity ?? 0),
       reason: req.body?.reason,
       kind: req.body?.kind,
+      targetVariantId: typeof (req.body as { targetVariantId?: unknown })?.targetVariantId === "string"
+        ? (req.body as { targetVariantId: string }).targetVariantId
+        : undefined,
       actor: actorOf(session),
     });
     return reply.code(201).send({ ok: true, refund });
@@ -372,7 +423,8 @@ export async function commerceRoutes(app: FastifyInstance) {
 
   app.get("/api/commerce/admin/settings", async (req) => {
     await requireAdminSession(req);
-    return loadCommerceSettings(true);
+    const settings = await loadCommerceSettings(true);
+    return { ...settings, providerWebhookSecret: settings.providerWebhookSecret ? "***" : "" };
   });
 
   app.put<{ Body: Partial<CommerceSettings> }>("/api/commerce/admin/settings", async (req) => {
@@ -385,10 +437,10 @@ export async function commerceRoutes(app: FastifyInstance) {
       }
     }
     const allowed: (keyof CommerceSettings)[] = [
-      "bnpl4Enabled", "bnpl4Installments", "cartMaxQtyPerLine", "reservationHoldMinutes",
+      "bnpl4Enabled", "bnpl4ProviderReady", "bnpl4Installments", "cartMaxQtyPerLine", "reservationHoldMinutes",
       "paymentWindowMinutes", "quoteTtlMinutes", "shippingFlat", "shippingExpress",
       "freeShippingThreshold", "shippingThresholdBasis", "discountStacking", "liveRefundsEnabled",
-      "taxRate", "currency", "paymentProvider",
+      "taxRate", "currency", "paymentProvider", "requireCallbackSignature",
       "cashbackEnabled", "cashbackMode", "cashbackBase", "cashbackTiers", "cashbackMaxAmount",
       "cashbackCreditTiming", "cashbackHoldDays", "cashbackExpiryMonths",
       "cashbackRedeemEnabled", "cashbackRedeemMaxPercent", "cashbackCombineWithDiscounts",
@@ -398,6 +450,27 @@ export async function commerceRoutes(app: FastifyInstance) {
       if (req.body && key in req.body) (patch as Record<string, unknown>)[key] = req.body[key];
     }
     if (patch.cashbackTiers) patch.cashbackTiers = normalizeTiers(patch.cashbackTiers);
+
+    /* the master switch cannot be turned on without a confirmed provider */
+    let nextEnabled = patch.bnpl4Enabled ?? current.bnpl4Enabled;
+    const nextReady = patch.bnpl4ProviderReady ?? current.bnpl4ProviderReady;
+    if (!nextReady && current.bnpl4Enabled) {
+      // losing provider readiness is an emergency stop: the master switch goes
+      // off in the same write instead of leaving a switch nobody can honour
+      patch.bnpl4Enabled = false;
+      nextEnabled = false;
+    }
+    if (nextEnabled && !nextReady) {
+      throw new CommerceError(
+        "بدون تأیید ارائه‌دهنده (قرارداد/سقف/اعتبارسنجی) نمی‌توان کلید پرداخت اقساطی را روشن کرد.",
+        409,
+        "bnpl_provider_not_ready",
+      );
+    }
+    if (patch.providerWebhookSecret) {
+      // secrets are written, never read back
+      await requireSuperadmin(req);
+    }
     const saved = await saveCommerceSettings(patch);
     const changes = diffSettings(current as unknown as Record<string, unknown>, patch as Record<string, unknown>);
     if (Object.keys(changes).length > 0) {
@@ -574,6 +647,44 @@ export async function commerceRoutes(app: FastifyInstance) {
     const outbox = await processOutbox();
     return { ok: true, expired, attempts, outbox };
   });
+
+  app.post<{ Params: { id: string }; Body: { note?: string } }>(
+    "/api/commerce/admin/refunds/:id/receive",
+    async (req) => {
+      const session = await requireAdminSession(req);
+      const result = await receiveReturn({ refundId: req.params.id, actor: actorOf(session), note: req.body?.note });
+      await recordAudit({
+        actor: actorOf(session),
+        action: "refund.receive",
+        targetType: "refund",
+        targetId: req.params.id,
+        after: { status: result.refund.status },
+      });
+      return result;
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { result?: "saleable" | "defective"; note?: string } }>(
+    "/api/commerce/admin/refunds/:id/qc",
+    async (req) => {
+      const session = await requireAdminSession(req);
+      const result = await qcReturn({
+        refundId: req.params.id,
+        result: req.body?.result === "defective" ? "defective" : "saleable",
+        actor: actorOf(session),
+        note: req.body?.note,
+      });
+      return result;
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { note?: string } }>(
+    "/api/commerce/admin/refunds/:id/settle",
+    async (req) => {
+      const session = await requireSuperadmin(req);
+      return settleRefund({ refundId: req.params.id, actor: actorOf(session), note: req.body?.note });
+    },
+  );
 
   app.get<{ Querystring: { status?: string; orderId?: string } }>("/api/commerce/admin/refunds", async (req) => {
     await requireAdminSession(req);

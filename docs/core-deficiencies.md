@@ -15,18 +15,18 @@
 | A1 | **سهمیهٔ کوپن هیچ‌وقت شمارش نمی‌شود.** `used_count` فقط خوانده می‌شود؛ در سراسر `server/src` هیچ `update coupons ... used_count` وجود ندارد. | `commerce/pricing.ts:197` (فقط مقایسه) | کد تخفیف بی‌نهایت بار قابل استفاده است؛ «ظرفیت» بی‌معنا | ✅ **رفع شد (PR-1)** — مصرف سهمیه در همان تراکنش تسویه، با `update … where used_count < usage_limit`. |
 | A2 | **درصد کوپن سقف ندارد.** `value` درصد روی `subtotal − campaignDiscount` اعمال می‌شود بدون `max_discount`. | `commerce/pricing.ts:219` | کوپن ۱۰۰٪ = سفارش صفر تومان | ✅ **رفع شد (PR-1)** — ستون `coupons.max_discount` + clamp به مبلغ قابل پرداخت. |
 | A3 | **شرط حداقل خرید روی مبلغ قبل از کمپین سنجیده می‌شود** ولی تخفیف روی مبلغ بعد از کمپین محاسبه می‌شود. | `pricing.ts:202` vs `:219` | ناسازگاری قابل سوءاستفاده در کمپین هم‌زمان | ✅ **رفع شد (PR-1)** — حداقل خرید روی `subtotal − campaignDiscount` سنجیده می‌شود. |
-| A4 | **مرجوعی مستقیماً به موجودی قابل‌فروش برمی‌گردد.** بدون مرحلهٔ دریافت/QC. | `commerce/refunds.ts:183` (`on_hand = on_hand + qty`) | کالای معیوب/اشتباه دوباره فروخته می‌شود | — باز |
+| A4 | **مرجوعی مستقیماً به موجودی قابل‌فروش برمی‌گردد.** بدون مرحلهٔ دریافت/QC. | `commerce/refunds.ts:183` (`on_hand = on_hand + qty`) | کالای معیوب/اشتباه دوباره فروخته می‌شود | ✅ **رفع شد (PR-4)** — مرجوعی مرحله‌ای: تأیید پول/موجودی را جابه‌جا نمی‌کند؛ `received` → `qc` (سالم → موجودی، معیوب → قرنطینه) → `settle`. |
 | A5 | **سفارش EXCEPTION در پنل ادمین مثل «pending» دیده می‌شود.** | `commerce/orders.ts:26` (`exception: "pending"`) | سفارش دارای اختلاف پرداخت در صف عادی انبار گم می‌شود | ✅ **رفع شد (PR-1)** — `exception` دیگر به `pending` نگاشت نمی‌شود و فیلتر خودش را دارد. |
 | A6 | **مسیر سفارش‌سازی قدیمی هنوز فعال است** و CheckoutPage بعد از پرداخت موفق آن را هم صدا می‌زند. | `src/pages/CheckoutPage.tsx:166` → `POST /api/orders` (`server/src/routes/catalog.ts:130`) | سفارش تکراری؛ ردیفی که نه پرداخت دارد نه رزرو/خط سفارش | ✅ **رفع شد (PR-1)** — فراخوانی قدیمی از CheckoutPage حذف شد؛ `POST /api/orders` نشست ادمین واقعی می‌خواهد و در Audit ثبت می‌شود؛ Fallback محلی هم Fail-closed شد. |
 | A7 | **سفارش‌های `pending_payment` رهاشده پاک نمی‌شوند.** فقط Reservation و Attempt منقضی می‌شوند. | `server/src/index.ts:113` (sweeper فقط دو تابع) | انباشت سفارش‌های مرده در پنل و گزارش فروش | ✅ **باطل شد** — سفارش فقط در لحظهٔ تسویه ساخته می‌شود؛ سفارش `pending_payment` رهاشده وجود ندارد (باگ واقعی، مسیر نوشتن آزاد A6 بود). |
-| A8 | **بازپرداخت، پول را جابه‌جا نمی‌کند.** رکورد `settled` می‌شود، موجودی و کش‌بک اصلاح می‌شود، ولی هیچ فراخوانی Provider/درگاه نیست؛ برای BNPL هم همین‌طور. | `commerce/refunds.ts:120-215` | «بازپرداخت‌شده» بدون بازپرداخت واقعی | — باز |
+| A8 | **بازپرداخت، پول را جابه‌جا نمی‌کند.** رکورد `settled` می‌شود، موجودی و کش‌بک اصلاح می‌شود، ولی هیچ فراخوانی Provider/درگاه نیست؛ برای BNPL هم همین‌طور. | `commerce/refunds.ts:120-215` | «بازپرداخت‌شده» بدون بازپرداخت واقعی | ◑ **نیمه‌رفع (PR-4)** — تسویه بر اساس `ProviderCapabilities.refund/partialRefund` انجام می‌شود؛ Provider بدون قابلیت → `manual_review` (بدون ادعای بازپرداخت) و ردیف سفارش بسته نمی‌شود. آداپتور واقعی درگاه هنوز موضوع تصمیم مالک است. |
 | A9 | **تغییر رنگ، سایز را ریست نمی‌کند** (فقط وقتی سایز جدید ناموجود باشد عوض می‌شود). | `src/pages/ProductPage.tsx:84-90` | کاربر سایز رنگ قبلی را ناخواسته اضافه می‌کند | — باز |
 | A10 | **تاریخچهٔ قیمت وجود ندارد.** ستون قیمت روی `products` است و هر تغییر فقط همان‌جا نوشته می‌شود؛ جدول/نسخه‌ای برای قیمت قبلی نیست. | `server/src/schema.sql:25`، بدون `price_history` | نمی‌توان «قیمت در زمان سفارش» را در سطح کاتالوگ اثبات کرد (فقط Snapshot سفارش هست) | ✅ **رفع شد (PR-1)** — جدول `price_history` + `audit_events` روی هر تغییر قیمت کاتالوگ. |
-| A11 | **Callback پرداخت بدون امضا/راز مشترک** پردازش می‌شود؛ فقط شناسهٔ Attempt در URL و نتیجه در Body. | `commerce/payments.ts` (`handleCallback`), `routes.ts:203` | با واقعی‌شدن درگاه، امکان جعل Callback | — باز |
-| A12 | **`/simulate` بدون نشست** قابل فراخوانی است؛ فقط با دو شرط `allowMockControls` و `!isProd` بسته می‌شود. | `commerce/payments.ts:511`, `routes.ts:199` | یک Flag اشتباه در محیط غیرProd = پرداخت جعلی | — باز |
+| A11 | **Callback پرداخت بدون امضا/راز مشترک** پردازش می‌شود؛ فقط شناسهٔ Attempt در URL و نتیجه در Body. | `commerce/payments.ts` (`handleCallback`), `routes.ts:203` | با واقعی‌شدن درگاه، امکان جعل Callback | ✅ **رفع شد (PR-4)** — HMAC-SHA256 روی `attemptId:JSON(body)` + `timingSafeEqual`؛ `requireCallbackSignature` پیش‌فرض روشن؛ بدون امضا → `401 invalid_callback_signature`. |
+| A12 | **`/simulate` بدون نشست** قابل فراخوانی است؛ فقط با دو شرط `allowMockControls` و `!isProd` بسته می‌شود. | `commerce/payments.ts:511`, `routes.ts:199` | یک Flag اشتباه در محیط غیرProd = پرداخت جعلی | ✅ **رفع شد (PR-4)** — علاوه بر `allowMockControls`/غیرProd، فقط صاحب همان Checkout (کوکی `kv_checkout`) یا ادمین مجاز است → `403 simulate_forbidden`. |
 | A13 | ~~کش‌بک فقط جمع می‌شود و خرج نمی‌شود~~ | `commerce/cashback.ts` | بدهی انباشته بدون راه تسویه | ✅ **رفع شد (PR-2)** — `redeemCashback` + سقف ۵۰٪ مبلغ کالا + غیرقابل برداشت |
 | A14 | ~~کش‌بک در لحظهٔ پرداخت واریز می‌شود~~ | `commerce/payments.ts` | واریز + مرجوعی → ماندهٔ منفی | ✅ **رفع شد (PR-2)** — آزادسازی پس از تحویل + مهلت مرجوعی (`available_at`/`pending`) |
-| A15 | **کلیدهای Provider داخل JSONB سند `admin.integrations`** ذخیره و به پنل برگردانده می‌شوند. | `src/state/admin.ts` + `routes/catalog.ts` | لو رفتن Secret از طریق پنل/Export | — باز |
+| A15 | **کلیدهای Provider داخل JSONB سند `admin.integrations`** ذخیره و به پنل برگردانده می‌شوند. | `src/state/admin.ts` + `routes/catalog.ts` | لو رفتن Secret از طریق پنل/Export | ◑ **نیمه‌رفع (PR-4)** — هیچ مسیر API کلید را برنمی‌گرداند: Bootstrap مهمان `integrations` را به `enabled/mode/provider` محدود می‌کند، ادمین هر کلید حساس را `***` می‌بیند، `ops.security.passcode` پاک می‌شود و `PUT /api/state/:key` نشست ادمین می‌خواهد. خودِ سند JSONB هنوز محل نگهداری راز است (انتقال به Secret Store = تصمیم باز مالک). |
 | A16 | **هیچ UI برای Picking / Packing / Ship / Deliver / Refund نیست** — Endpointها هست، دکمه‌ای در ادمین نیست. | grep در `src/` برای picking / ship / deliver → خالی | Supervisor نمی‌تواند از پنل سفارش را جلو ببرد | ✅ **رفع شد (PR-1)** — پنل «سفارش‌های سرور» با برداشت/بسته‌بندی/ارسال/تحویل/لغو + «ردپای تغییرات». |
 
 ## ب) چیزهایی که برای «هسته» وجود ندارند (نه باگ، بلکه نبود)
@@ -119,3 +119,32 @@ B9 … B12 · B15 · B16 · سیاست‌های بخش ج.
 4. حذف مسیر سفارش‌سازی کلاینتی: `POST /api/orders` نشست ادمین واقعی می‌خواهد و Audit می‌شود؛ `PATCH` روی سفارش‌های تجاری ۴۰۹ می‌دهد؛ Checkout در قطعی شبکه Fail-closed است (سفارش جعلی ساخته نمی‌شود).
 5. `exception` از `pending` جدا شد (پنل فیلتر مستقل دارد) و سند ادمین دیگر سفارش موجود را بازنویسی نمی‌کند.
 6. پنل تجارت: «سفارش‌های سرور» با برداشت (اسکن SKU)، بسته‌بندی، ارسال، تحویل، لغو + «ردپای تغییرات».
+
+## PR-4 (۲۰۲۶-۱۱-۰۴) — امنیت لبه، آمادگی BNPL، و مرجوعی مرحله‌ای
+
+این دور «پروندهٔ هسته» را از نظر P0 می‌بندد. ۳۹/۳۹ تست Integration سبز
+(`node --import tsx --test server/test/commerce.test.ts`)، `tsc` سرور و کلاینت پاک،
+`npm run build` موفق.
+
+**امنیت (`server/src/http/security.ts`)**
+1. Rate limit پنجرهٔ ثابت روی `auth`/`admin_login`/`checkout`/`payment`/`returns`/`upload`/`write` → `429 rate_limited`.
+2. CSRF دوگانه (`kv_csrf` + `x-csrf-token`) روی همهٔ نوشتن‌ها؛ Callback های امضاشده مستثنا.
+3. هدرهای `nosniff` / `no-referrer` / `DENY` / `no-store` روی مسیرهای حساس.
+4. CORS دیگر Origin دلخواه را بازتاب نمی‌دهد (same-host + `CORS_ALLOWED_ORIGINS`).
+5. `/api/bootstrap` دیگر راز پخش نمی‌کند (A15 نیمه‌رفع) و `PUT /api/state/:key` نشست ادمین می‌خواهد (A18 همچنان باز برای نوشتنِ ادمین).
+6. `/simulate` به صاحب Checkout/ادمین محدود شد (A12 رفع).
+
+**آمادگی BNPL (BNPL-GLOBAL-001)**
+7. `bnpl4 = {enabled, providerReady, availableForCheckout}`؛ فعال‌سازی بدون آمادگی Provider → `409 bnpl_provider_not_ready`؛ لغو آمادگی سوئیچ را خاموش می‌کند؛ Provider بدون قابلیت → `409 bnpl_provider_unsupported`.
+8. Callback با HMAC (A11 رفع) و `requireCallbackSignature` پیش‌فرض روشن.
+
+**مرجوعی / تعویض**
+9. RMA مرحله‌ای (`approved → received → qc → settled`) — A4 رفع؛ واحد معیوب به قرنطینه می‌رود و هرگز قابل‌فروش نمی‌شود.
+10. تسویه بر اساس `ProviderCapabilities` — Provider بدون قابلیت بازگشت → `manual_review` (A8 نیمه‌رفع؛ آداپتور واقعی تصمیم مالک است).
+11. تعویض با `difference_amount`: اختلاف مثبت لینک پرداخت یک‌بارمصرف، اختلاف منفی اعتبار کیف پول همان مشتری.
+
+**همچنان باز (P1/P2) و آگاهانه تصمیم‌گیری‌نشده)**
+12. A18 — نوشتن State Doc توسط ادمین هنوز از سرویس تجارت عبور می‌کند (باید به Command محدود شود).
+13. B17 — مدل Shipment (یک مرسوله/یک هزینه) هنوز به‌صورت جدول مستقل وجود ندارد.
+14. مهاجرت V2 و Backup/Restore rehearsal — انجام نشده.
+15. تصمیم‌های باز مالک: Provider واقعی، TTL ها، ماتریس کوپن×کمپین، Secret Store.

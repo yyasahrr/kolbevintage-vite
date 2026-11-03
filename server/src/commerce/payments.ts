@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { config } from "../config";
 import { query, withTransaction } from "../db";
 import type { CheckoutRow } from "./checkout";
@@ -52,9 +52,24 @@ export interface VerifyOutcome {
   raw: Record<string, unknown>;
 }
 
+/**
+ * What a provider can actually do. The store never assumes a capability: a
+ * store-wide BNPL switch is worthless if the provider is not contracted for it,
+ * and a refund must not be silently "settled" when the provider cannot reverse
+ * the money. Missing capability ⇒ the operation is refused or parked for a
+ * human, never faked.
+ */
+export interface ProviderCapabilities {
+  bnpl4: boolean;
+  refund: boolean;
+  partialRefund: boolean;
+  signedCallbacks: boolean;
+}
+
 export interface PaymentProvider {
   id: string;
   method: "online" | "bnpl4";
+  capabilities: ProviderCapabilities;
   initiate(attempt: PaymentAttemptRow): Promise<{ providerRef: string; redirectUrl: string | null; instructions: string }>;
   verify(attempt: PaymentAttemptRow, params: Record<string, unknown>): Promise<VerifyOutcome>;
 }
@@ -66,6 +81,7 @@ export interface PaymentProvider {
 export const mockProvider: PaymentProvider = {
   id: "mock",
   method: "online",
+  capabilities: { bnpl4: false, refund: true, partialRefund: true, signedCallbacks: true },
   async initiate(attempt) {
     return {
       providerRef: `mock_${attempt.id}`,
@@ -93,6 +109,9 @@ export const mockBnplProvider: PaymentProvider = {
   ...mockProvider,
   id: "mock-bnpl4",
   method: "bnpl4",
+  // the installment provider is contracted for BNPL but not for partial money
+  // reversals: those must go to a human (see commerce/refunds.ts)
+  capabilities: { bnpl4: true, refund: false, partialRefund: false, signedCallbacks: true },
   async initiate(attempt) {
     return {
       providerRef: `mockbnpl_${attempt.id}`,
@@ -118,6 +137,10 @@ const PROVIDERS: Record<string, PaymentProvider> = {
   mock: mockProvider,
   "mock-bnpl4": mockBnplProvider,
 };
+
+export function providerCapabilities(id: string): ProviderCapabilities {
+  return providerFor(id).capabilities;
+}
 
 export function providerFor(id: string): PaymentProvider {
   const provider = PROVIDERS[id];
@@ -254,8 +277,21 @@ export async function startPayment(input: {
   const method: "online" | "bnpl4" = input.method === "bnpl4" ? "bnpl4" : "online";
   // OWN-05 revision: the installment gateway is store-wide. Product-level
   // "installment eligible" labels no longer hide or block it.
-  if (method === "bnpl4" && !settings.bnpl4Enabled) {
-    throw new CommerceError("پرداخت اقساطی در این فروشگاه فعال نیست.", 403, "bnpl_disabled");
+  if (method === "bnpl4") {
+    if (!settings.bnpl4Enabled) {
+      throw new CommerceError("پرداخت اقساطی در این فروشگاه فعال نیست.", 403, "bnpl_disabled");
+    }
+    // three states, not one boolean: enabled ≠ provider-ready ≠ available
+    if (!settings.bnpl4ProviderReady) {
+      throw new CommerceError(
+        "ارائه‌دهندهٔ اقساط هنوز تأیید نشده؛ پرداخت چهارقسطی قابل شروع نیست (فعال‌بودن کلید کافی نیست).",
+        409,
+        "bnpl_provider_not_ready",
+      );
+    }
+    if (!providerCapabilities(settings.bnpl4Provider).bnpl4) {
+      throw new CommerceError("این ارائه‌دهنده قابلیت پرداخت چهارقسطی ندارد.", 409, "bnpl_provider_unsupported");
+    }
   }
 
   const idempotencyKey = input.idempotencyKey?.trim() || null;
@@ -346,6 +382,35 @@ export async function startPayment(input: {
     },
     reused: false,
   };
+}
+
+
+/* ---------------------------------------------------------------------
+   Provider callbacks are never trusted by themselves: the payload must be
+   signed with the shared secret, and a matching signature still only proves
+   "this came from the provider" — the amount and status are re-read through
+   the provider's verify call before any order is created.
+   --------------------------------------------------------------------- */
+
+export function signCallbackPayload(secret: string, attemptId: string, body: unknown): string {
+  return createHmac("sha256", secret).update(`${attemptId}:${JSON.stringify(body ?? {})}`).digest("hex");
+}
+
+export function verifyCallbackSignature(
+  secret: string,
+  attemptId: string,
+  body: unknown,
+  signature: string | undefined,
+): boolean {
+  if (!secret) return false;
+  const expected = signCallbackPayload(secret, attemptId, body);
+  const provided = (signature ?? "").trim().toLowerCase();
+  if (provided.length !== expected.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
+  } catch {
+    return false;
+  }
 }
 
 /** settles the attempt exactly once and turns the checkout into an order */
@@ -601,10 +666,34 @@ export async function expirePaymentAttempts() {
   return res.rowCount ?? 0;
 }
 
-export async function simulatePayment(attemptId: string, result: string) {
+/**
+ * Developer-only shortcut for the sandbox gateway. It is *not* a payment
+ * channel: it demands the same ownership proof as a real settlement — the
+ * attempt must belong to the caller's order — and stays off in production.
+ */
+export async function simulatePayment(
+  attemptId: string,
+  result: string,
+  viewer?: { kind: "admin" | "customer"; subject: string } | null,
+  checkoutCookie?: string | null,
+) {
   const settings = await loadCommerceSettings();
   if (!settings.allowMockControls || config.isProd) {
     throw new CommerceError("کنترل شبیه‌سازی درگاه در این محیط فعال نیست.", 403, "mock_controls_disabled");
+  }
+  const owner = await query<{ email: string | null; checkout_id: string | null }>(
+    `select c.customer_email as email, a.checkout_id from payment_attempts a
+       join checkout_sessions c on c.id = a.checkout_id
+      where a.id = $1`,
+    [attemptId],
+  );
+  const ownerEmail = owner.rows[0]?.email ?? null;
+  const checkoutId = owner.rows[0]?.checkout_id ?? null;
+  const isAdmin = viewer?.kind === "admin";
+  const ownsOrder = viewer?.kind === "customer" && ownerEmail !== null && viewer.subject === ownerEmail;
+  const ownsBrowser = Boolean(checkoutId && checkoutCookie && checkoutCookie === checkoutId);
+  if (!isAdmin && !ownsOrder && !ownsBrowser) {
+    throw new CommerceError("شبیه‌سازی پرداخت فقط برای صاحب همین سفارش یا ادمین مجاز است.", 403, "simulate_forbidden");
   }
   return handleCallback(attemptId, { result });
 }

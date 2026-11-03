@@ -113,6 +113,29 @@ available = on_hand − quarantined − Σ(active reservations, expires_at > now
   می‌ماند (`bnpl_rejected`).
   - کلید: `commerce_settings.bnpl4Enabled`، با `PUT /api/commerce/admin/settings`.
   - مبلغ هر قسط = مبلغ کل / تعداد اقساط (بدون کارمزد).
+  - **سه وضعیت جدا (۲۰۲۶-۱۱-۰۴):** `GET /api/commerce/config` مقدار
+    `bnpl4 = {enabled, providerReady, availableForCheckout, installments, provider, scope}`
+    برمی‌گرداند. `availableForCheckout` فقط وقتی `true` است که هم سوئیچ فروشگاه
+    روشن باشد، هم `bnpl4ProviderReady` (تأیید Provider)، و هم آداپتور آن Provider
+    قابلیت `bnpl4` را اعلام کرده باشد. یعنی «قابل انتخاب بودن» ≠ «تأیید Provider».
+  - فعال‌کردن سوئیچ بدون `bnpl4ProviderReady` → `409 bnpl_provider_not_ready`؛
+    لغو آمادگی، سوئیچ را در همان نوشتن خاموش می‌کند؛ شروع پرداخت با Provider بدون
+    قابلیت → `409 bnpl_provider_unsupported`؛ سوئیچ خاموش → `403 bnpl_disabled`.
+
+### قابلیت‌های Provider و امضای Callback
+
+هر Provider یک `ProviderCapabilities` اعلام می‌کند: `bnpl4`، `refund`،
+`partialRefund`، `signedCallbacks`. موک = همه true جز `bnpl4`؛ موک چهارقسطی =
+`bnpl4` تنها. اگر Provider قابلیت بازگشت پول را اعلام نکند، تسویهٔ مرجوعی به‌جای
+«انجام‌شده» در وضعیت `manual_review` می‌ماند تا انسان تصمیم بگیرد (تست:
+`an installment refund the provider cannot reverse is parked for a human`).
+
+Callback ها با HMAC-SHA256 روی `attemptId:JSON(body)` امضا می‌شوند
+(`signCallbackPayload` / `verifyCallbackSignature`، مقایسهٔ `timingSafeEqual`).
+`requireCallbackSignature` پیش‌فرض روشن است؛ Callback بدون امضا →
+`401 invalid_callback_signature` و هیچ تغییری در پرداخت/سفارش/موجودی.
+مسیر `/simulate` هم فقط برای صاحب همان Checkout (کوکی `kv_checkout`) یا ادمین
+مجاز است و در Production کاملاً بسته است.
 
 ## ۵. سفارش، انبار، مرجوعی
 
@@ -124,6 +147,23 @@ available = on_hand − quarantined − Σ(active reservations, expires_at > now
   ردشده. Packing تأیید دستی می‌خواهد. ارسال/تحویل idempotent هستند.
 - مرجوعی جزئی در سطح ردیف سفارش مدیریت می‌شود و تعداد درخواست‌شده (حتی
   تأییدنشده) از باقی‌مانده کم می‌شود.
+- **مرجوعی مرحله‌ای (RMA) — ۲۰۲۶-۱۱-۰۴:** وضعیت‌ها
+  `requested → approved → received → qc_passed | qc_failed → settled | manual_review`
+  (و `rejected`). «تأیید» فقط یک تصمیم است: هیچ پول و هیچ موجودی جابه‌جا نمی‌شود.
+  - `POST /api/commerce/admin/refunds/:id/receive` — کالا به انبار برگشته است.
+  - `POST /api/commerce/admin/refunds/:id/qc` با `{result: "saleable" | "defective"}` —
+    تنها جایی که واحد برگشتی می‌تواند دوباره قابل‌فروش شود. `saleable` →
+    `on_hand += qty` با `inventory_movements.reason = 'refund_return'`؛
+    `defective` → `quarantined += qty` و ثبت `qc_rejected` (هرگز قابل‌فروش نمی‌شود).
+  - `POST /api/commerce/admin/refunds/:id/settle` — فقط Superadmin + `liveRefundsEnabled`.
+    قبل از دریافت/QC → `409 qc_required`؛ تعویضِ گران‌تر بدون پرداخت اختلاف →
+    `409 exchange_difference_unpaid`.
+  - **تعویض (Exchange):** `kind = "exchange"` با `target_variant_id`؛ اختلاف قیمت
+    در `refunds.difference_amount` snapshot می‌شود. اختلاف مثبت → یک لینک پرداخت
+    یک‌بارمصرف `exchange_payments` (۴۸ ساعت) و `POST /api/commerce/exchange/:token/pay`.
+    اختلاف منفی → در تسویه به کیف پول همان مشتری برمی‌گردد (`refund_credit` با
+    `ref_id = "<refund>:diff"`).
+  - هر مرحله در `audit_events` ثبت می‌شود و فاکتور تاریخی دست‌نخورده می‌ماند.
 - **Refund فقط با Superadmin محافظت‌شده** و تنها وقتی `liveRefundsEnabled`
   روشن است؛ در غیر این صورت پاسخ `403 live_refunds_blocked` و درخواست در صف
   می‌ماند. نشست ادمین معمولی (پسکد `1234`) Superadmin نیست؛ ارتقا با
@@ -266,3 +306,33 @@ Idempotency سفارش و تغییرناپذیری فاکتور.
    می‌شوند تا قرارداد مستقل خودشان تصویب شود).
 5. مهلت دقیق هر Provider واقعی (مقدارها تنظیمات‌اند، نه ثابت).
 6. Freeze نهایی Schema قراردادهای C-01..C-08.
+
+## ۱۳. امنیت لبه (۲۰۲۶-۱۱-۰۴)
+
+`server/src/http/security.ts` روی همهٔ مسیرها اجرا می‌شود:
+
+- **Rate limit** پنجرهٔ ثابت بر اساس IP: `auth 40`، `admin_login 20`، `checkout 60`،
+  `payment 60`، `returns 30`، `upload 20`، `write 120` در دقیقه → `429 rate_limited`
+  با هدر `retry-after`. در تست‌ها با `resetRateLimits()` پاک می‌شود.
+- **CSRF دوگانه (double submit):** کوکی `kv_csrf` + هدر `x-csrf-token` برای هر
+  درخواست غیر-GET → `403 csrf_token_invalid`. Callback های Provider از این قاعده
+  مستثنا هستند چون امضای HMAC دارند. کلاینت (`src/lib/api.ts`) توکن را خودکار
+  می‌فرستد.
+- **هدرهای امنیتی:** `x-content-type-options: nosniff`، `referrer-policy: no-referrer`،
+  `x-frame-options: DENY`، `same-site` و `cache-control: no-store` روی مسیرهای
+  حساس (auth / admin / cashback).
+- **CORS:** بازتاب Origin دلخواه حذف شد؛ فقط same-host و `CORS_ALLOWED_ORIGINS`
+  مجاز است و Preflight هدرهای `x-csrf-token` و `x-provider-signature` را می‌پذیرد.
+- **Bootstrap بدون راز:** `/api/bootstrap` برای مهمان سند `admin` را بدون
+  `passcode`/`orders`/`customers`/`security` و با `integrations` محدود به
+  `enabled/mode/provider` می‌دهد؛ برای ادمین هر کلید حساس (`passcode`، `key`،
+  `apiKey`، `secret`، `token` …) به `***` تبدیل می‌شود و `ops.security.passcode`
+  هم پاک می‌شود. نوشتن روی `PUT /api/state/:key` فقط با نشست ادمین ممکن است.
+  کلیدهای Provider در سند باقی می‌مانند ولی هیچ‌وقت از API بیرون نمی‌آیند (A15).
+
+## ۱۴. تست‌های امنیت، BNPL و مرجوعی (۲۰۲۶-۱۱-۰۴)
+
+`node --import tsx --test server/test/commerce.test.ts` → **۳۹/۳۹ سبز**، شامل:
+سه وضعیت BNPL، Callback بدون امضا، CSRF و Rate limit، نشت Bootstrap، مرجوعی
+مرحله‌ای (معیوب → قرنطینه، سالم → موجودی، بدون QC → ۴۰۹)، تعویض گران‌تر با
+اختلاف پرداخت‌نشده، و مرجوعی BNPL که به `manual_review` می‌رود.
