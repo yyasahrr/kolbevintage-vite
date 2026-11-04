@@ -36,12 +36,32 @@ export function Header() {
   const { account } = useAuth();
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [megaOpen, setMegaOpen] = useState(false);
+  const megaTimer = useRef<number | undefined>(undefined);
   const location = useLocation();
 
   useEffect(() => {
     setMenuOpen(false);
     setSearchOpen(false);
+    setMegaOpen(false);
   }, [location.pathname, location.search]);
+
+  /*
+    Hover intent instead of pure :hover — the panel hangs under the header while
+    the trigger is only as tall as its text, so a few pixels of pointer travel
+    used to fall outside the trigger and shut the menu before it was reachable.
+    Opening is immediate, closing waits a beat so diagonal moves survive.
+  */
+  const openMega = () => {
+    window.clearTimeout(megaTimer.current);
+    setMegaOpen(true);
+  };
+  const closeMegaSoon = () => {
+    window.clearTimeout(megaTimer.current);
+    megaTimer.current = window.setTimeout(() => setMegaOpen(false), 160);
+  };
+  useEffect(() => () => window.clearTimeout(megaTimer.current), []);
+  useEscape(megaOpen, () => setMegaOpen(false));
 
   const grouped = useMemo(() => {
     const map = new Map<string, typeof COLLECTIONS>();
@@ -69,7 +89,7 @@ export function Header() {
           how many nav items or utilities are shown: nav (start) · logo · actions (end)
         */}
         <div className="mx-auto grid h-[58px] max-w-[1500px] grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 sm:px-6 lg:h-[70px] lg:px-10">
-          <div className="flex min-w-0 items-center">
+          <div className="flex h-full min-w-0 items-center self-stretch">
             <button
               type="button"
               onClick={() => setMenuOpen(true)}
@@ -80,10 +100,19 @@ export function Header() {
               <Menu className="h-[19px] w-[19px]" />
             </button>
 
-            <nav aria-label="منوی اصلی" className="hidden items-center gap-4 lg:flex xl:gap-7">
+            <nav aria-label="منوی اصلی" className="hidden h-full items-center gap-4 self-stretch lg:flex xl:gap-7">
               {NAV.map((item) =>
                 item.mega ? (
-                  <div key={item.to} className="group/mega static">
+                  <div
+                    key={item.to}
+                    className="flex h-full items-center"
+                    onMouseEnter={openMega}
+                    onMouseLeave={closeMegaSoon}
+                    onFocus={openMega}
+                    onBlur={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setMegaOpen(false);
+                    }}
+                  >
                     <NavLink
                       to={item.to}
                       className={({ isActive }) =>
@@ -94,12 +123,22 @@ export function Header() {
                       }
                     >
                       {item.label}
-                      <ChevronDown className="h-3 w-3 transition-transform duration-200 group-hover/mega:rotate-180" />
-                      <span className="absolute inset-x-0 -bottom-0.5 h-px origin-right scale-x-0 bg-ink transition-transform duration-300 group-hover/mega:scale-x-100" />
+                      <ChevronDown className={cn("h-3 w-3 transition-transform duration-200", megaOpen && "rotate-180")} />
+                      <span
+                        className={cn(
+                          "absolute inset-x-0 -bottom-0.5 h-px origin-right bg-ink transition-transform duration-300",
+                          megaOpen ? "scale-x-100" : "scale-x-0",
+                        )}
+                      />
                     </NavLink>
 
                     {/* mega menu: categories first, then a curated showcase card */}
-                    <div className="pointer-events-none invisible absolute inset-x-0 top-full z-50 translate-y-1 opacity-0 transition-[opacity,transform] duration-200 group-hover/mega:pointer-events-auto group-hover/mega:visible group-hover/mega:translate-y-0 group-hover/mega:opacity-100 group-focus-within/mega:pointer-events-auto group-focus-within/mega:visible group-focus-within/mega:translate-y-0 group-focus-within/mega:opacity-100">
+                    <div
+                      className={cn(
+                        "absolute inset-x-0 top-full z-50 transition-[opacity,transform] duration-200",
+                        megaOpen ? "visible translate-y-0 opacity-100" : "pointer-events-none invisible translate-y-1 opacity-0",
+                      )}
+                    >
                       <div className="mx-auto max-w-[1500px] px-4 sm:px-6 lg:px-10">
                         <div className="grid gap-6 rounded-b-2xl rounded-t-none border border-t-0 border-black/[0.07] bg-paper p-6 shadow-[0_30px_60px_-30px_rgba(22,19,15,0.45)] lg:grid-cols-[1.35fr_0.8fr]">
                           <div>
