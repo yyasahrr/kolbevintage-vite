@@ -202,6 +202,36 @@ test("settings read and write need settings:view / settings:edit, not just a ses
   assert.equal(write.status, 403, JSON.stringify(write.body));
 });
 
+test("a state save leaves an audit row naming only the keys that changed", async () => {
+  const { client } = await staffWith(["design:edit"], "designer", "hoda", "hoda-pass-1");
+
+  // read-merge-write, exactly like the panel does — never replace the whole document
+  const original = (await query("select value from state_documents where key = 'ops'")).rows[0].value as Record<string, any>;
+  const first = await client.put("/api/state/ops", { ...original, brand: { ...(original.brand ?? {}), name: "ولور" } });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+
+  const second = await client.put("/api/state/ops", { ...original, brand: { ...(original.brand ?? {}), name: "ولور نو" } });
+  assert.equal(second.status, 200);
+  assert.deepEqual(second.body.changed, ["brand"], "only the edited key is reported");
+
+  const rows = await query(
+    "select actor, target_id, after from audit_events where action = 'state.update' order by at desc limit 1",
+  );
+  assert.equal(rows.rows[0]?.actor, "hoda");
+  assert.equal(rows.rows[0]?.target_id, "ops");
+  const after = typeof rows.rows[0].after === "string" ? JSON.parse(rows.rows[0].after) : rows.rows[0].after;
+  assert.deepEqual(after, { changed: ["brand"] });
+
+  // the store passcode survives a save that forgot to include it
+  const stripped = await client.put("/api/state/ops", { brand: { name: "بدون رمز" } });
+  assert.equal(stripped.status, 200);
+  const owner2 = makeClient();
+  await owner2.login(OWNER_PASSCODE);
+
+  // and the document is restored for the tests that follow
+  await query("update state_documents set value = $1 where key = 'ops'", [JSON.stringify(original)]);
+});
+
 test("deactivating a staff member kills their live session's permissions", async () => {
   const { admin, client } = await staffWith(["catalog:edit"], "editor", "nima", "nima-pass-1");
   assert.equal((await client.put("/api/state/admin", { products: [] })).status, 200);

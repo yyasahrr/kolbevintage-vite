@@ -4,6 +4,7 @@ import { syncProjection } from "../projection";
 import { getDocument, putDocument } from "../seed";
 import { readSession } from "../sessions";
 import { requirePermission, type Permission } from "../http/rbac";
+import { recordAudit } from "../commerce/audit";
 import { publicCustomer } from "./auth";
 
 const ADMIN_KEYS = new Set(["admin", "ops"]);
@@ -113,9 +114,28 @@ export async function stateRoutes(app: FastifyInstance) {
     const { key } = req.params;
     if (!ADMIN_KEYS.has(key)) return reply.code(404).send({ error: "سند ناشناخته است." });
     // a real admin session *with* the permission for this document
-    await requirePermission(req, KEY_PERMISSION[key]);
+    const session = await requirePermission(req, KEY_PERMISSION[key]);
     const body = req.body;
     if (!body || typeof body !== "object") return reply.code(400).send({ error: "بدنهٔ نامعتبر." });
+
+    // every panel save leaves a trail: which top-level keys changed (decision 36)
+    const before = (await getDocument<Record<string, unknown>>(key)) ?? {};
+    const after = body as Record<string, unknown>;
+    const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((field) => {
+      // credentials are never copied into the audit log
+      if (SECRET_KEY.test(field)) return false;
+      return JSON.stringify(before[field]) !== JSON.stringify(after[field]);
+    });
+
+    // a save must never wipe the store passcode by omission — that would lock the
+    // owner out of their own panel (decision 30: owner recovery)
+    const stored = (await getDocument<Record<string, any>>(key)) ?? {};
+    if (key === "ops" && stored.security?.passcode && !(body as any).security?.passcode) {
+      (body as any).security = { ...(body as any).security, passcode: stored.security.passcode };
+    }
+    if (key === "admin" && stored.settings?.passcode && !(body as any).settings?.passcode) {
+      (body as any).settings = { ...(body as any).settings, passcode: stored.settings.passcode };
+    }
 
     await putDocument(key, body);
 
@@ -123,6 +143,17 @@ export async function stateRoutes(app: FastifyInstance) {
     const ops = key === "ops" ? (body as Record<string, never>) : ((await getDocument("ops")) as Record<string, never>);
     if (admin && ops) await syncProjection(admin, ops);
 
-    return { ok: true, savedAt: new Date().toISOString() };
+    if (changed.length > 0) {
+      await recordAudit({
+        actor: session.subject,
+        action: "state.update",
+        targetType: `state_${key}`,
+        targetId: key,
+        after: { changed },
+        requestId: req.id,
+      });
+    }
+
+    return { ok: true, savedAt: new Date().toISOString(), changed };
   });
 }
