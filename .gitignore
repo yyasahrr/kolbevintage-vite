@@ -34,3 +34,6 @@ server/uploads/*
 .claude/
 agent/
 skills-lock.json
+
+# Logical backups written by the server
+server/.backups/

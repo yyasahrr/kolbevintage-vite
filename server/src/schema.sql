@@ -477,3 +477,18 @@ create table if not exists staff (
   created_at timestamptz not null default now()
 );
 create index if not exists staff_role_idx on staff (role_id);
+
+-- logical backups (decisions 11 + 85): the file lives on disk, this row is the index
+create table if not exists backups (
+  id text primary key,
+  file text not null,
+  bytes bigint not null,
+  kind text not null default 'manual',
+  sha256 text not null,
+  tables integer not null default 0,
+  rows integer not null default 0,
+  created_at timestamptz not null default now(),
+  cloud_status text not null default 'not_configured',
+  cloud_error text
+);
+create index if not exists backups_created_idx on backups (created_at desc);

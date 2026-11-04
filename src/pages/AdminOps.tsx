@@ -1971,3 +1971,173 @@ export function HealthPanel() {
     </>
   );
 }
+
+/* =====================================================================
+   backups (decisions 11 + 85) — list what the server actually wrote, take one
+   now, download it. Cloud copy is reported honestly, including "not set up".
+   ===================================================================== */
+
+interface BackupRow {
+  id: string;
+  file: string;
+  bytes: number;
+  kind: "manual" | "nightly";
+  sha256: string;
+  tables: number;
+  rows: number;
+  created_at: string;
+  cloud_status: "not_configured" | "uploaded" | "failed";
+  cloud_error: string | null;
+}
+
+interface BackupFeed {
+  schedule: { hour: number; keep: number; cloudConfigured: boolean; dir: string };
+  backups: BackupRow[];
+}
+
+const CLOUD_LABEL: Record<BackupRow["cloud_status"], string> = {
+  not_configured: "کپی ابری تنظیم نشده",
+  uploaded: "روی فضای ابری رفت",
+  failed: "کپی ابری ناموفق",
+};
+
+export function BackupPanel() {
+  const [feed, setFeed] = useState<BackupFeed | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const load = async () => {
+    try {
+      const { api } = await import("@/lib/api");
+      setFeed(await api.get<BackupFeed>("/api/admin/backups"));
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "فهرست پشتیبان خوانده نشد");
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const takeBackup = async () => {
+    setBusy("create");
+    setNotice("");
+    try {
+      const { api } = await import("@/lib/api");
+      const res = await api.post<{ ok: boolean; backup: BackupRow }>("/api/admin/backups", {});
+      setNotice(`پشتیبان ساخته شد: ${fmtBytes(Number(res.backup.bytes))} · ${fa(res.backup.rows)} ردیف`);
+      await load();
+    } catch (err) {
+      setNotice(err instanceof Error ? `ساخت پشتیبان ناموفق: ${err.message}` : "ساخت پشتیبان ناموفق");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const download = async (row: BackupRow) => {
+    // the file comes from the server as gzip; a default browser navigation keeps
+    // the cookies and shows the OS download UI
+    window.location.href = `/api/admin/backups/${encodeURIComponent(row.id)}/download`;
+  };
+
+  const lastNightly = feed?.backups.find((b) => b.kind === "nightly");
+  const lastManual = feed?.backups.find((b) => b.kind === "manual");
+
+  return (
+    <>
+      <PanelHead
+        title="پشتیبان‌گیری"
+        sub="پشتیبان منطقی از همهٔ جدول‌ها (JSON فشرده) + فایل schema همان نسخه. بازیابی با دستور سرور انجام می‌شود، نه از پنل."
+        action={
+          <button type="button" className="ad-btn is-sm is-primary" onClick={() => void takeBackup()} disabled={busy === "create"}>
+            <Save width={13} height={13} /> {busy === "create" ? "در حال گرفتن…" : "پشتیبان همین حالا"}
+          </button>
+        }
+      />
+
+      {notice && <p className="ad-hint">{notice}</p>}
+      {error && (
+        <div className="ad-empty">
+          فهرست پشتیبان خوانده نشد: {error}
+          <div style={{ marginTop: 8 }}><button type="button" className="ad-btn is-sm" onClick={() => void load()}>تلاش دوباره</button></div>
+        </div>
+      )}
+
+      {feed && (
+        <>
+          <div className="ad-grid-2">
+            <Panel title="زمان‌بندی">
+              <div className="ad-table-wrap">
+                <table className="ad-table">
+                  <tbody>
+                    <tr><td>پشتیبان شبانه</td><td>هر روز ساعت {fa(feed.schedule.hour)}:۰۰ (اگر سرور روشن باشد)</td></tr>
+                    <tr><td>نگهداری</td><td>{fa(feed.schedule.keep)} پشتیبان آخر</td></tr>
+                    <tr><td>آخرین پشتیبان شبانه</td><td>{lastNightly ? formatJalaliDateTime(lastNightly.created_at) : "هنوز گرفته نشده"}</td></tr>
+                    <tr><td>آخرین پشتیبان دستی</td><td>{lastManual ? formatJalaliDateTime(lastManual.created_at) : "هنوز گرفته نشده"}</td></tr>
+                    <tr><td>محل فایل‌ها روی سرور</td><td dir="ltr">{feed.schedule.dir}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+            <Panel title="کپی ابری">
+              <p className="ad-hint" style={{ marginTop: 0 }}>
+                {feed.schedule.cloudConfigured
+                  ? "مقصد ابری تنظیم شده است؛ وضعیت هر پشتیبان در جدول پایین آمده."
+                  : "هنوز وصل نشده: برای کپی روزانه باید BACKUP_CLOUD_ENDPOINT (و در صورت نیاز BACKUP_CLOUD_TOKEN) روی سرور تنظیم شود. تا آن موقع هیچ کپی ابری‌ای ادعا نمی‌شود."}
+              </p>
+              <p className="ad-hint">
+                فرمت آپلود یک PUT ساده به همان مقصد است؛ با S3/آروان و یک URL امضاشده یا یک گیرندهٔ ساده کار می‌کند.
+              </p>
+            </Panel>
+          </div>
+
+          <Panel title="پشتیبان‌های موجود">
+            {feed.backups.length === 0 ? (
+              <p className="ad-hint">هنوز پشتیبانی ساخته نشده. با دکمهٔ بالا یکی بگیر.</p>
+            ) : (
+              <div className="ad-table-wrap">
+                <table className="ad-table">
+                  <thead>
+                    <tr><th>زمان</th><th>نوع</th><th>حجم</th><th>ردیف</th><th>کپی ابری</th><th>اثر انگشت</th><th /></tr>
+                  </thead>
+                  <tbody>
+                    {feed.backups.map((b) => (
+                      <tr key={b.id}>
+                        <td className="ad-num">{formatJalaliDateTime(b.created_at)}</td>
+                        <td>{b.kind === "nightly" ? "شبانه" : "دستی"}</td>
+                        <td className="ad-num">{fmtBytes(Number(b.bytes))}</td>
+                        <td className="ad-num">{fa(b.rows)}</td>
+                        <td title={b.cloud_error ?? undefined}>
+                          {CLOUD_LABEL[b.cloud_status]}
+                          {b.cloud_error ? ` — ${b.cloud_error}` : ""}
+                        </td>
+                        <td dir="ltr" className="ad-num" title={b.sha256}>{b.sha256.slice(0, 10)}…</td>
+                        <td>
+                          <button type="button" className="ad-btn is-sm" onClick={() => void download(b)}>
+                            دانلود
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="بازیابی">
+            <p className="ad-hint" style={{ marginTop: 0 }}>
+              بازیابی فقط از خط فرمان سرور انجام می‌شود تا یک نشست پنل نتواند فروشگاه را با فایل اشتباه عوض کند:
+            </p>
+            <pre className="ad-code" dir="ltr">npm run restore -- server/.backups/&lt;file&gt;.json.gz --yes</pre>
+            <p className="ad-hint">
+              پیش از بازیابی، یک پشتیبان تازه بگیر. بعد از بازیابی سرور را ری‌استارت کن تا پروجکشن‌ها از نو ساخته شوند.
+            </p>
+          </Panel>
+        </>
+      )}
+    </>
+  );
+}

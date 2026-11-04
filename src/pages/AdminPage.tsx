@@ -67,7 +67,7 @@ import { resolveImg } from "@/builder/stock";
 import { useCart as useNotifyCart } from "@/state/cart";
 import type { AdminState, Campaign, DiscountRule, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
 import type { GarmentKind, ProductImage } from "@/types";
-import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
+import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, BackupPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
 import { CommercePanel } from "./AdminCommercePanel";
 import { StaffPanel } from "./AdminRbac";
 import { loadAdminMe, invalidateAdminMe, useAdminMe } from "@/state/session";
@@ -106,6 +106,7 @@ type Tab =
   | "returns"
   | "logs"
   | "health"
+  | "backup"
   | "security"
   | "forms"
   | "tryon"
@@ -189,6 +190,7 @@ const TABS: NavItem[] = [
       { id: "integrations", label: "اتصالات" },
       { id: "logs", label: "گزارش فعالیت" },
       { id: "health", label: "سلامت سیستم" },
+      { id: "backup", label: "پشتیبان‌گیری" },
       { id: "settings", label: "تنظیمات" },
       { id: "staff", label: "کارکنان و نقش‌ها" },
     ],
@@ -548,6 +550,7 @@ export function AdminPage() {
                 { id: "integrations", label: "اتصالات", node: <Integrations /> },
                 { id: "logs", label: "گزارش فعالیت", node: <LogsPanel /> },
                 { id: "health", label: "سلامت سیستم", node: <HealthPanel /> },
+                { id: "backup", label: "پشتیبان‌گیری", node: <BackupPanel /> },
                 { id: "settings", label: "تنظیمات", node: <StoreSettings onBack={() => navigate("/")} /> },
                 { id: "staff", label: "کارکنان و نقش‌ها", node: <StaffPanel /> },
               ]}

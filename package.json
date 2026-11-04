@@ -16,7 +16,8 @@
     "start": "SERVE_STATIC=1 REQUIRE_ADMIN_AUTH=1 NODE_ENV=production tsx server/src/index.ts",
     "test:commerce": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/commerce.test.ts",
     "test": "npm run test:commerce && npm run test:rbac",
-    "test:rbac": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/rbac.test.ts"
+    "test:rbac": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/rbac.test.ts",
+    "restore": "node --import tsx scripts/restore-backup.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

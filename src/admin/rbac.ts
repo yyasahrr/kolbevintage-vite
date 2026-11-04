@@ -118,6 +118,7 @@ export const SCREEN_PERMISSION: Record<string, Permission> = {
   reports: "finance:view",
   logs: "security:view",
   health: "settings:view",
+  backup: "settings:view",
 
   security: "security:view",
   integrations: "integrations:view",

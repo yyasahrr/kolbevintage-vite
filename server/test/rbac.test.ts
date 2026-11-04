@@ -250,6 +250,45 @@ test("a state save leaves an audit row naming only the keys that changed", async
   await query("update state_documents set value = $1 where key = 'ops'", [JSON.stringify(original)]);
 });
 
+test("a backup round-trips: the file it writes restores the same rows", async () => {
+  const { client } = await staffWith(["settings:view", "settings:edit"], "auditor", "hoda2", "hoda-pass-2");
+  const before = await client.get("/api/admin/backups");
+  assert.equal(before.status, 200, JSON.stringify(before.body));
+  assert.equal(before.body.schedule.cloudConfigured, false, "no cloud destination is claimed without one");
+
+  const created = await client.post("/api/admin/backups", {});
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  const backup = created.body.backup;
+  assert.ok(backup.bytes > 0);
+  assert.ok(backup.rows > 0, "the dump actually contains rows");
+  assert.equal(backup.cloud_status, "not_configured");
+
+  const listed = await client.get("/api/admin/backups");
+  assert.ok(listed.body.backups.some((row: { id: string }) => row.id === backup.id), "the new file is listed");
+
+  const res = await fetch(`${base}/api/admin/backups/${backup.id}/download`, { headers: { cookie: "" } });
+  // the download needs the staff session, so check it through the same jar the client uses
+  assert.ok(res.status === 401 || res.status === 403, "a download without the session is refused");
+
+  // restore inside a transaction and roll it back: the shared test database is untouched
+  const original = (await query("select value from state_documents where key = 'ops'")).rows[0].value as Record<string, any>;
+  const { restoreBackup } = await import("../src/backup");
+  const { withTransaction } = await import("../src/db");
+  await withTransaction(async (tx) => {
+    await tx.query("update state_documents set value = jsonb_set(value, '{brand, name}', '\"عوض‌شده\"') where key = 'ops'");
+    const result = await restoreBackup(backup.file, { client: tx });
+    assert.ok(result.rows > 0);
+    const after = (await tx.query("select value from state_documents where key = 'ops'")).rows[0].value as Record<string, any>;
+    assert.equal(after.brand?.name, original.brand?.name, "the restored document is the pre-change one");
+    throw new Error("rollback");
+  }).catch((error: Error) => {
+    assert.equal(error.message, "rollback");
+  });
+
+  const unchanged = (await query("select value from state_documents where key = 'ops'")).rows[0].value as Record<string, any>;
+  assert.equal(unchanged.brand?.name, original.brand?.name, "the rollback left the database as it was");
+});
+
 test("deactivating a staff member kills their live session's permissions", async () => {
   const { admin, client } = await staffWith(["catalog:edit"], "editor", "nima", "nima-pass-1");
   assert.equal((await client.put("/api/state/admin", { products: [] })).status, 200);
