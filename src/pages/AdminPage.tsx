@@ -57,12 +57,12 @@ import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
 import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
-import { useAdmin, addOrder, setOrderStatus, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, consumeStock, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
+import { useAdmin, setOrderStatus, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
 import { resolveImg } from "@/builder/stock";
 import { useCart as useNotifyCart } from "@/state/cart";
-import type { AdminState, Campaign, DiscountRule, OrderLine, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
+import type { AdminState, Campaign, DiscountRule, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
 import type { GarmentKind, ProductImage } from "@/types";
 import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
 import { CommercePanel } from "./AdminCommercePanel";
@@ -799,7 +799,7 @@ function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
       <div className="ad-grid-2">
         <Card title="فروش هفت روز اخیر" icon={<BarChart3 width={14} height={14} />}>
           {admin.orders.length === 0 ? (
-            <Empty text="هنوز سفارشی ثبت نشده. یک خرید در صفحهٔ تسویه حساب انجام بده یا سفارش نمونه بساز." />
+            <Empty text="هنوز سفارشی ثبت نشده. اولین سفارش واقعی با یک خرید از فروشگاه ساخته می‌شود." />
           ) : (
             <div className="ad-chart">
               {days.map((d, i) => (
@@ -834,7 +834,6 @@ function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
           <button type="button" className="ad-btn" onClick={() => onGo("products")}><Package width={13} height={13} /> افزودن محصول</button>
           <button type="button" className="ad-btn" onClick={() => onGo("campaigns")}><Megaphone width={13} height={13} /> جشنوارهٔ جدید</button>
           <button type="button" className="ad-btn" onClick={() => onGo("inventory")}><Warehouse width={13} height={13} /> شارژ انبار</button>
-          <button type="button" className="ad-btn" onClick={() => seedOrder()}><ShoppingBag width={13} height={13} /> سفارش نمونه</button>
           <Link to="/builder" className="ad-btn"><LayoutTemplate width={13} height={13} /> صفحه‌ساز</Link>
           <Link to="/style-builder" className="ad-btn"><Layers width={13} height={13} /> استایل بیلدر</Link>
         </div>
@@ -844,38 +843,6 @@ function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
 }
 
 const REASON_LABEL: Record<StockMove["reason"], string> = { sale: "فروش", restock: "شارژ", edit: "ویرایش", create: "ایجاد" };
-
-function seedOrder() {
-  const picks = liveCatalog().slice(0, 3);
-  const lines: OrderLine[] = picks.map((p) => {
-    const c = p.colors[0];
-    const s = p.sizes[Math.min(2, p.sizes.length - 1)];
-    return { name: p.name, productId: p.id, color: c.name, colorId: c.id, size: s.label, sizeId: s.id, qty: 1, price: p.price };
-  });
-  const subtotal = lines.reduce((n, l) => n + l.price * l.qty, 0);
-  const disc = computeDiscounts(lines.map((l) => ({ productId: l.productId, name: l.name, price: l.price, qty: l.qty })));
-  const ship = disc.freeship ? 0 : 12;
-  addOrder({
-    id: `VL-${Math.floor(10000 + Math.random() * 89999)}`,
-    at: Date.now(),
-    customer: "مشتری نمونه",
-    email: "demo@velours.store",
-    phone: "09120000000",
-    city: "تهران",
-    address: "خیابان ولیعصر، پلاک ۱۲",
-    shipping: "standard",
-    lines,
-    subtotal,
-    discounts: disc.applied.map((d) => ({ name: d.name, amount: d.amount })),
-    discountTotal: disc.discountTotal,
-    shippingCost: ship,
-    total: Math.max(0, disc.afterDiscount + ship),
-    status: "pending",
-    campaign: disc.applied.find((a) => a.id.startsWith("cmp-"))?.name,
-    gateway: "نمونه",
-  });
-  consumeStock(lines.map((l) => ({ productId: l.productId, colorId: l.colorId, sizeId: l.sizeId, qty: l.qty, name: l.name })));
-}
 
 /* =====================================================================
    orders
@@ -907,7 +874,6 @@ function Orders() {
         actions={
           <>
             <button type="button" className="ad-btn is-sm" onClick={csv}><DIcon width={13} height={13} /> خروجی CSV</button>
-            <button type="button" className="ad-btn is-sm" onClick={seedOrder}><Plus width={13} height={13} /> سفارش نمونه</button>
           </>
         }
       />
