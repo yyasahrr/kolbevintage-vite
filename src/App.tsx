@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { HashRouter, Route, Routes, useLocation } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { CartProvider } from "@/state/cart";
 import { ThemeProvider } from "@/theme/ThemeProvider";
 import { AuthProvider } from "@/state/auth";
@@ -18,6 +18,7 @@ import { WishlistPage } from "@/pages/WishlistPage";
 import { CheckoutPage } from "@/pages/CheckoutPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { AdminPage } from "@/pages/AdminPage";
+import { adminUnlocked } from "@/state/admin";
 import { StyleBuilderPage } from "@/pages/StyleBuilderPage";
 import { BuilderApp } from "@/builder/BuilderApp";
 import { CorePageSlot, PublishedPage, SiteShell } from "@/builder/SiteIntegration";
@@ -71,6 +72,12 @@ function SiteRoutes() {
   );
 }
 
+/** the page studio is an owner tool — a visitor never reaches it (decision 73) */
+function AdminOnly({ children }: { children: React.ReactNode }) {
+  if (!adminUnlocked()) return <Navigate to="/admin" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -80,7 +87,7 @@ export default function App() {
           <ScrollToTop />
           <BrandMeta />
           <Routes>
-            <Route path="/builder/*" element={<BuilderApp />} />
+            <Route path="/builder/*" element={<AdminOnly><BuilderApp /></AdminOnly>} />
             <Route path="/admin/*" element={<AdminPage />} />
             <Route path="/account" element={<SiteShell><AccountPage /></SiteShell>} />
             <Route path="/auth" element={<SiteShell><AuthPage /></SiteShell>} />
