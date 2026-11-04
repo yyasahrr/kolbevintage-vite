@@ -199,22 +199,49 @@ export async function authRoutes(app: FastifyInstance) {
     return { ok: true, customer: res.rows[0] ? publicCustomer(res.rows[0]) : null };
   });
 
+  /**
+   * Two ways in, one endpoint:
+   *   · the store passcode — always the owner subject, cannot be locked out
+   *   · a staff passcode — signs in as that staff row, so RBAC applies
+   * Both create an `admin` session; the role travels with the subject.
+   */
   app.post<{ Body: { passcode?: string } }>("/api/admin/login", async (req, reply) => {
     const passcode = (req.body?.passcode ?? "").trim();
     const admin = (await getDocument<Record<string, any>>("admin")) ?? {};
     const ops = (await getDocument<Record<string, any>>("ops")) ?? {};
     const expected = String(admin.settings?.passcode ?? ops.security?.passcode ?? "");
-    if (!expected || passcode !== expected) {
-      return reply.code(401).send({ ok: false, message: "رمز مدیریت درست نیست." });
+
+    let subject = "admin";
+    if (expected && passcode === expected) {
+      subject = "admin";
+    } else {
+      const staff = await query<{ subject: string; passcode_hash: string | null }>(
+        "select subject, passcode_hash from staff where active and passcode_hash is not null",
+      );
+      const match = staff.rows.find((row) => verifyPassword(passcode, row.passcode_hash));
+      if (!match) {
+        return reply.code(401).send({ ok: false, message: "رمز مدیریت درست نیست." });
+      }
+      subject = match.subject;
     }
-    const session = await createSession("admin", "admin");
+
+    const session = await createSession("admin", subject);
     setSessionCookie(reply, session.token, session.expires);
-    return { ok: true, message: "وارد پنل شدی." };
+    const role = await query<{ id: string; name: string }>(
+      "select r.id, r.name from staff s join roles r on r.id = s.role_id where s.subject = $1 and s.active",
+      [subject],
+    );
+    return {
+      ok: true,
+      message: "وارد پنل شدی.",
+      subject,
+      role: role.rows[0] ? { id: role.rows[0].id, name: role.rows[0].name } : null,
+    };
   });
 
   app.get("/api/admin/session", async (req) => {
     const session = await readSession(req);
-    return { authenticated: session?.kind === "admin" };
+    return { authenticated: session?.kind === "admin", subject: session?.kind === "admin" ? session.subject : null };
   });
 
   app.post("/api/admin/logout", async (req, reply) => {

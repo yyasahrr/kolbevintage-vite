@@ -17,4 +17,5 @@ export const notFound = (message = "مورد پیدا نشد.") => new CommerceE
 export const unauthorized = (message = "برای این عملیات باید وارد شوی.") =>
   new CommerceError(message, 401, "unauthorized");
 export const forbidden = (message = "دسترسی مجاز نیست.") => new CommerceError(message, 403, "forbidden");
+export const validation = (message: string) => new CommerceError(message, 422, "validation_error");
 export const conflict = (message: string, code = "conflict") => new CommerceError(message, 409, code);

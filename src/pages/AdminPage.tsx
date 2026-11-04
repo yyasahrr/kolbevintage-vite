@@ -50,7 +50,7 @@ import { LOOKS, formatPrice, stockOf } from "@/data/looks";
 import { computeDiscounts } from "@/state/discounts";
 import { ProductThumb } from "@/components/ProductThumb";
 import { ProductMediaEditor } from "@/components/ProductMediaEditor";
-import { adminLogin, adminLogout } from "@/lib/api";
+import { adminLogin, adminLogout, ApiError } from "@/lib/api";
 import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
 import { THEMES } from "@/theme/themes";
@@ -64,6 +64,9 @@ import type { AdminState, Campaign, DiscountRule, OrderLine, OrderStatus, RuleTy
 import type { GarmentKind, ProductImage } from "@/types";
 import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
 import { CommercePanel } from "./AdminCommercePanel";
+import { StaffPanel } from "./AdminRbac";
+import { loadAdminMe, invalidateAdminMe, useAdminMe } from "@/state/session";
+import { can, permissionForScreen, firstAllowedScreen } from "@/admin/rbac";
 import "@/styles/admin.css";
 
 /* =====================================================================
@@ -104,6 +107,7 @@ type Tab =
   | "appearance"
   | "commerce"
   | "settings"
+  | "staff"
   /* grouped areas — each one nests the screens that used to be separate tabs */
   | "catalog"
   | "design"
@@ -178,6 +182,7 @@ const TABS: NavItem[] = [
     ],
   },
   { id: "settings", label: "تنظیمات", icon: Settings },
+  { id: "staff", label: "کارکنان و نقش‌ها", icon: ShieldIcon },
 ];
 
 /** the screens reachable from each grouped sidebar entry */
@@ -224,12 +229,39 @@ function GroupShell({
    page
    ===================================================================== */
 
+/** every screen id in sidebar order — the fallback when a link is refused */
+const SCREEN_ORDER: string[] = TABS.flatMap((t) => [t.id as string, ...(t.children ?? []).map((c) => c.id as string)]);
+
 export function AdminPage() {
   const [unlocked, setUnlocked] = useState(() => adminUnlocked());
   const [tab, setTab] = useState<Tab>("dashboard");
   const [navOpen, setNavOpen] = useState(false);
   const admin = useAdmin();
   const navigate = useNavigate();
+  const session = useAdminMe();
+  const { permissions, offline } = session;
+
+  /**
+   * The sidebar is the role: a group survives when it or any of its screens is
+   * permitted, and its children are filtered the same way.
+   */
+  const navTabs = useMemo(() => {
+    if (offline) return TABS;
+    if (!session.ready) return [];
+    return TABS.map((item) => ({
+      ...item,
+      children: item.children?.filter((child) => can(permissions, permissionForScreen(child.id))),
+    })).filter((item) => can(permissions, permissionForScreen(item.id)) || (item.children?.length ?? 0) > 0);
+  }, [offline, session.ready, permissions]);
+
+  const blocked = !offline && session.ready && !can(permissions, permissionForScreen(tab));
+
+  // a screen the role may not open: land on the first one it may
+  useEffect(() => {
+    if (offline || !session.ready || !blocked) return;
+    const next = firstAllowedScreen(SCREEN_ORDER, permissions);
+    if (next && next !== tab) setTab(next as Tab);
+  }, [offline, session.ready, blocked, permissions, tab]);
 
   useEffect(() => {
     document.title = "پنل مدیریت — " + admin.settings.name;
@@ -268,6 +300,13 @@ export function AdminPage() {
           <span className="ad-top-badge">پنل مدیریت</span>
         </Link>
         <div className="ad-top-spacer" />
+        {session.me?.staff && (
+          <span className="ad-role-pill" title={`نقش: ${session.me.staff.roleName}`}>
+            <ShieldIcon width={12} height={12} />
+            {session.me.staff.name}
+            <em>{session.me.staff.roleName}</em>
+          </span>
+        )}
         <span className="ad-top-stat">
           <TrendingUp width={13} height={13} />
           {fa(admin.orders.length)} سفارش
@@ -286,7 +325,10 @@ export function AdminPage() {
       <div className="ad-body">
         <nav className={cn("ad-nav", navOpen && "is-open")} aria-label="بخش‌های پنل">
           <div className="ad-nav-inner">
-            {TABS.map((t) => {
+            {!session.ready && !offline && (
+              <p className="ad-nav-loading" aria-busy="true">در حال خواندن سطح دسترسی…</p>
+            )}
+            {navTabs.map((t) => {
               const kids = GROUP_CHILDREN[t.id as Tab];
               const isOn = tab === t.id || (kids ? kids.includes(tab) : false);
               const badge = kids
@@ -314,6 +356,22 @@ export function AdminPage() {
         {navOpen && <div className="ad-nav-scrim" onClick={() => setNavOpen(false)} aria-hidden />}
 
         <main className="ad-main">
+          {offline && (
+            <p className="ad-banner is-warn" role="status">
+              حالت محلی: سرور پاسخ نداد، پس نقش و مجوزها در دسترس نیستند و تغییرات فقط در همین مرورگر می‌مانند.
+            </p>
+          )}
+          {blocked ? (
+            <NoAccess
+              screen={tab}
+              role={session.me?.staff?.roleName ?? null}
+              onGo={() => {
+                const next = firstAllowedScreen(SCREEN_ORDER, permissions);
+                if (next) setTab(next as Tab);
+              }}
+            />
+          ) : (
+            <>
           {tab === "dashboard" && <Dashboard onGo={setTab} />}
           {tab === "orders" && <Orders />}
           {group === "catalog" && (
@@ -388,8 +446,32 @@ export function AdminPage() {
             />
           )}
           {tab === "settings" && <StoreSettings onBack={() => navigate("/")} />}
+          {tab === "staff" && <StaffPanel />}
+            </>
+          )}
         </main>
       </div>
+    </div>
+  );
+}
+
+/* =====================================================================
+   permission denied — a screen the role may not open
+   ===================================================================== */
+
+function NoAccess({ screen, role, onGo }: { screen: Tab; role: string | null; onGo: () => void }) {
+  const permission = permissionForScreen(screen) ?? "—";
+  return (
+    <div className="ad-empty ad-empty-error ad-denied" role="alert">
+      <Lock width={20} height={20} />
+      <h3>این بخش برای نقش شما فعال نیست</h3>
+      <p>
+        {role ? `نقش «${role}» ` : "نقش فعلی "}
+        مجوز <code className="latin-track" dir="ltr">{permission}</code> را ندارد. اگر به آن نیاز داری، از مالک بخواه در «کارکنان و نقش‌ها» اضافه کند.
+      </p>
+      <button type="button" className="ad-btn is-primary" onClick={onGo}>
+        <ArrowLeft width={14} height={14} /> رفتن به اولین بخش مجاز
+      </button>
     </div>
   );
 }
@@ -401,33 +483,61 @@ export function AdminPage() {
 function Gate({ onUnlock }: { onUnlock: () => void }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const admin = useAdmin();
   const sec = getOps().security;
   const [attempts, setAttempts] = useState(0);
+
+  /**
+   * The server decides who is signing in: the store passcode (owner) or a
+   * staff passcode (that person's role). Only when the API cannot be reached
+   * does the old local passcode still open the local-only panel.
+   */
+  const submit = async () => {
+    const passcode = code.trim();
+    if (!passcode || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await adminLogin(passcode);
+      invalidateAdminMe();
+      await loadAdminMe(true);
+      unlockAdmin(passcode);
+      onUnlock();
+    } catch (err) {
+      const offline = !(err instanceof ApiError) || err.status >= 500;
+      if (offline && (unlockAdmin(passcode) || passcode === sec.passcode)) {
+        onUnlock();
+        return;
+      }
+      recordFailedLogin("127.0.0.1");
+      setAttempts((n) => {
+        const n2 = n + 1;
+        setError(n2 > 2 ? "رمز چند بار اشتباه وارد شد؛ تلاش‌ها در بخش امنیت ثبت شد." : "رمز درست نیست. دوباره امتحان کن.");
+        return n2;
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="ad-gate">
       <form
         className="ad-gate-card"
         onSubmit={(e) => {
           e.preventDefault();
-          if (unlockAdmin(code) || code.trim() === sec.passcode) {
-            // also open a real server session for uploads and protected writes
-            void adminLogin(code.trim()).catch(() => undefined);
-            onUnlock();
-          }
-          else {
-            recordFailedLogin("127.0.0.1");
-            setAttempts((n) => n + 1);
-            setError(attempts + 1 > 2 ? "رمز چند بار اشتباه وارد شد؛ تلاش‌ها در بخش امنیت ثبت شد." : "رمز درست نیست. دوباره امتحان کن.");
-          }
+          void submit();
         }}
       >
         <span className="ad-gate-ic"><Lock width={22} height={22} /></span>
         <h1>پنل مدیریت {admin.settings.name}</h1>
-        <p>برای ورود رمز مدیریت را وارد کن. این نسخه نمایشی است و داده‌ها فقط در همین مرورگر می‌مانند.</p>
+        <p>رمز فروشگاه مالک را وارد می‌کند؛ هر کارمند با رمز خودش و فقط با مجوزهای نقش خودش وارد می‌شود.</p>
         <input value={code} onChange={(e) => { setCode(e.target.value); setError(""); }} placeholder="رمز مدیریت" dir="ltr" autoFocus aria-label="رمز مدیریت" inputMode="numeric" />
         {error && <span className="ad-gate-error">{error}</span>}
-        <button type="submit" className="ad-btn is-primary is-lg">ورود به پنل</button>
+        <button type="submit" className="ad-btn is-primary is-lg" disabled={busy || !code.trim()}>
+          {busy ? "در حال بررسی…" : "ورود به پنل"}
+        </button>
         <span className="ad-gate-hint">رمز پیش‌فرض: <b dir="ltr">{sec.passcode}</b>{attempts > 0 ? ` · ${fa(attempts)} تلاش ناموفق` : ""}</span>
         <Link to="/" className="ad-gate-back">بازگشت به فروشگاه</Link>
       </form>

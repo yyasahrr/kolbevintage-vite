@@ -3,10 +3,20 @@ import { query } from "../db";
 import { syncProjection } from "../projection";
 import { getDocument, putDocument } from "../seed";
 import { readSession } from "../sessions";
-import { requireAdminSession } from "../commerce/auth";
+import { requirePermission, type Permission } from "../http/rbac";
 import { publicCustomer } from "./auth";
 
 const ADMIN_KEYS = new Set(["admin", "ops"]);
+
+/**
+ * Which permission a document write needs. The admin document carries the
+ * catalogue, orders and customer records, the ops document carries content and
+ * design; until each module gets its own endpoint this is the honest mapping.
+ */
+const KEY_PERMISSION: Record<string, Permission> = {
+  admin: "catalog:edit",
+  ops: "design:edit",
+};
 
 const SECRET_KEY = /(secret|private|api[_-]?key|token|password|passcode|^key$|^apiKey$)/i;
 
@@ -102,8 +112,8 @@ export async function stateRoutes(app: FastifyInstance) {
   app.put<{ Params: { key: string }; Body: unknown }>("/api/state/:key", async (req, reply) => {
     const { key } = req.params;
     if (!ADMIN_KEYS.has(key)) return reply.code(404).send({ error: "سند ناشناخته است." });
-    // a real admin session: the optional dev guard is not enough for writes
-    await requireAdminSession(req);
+    // a real admin session *with* the permission for this document
+    await requirePermission(req, KEY_PERMISSION[key]);
     const body = req.body;
     if (!body || typeof body !== "object") return reply.code(400).send({ error: "بدنهٔ نامعتبر." });
 

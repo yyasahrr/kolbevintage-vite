@@ -3,6 +3,7 @@ import { config } from "../config";
 import { query } from "../db";
 import { createSession, setSessionCookie } from "../sessions";
 import { actorOf, currentSession, requireAdminSession, requireSuperadmin } from "./auth";
+import { requirePermission } from "../http/rbac";
 import {
   cashbackWallet,
   cashbackOverview,
@@ -422,13 +423,13 @@ export async function commerceRoutes(app: FastifyInstance) {
   });
 
   app.get("/api/commerce/admin/settings", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req, "settings:view");
     const settings = await loadCommerceSettings(true);
     return { ...settings, providerWebhookSecret: settings.providerWebhookSecret ? "***" : "" };
   });
 
   app.put<{ Body: Partial<CommerceSettings> }>("/api/commerce/admin/settings", async (req) => {
-    const session = await requireAdminSession(req);
+    const session = await requirePermission(req, "settings:edit");
     const current = await loadCommerceSettings(true);
     // turning live money movement on is reserved for the superadmin subject
     if (req.body && "liveRefundsEnabled" in req.body) {
@@ -555,7 +556,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   app.post<{ Body: { variantId?: string; delta?: number; reason?: string; note?: string } }>(
     "/api/commerce/admin/inventory/adjustments",
     async (req, reply) => {
-      const session = await requireAdminSession(req);
+      const session = await requirePermission(req, "inventory:adjust");
       const adjustment = await requestAdjustment({
         variantId: String(req.body?.variantId ?? ""),
         delta: Number(req.body?.delta ?? 0),
@@ -570,7 +571,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { decision?: "approve" | "reject"; note?: string } }>(
     "/api/commerce/admin/inventory/adjustments/:id",
     async (req) => {
-      const session = await requireAdminSession(req);
+      const session = await requirePermission(req, "inventory:approve");
       const before = await query<{ status: string; delta: number; variant_id: string }>(
         "select status, delta, variant_id from inventory_adjustments where id = $1",
         [req.params.id],

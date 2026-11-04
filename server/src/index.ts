@@ -12,6 +12,8 @@ import { catalogRoutes } from "./routes/catalog";
 import { stateRoutes } from "./routes/state";
 import { uploadRoutes } from "./routes/uploads";
 import { commerceRoutes } from "./commerce/routes";
+import { rbacRoutes } from "./routes/rbac";
+import { seedRbac } from "./http/rbac";
 import { ensureCommerceSettings } from "./commerce/settings";
 import { syncPromotions } from "./commerce/promotions";
 import { syncVariants } from "./commerce/variants";
@@ -85,11 +87,13 @@ export async function buildServer() {
     maxAge: "7d",
   });
 
+  await seedRbac();
   await app.register(stateRoutes);
   await app.register(authRoutes);
   await app.register(catalogRoutes);
   await app.register(uploadRoutes);
   await app.register(commerceRoutes);
+  await app.register(rbacRoutes);
 
   if (config.serveStatic && fs.existsSync(path.join(config.distDir, "index.html"))) {
     await app.register(fastifyStatic, {

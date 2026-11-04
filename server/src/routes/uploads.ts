@@ -4,7 +4,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance } from "fastify";
 import { config } from "../config";
-import { requireAdmin } from "../sessions";
+import { requirePermission } from "../http/rbac";
 
 const EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -18,7 +18,7 @@ const EXT: Record<string, string> = {
 
 export async function uploadRoutes(app: FastifyInstance) {
   app.post("/api/uploads", async (req, reply) => {
-    await requireAdmin(req);
+    await requirePermission(req, "catalog:edit");
     const part = await req.file({ limits: { fileSize: 8 * 1024 * 1024 } });
     if (!part) return reply.code(400).send({ error: "فایلی ارسال نشد." });
 

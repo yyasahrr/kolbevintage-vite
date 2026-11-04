@@ -448,3 +448,29 @@ create table if not exists price_history (
   source text not null default 'admin'
 );
 create index if not exists price_history_product_idx on price_history (product_id, at desc);
+
+-- ---------------------------------------------------------------------------
+-- RBAC: roles and staff. Every admin write asks this table first (http/rbac.ts)
+-- ---------------------------------------------------------------------------
+create table if not exists roles (
+  id text primary key,
+  name text not null,
+  description text not null default '',
+  permissions jsonb not null default '[]'::jsonb,
+  protected boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists staff (
+  id text primary key,
+  name text not null,
+  -- the session subject this person signs in as
+  subject text not null unique,
+  role_id text not null references roles (id),
+  -- null for the owner row, who signs in with the store passcode
+  passcode_hash text,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create index if not exists staff_role_idx on staff (role_id);
