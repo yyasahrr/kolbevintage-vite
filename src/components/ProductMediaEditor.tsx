@@ -23,15 +23,24 @@ interface Props {
  * No cropping, no per-colour tabs: drop photos into one box and give each of
  * them a colour and a role ("تصویر شاخص"، "گالری"، "هاور"، "جزئیات").
  */
+const MAX_IMAGES = 12;
+
 export function ProductMediaEditor({ images, colors, onChange, emptyHint }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [limitHit, setLimitHit] = useState(false);
   const [dragging, setDragging] = useState(false);
 
   const defaultColor = colors[0]?.id ?? ALL_COLORS;
 
+  /** the gallery ceiling the owner picked: 12 images per product */
+  const remaining = MAX_IMAGES - images.length;
+
   const addFiles = async (files: FileList | File[] | null) => {
-    const list = files ? Array.from(files).filter((f) => f.type.startsWith("image/")) : [];
+    const all = files ? Array.from(files).filter((f) => f.type.startsWith("image/")) : [];
+    if (!all.length) return;
+    const list = all.slice(0, Math.max(0, remaining));
+    setLimitHit(list.length < all.length);
     if (!list.length) return;
     setBusy(true);
     try {
@@ -109,7 +118,11 @@ export function ProductMediaEditor({ images, colors, onChange, emptyHint }: Prop
         <button type="button" className="ad-btn is-sm is-primary" onClick={() => inputRef.current?.click()} disabled={busy}>
           <Upload width={13} height={13} /> افزودن تصویر
         </button>
-        <span className="ad-hint">{images.length.toLocaleString("fa-IR")} تصویر در گالری</span>
+        <span className={cn("ad-hint", limitHit && "text-ember")}>
+          {limitHit
+            ? `گالری هر محصول حداکثر ${MAX_IMAGES.toLocaleString("fa-IR")} تصویر است.`
+            : `${images.length.toLocaleString("fa-IR")} از ${MAX_IMAGES.toLocaleString("fa-IR")} تصویر`}
+        </span>
       </div>
 
       {images.length === 0 ? (
