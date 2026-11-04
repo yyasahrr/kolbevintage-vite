@@ -79,6 +79,13 @@ export const ACTION_LABELS: Record<string, string> = {
 export const SCREEN_PERMISSION: Record<string, Permission> = {
   dashboard: "dashboard:view",
 
+  /* the six sidebar groups need their own entry so the group survives filtering */
+  sales: "orders:view",
+  stock: "catalog:view",
+  experience: "looks:view",
+  people: "customers:view",
+  system: "settings:view",
+
   orders: "orders:view",
 
   catalog: "catalog:view",

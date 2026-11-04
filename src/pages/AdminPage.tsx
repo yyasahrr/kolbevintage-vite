@@ -42,7 +42,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   CornerDownLeft,
-  Wallet,
   X,
   XCircle,
 } from "lucide-react";
@@ -111,11 +110,12 @@ type Tab =
   | "commerce"
   | "settings"
   | "staff"
-  /* grouped areas — each one nests the screens that used to be separate tabs */
-  | "catalog"
-  | "design"
-  | "customers"
-  | "finance";
+  /* grouped areas — six sidebar entries, each one nests its screens */
+  | "sales"
+  | "stock"
+  | "experience"
+  | "people"
+  | "system";
 
 interface NavItem {
   id: Tab;
@@ -127,65 +127,65 @@ interface NavItem {
 
 const TABS: NavItem[] = [
   { id: "dashboard", label: "داشبورد", icon: Gauge },
-  { id: "orders", label: "سفارش‌ها", icon: ShoppingBag },
   {
-    id: "catalog" as Tab,
-    label: "کاتالوگ و انبار",
+    id: "sales" as Tab,
+    label: "فروش",
+    icon: ShoppingBag,
+    children: [
+      { id: "orders", label: "سفارش‌ها" },
+      { id: "campaigns", label: "تخفیف و کمپین" },
+      { id: "commerce", label: "پرداخت و مالی" },
+      { id: "returns", label: "مرجوعی‌ها" },
+      { id: "tryon", label: "کش‌بک" },
+    ],
+  },
+  {
+    id: "stock" as Tab,
+    label: "کالا و انبار",
     icon: Package,
     children: [
       { id: "products", label: "محصولات" },
-      { id: "inventory", label: "انبارداری" },
+      { id: "inventory", label: "انبار" },
       { id: "categories", label: "دسته‌بندی و سایز" },
-      { id: "media", label: "تصاویر محصول" },
-      { id: "reviews", label: "نظرات" },
+      { id: "media", label: "تصاویر" },
     ],
   },
-  { id: "looks", label: "استایل‌ها", icon: Layers },
   {
-    id: "design" as Tab,
-    label: "ظاهر و محتوا",
+    id: "experience" as Tab,
+    label: "ویترین",
     icon: Palette,
     children: [
+      { id: "looks", label: "استایل‌ها" },
       { id: "brand", label: "برند و لوگو" },
       { id: "megamenu", label: "مگا منو" },
       { id: "content", label: "محتوا" },
-      { id: "appearance", label: "ظاهر" },
+      { id: "appearance", label: "ظاهر سایت" },
       { id: "forms", label: "فرم‌ها" },
     ],
   },
   {
-    id: "customers" as Tab,
-    label: "مشتریان و پیامک",
+    id: "people" as Tab,
+    label: "مشتریان",
     icon: Users,
     children: [
       { id: "crm", label: "پروفایل مشتری" },
-      { id: "messages", label: "پیامک و پیام" },
+      { id: "messages", label: "پیامک" },
       { id: "tickets", label: "تیکت‌ها" },
-    ],
-  },
-  { id: "campaigns", label: "فروش و تخفیف", icon: Megaphone },
-  {
-    id: "finance" as Tab,
-    label: "مالی و حسابداری",
-    icon: Wallet,
-    children: [
-      { id: "commerce", label: "تجارت و پرداخت" },
-      { id: "returns", label: "مرجوعی‌ها" },
-      { id: "tryon", label: "پرو و کش‌بک" },
-      { id: "logs", label: "گزارش فعالیت" },
+      { id: "reviews", label: "نظرات" },
     ],
   },
   {
-    id: "security" as Tab,
-    label: "امنیت و اتصالات",
-    icon: ShieldIcon,
+    id: "system" as Tab,
+    label: "سیستم",
+    icon: Settings,
     children: [
       { id: "security", label: "امنیت" },
       { id: "integrations", label: "اتصالات" },
+      { id: "logs", label: "گزارش فعالیت" },
+      { id: "settings", label: "تنظیمات" },
+      { id: "staff", label: "کارکنان و نقش‌ها" },
     ],
   },
-  { id: "settings", label: "تنظیمات", icon: Settings },
-  { id: "staff", label: "کارکنان و نقش‌ها", icon: ShieldIcon },
 ];
 
 /** the screens reachable from each grouped sidebar entry */
@@ -439,35 +439,46 @@ export function AdminPage() {
           ) : (
             <>
           {tab === "dashboard" && <Dashboard onGo={setTab} />}
-          {tab === "orders" && <Orders />}
-          {group === "catalog" && (
+          {group === "sales" && (
             <GroupShell
               sections={[
-                { id: "products", label: "محصولات", node: <Products /> },
-                { id: "inventory", label: "انبارداری", node: <InventoryPanel /> },
-                { id: "categories", label: "دسته‌بندی و سایز", node: <CategoriesPanel /> },
-                { id: "media", label: "تصاویر محصول", node: <MediaPanel /> },
-                { id: "reviews", label: "نظرات", node: <Reviews /> },
+                { id: "orders", label: "سفارش‌ها", node: <Orders /> },
+                { id: "campaigns", label: "تخفیف و کمپین", node: <Campaigns /> },
+                { id: "commerce", label: "پرداخت و مالی", node: <CommercePanel /> },
+                { id: "returns", label: "مرجوعی‌ها", node: <ReturnsPanel /> },
+                { id: "tryon", label: "کش‌بک", node: <TryOnPanel /> },
               ]}
               value={tab}
               onChange={setTab}
             />
           )}
-          {tab === "looks" && <LooksPanel />}
-          {group === "design" && (
+          {group === "stock" && (
             <GroupShell
               sections={[
+                { id: "products", label: "محصولات", node: <Products /> },
+                { id: "inventory", label: "انبار", node: <InventoryPanel /> },
+                { id: "categories", label: "دسته‌بندی و سایز", node: <CategoriesPanel /> },
+                { id: "media", label: "تصاویر", node: <MediaPanel /> },
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
+          )}
+          {group === "experience" && (
+            <GroupShell
+              sections={[
+                { id: "looks", label: "استایل‌ها", node: <LooksPanel /> },
                 { id: "brand", label: "برند و لوگو", node: <BrandPanel /> },
                 { id: "megamenu", label: "مگا منو", node: <MegaMenuPanel /> },
                 { id: "content", label: "محتوا", node: <Content /> },
-                { id: "appearance", label: "ظاهر", node: <Appearance /> },
+                { id: "appearance", label: "ظاهر سایت", node: <Appearance /> },
                 { id: "forms", label: "فرم‌ها", node: <FormsPanel /> },
               ]}
               value={tab}
               onChange={setTab}
             />
           )}
-          {group === "customers" && (
+          {group === "people" && (
             <GroupShell
               sections={[
                 {
@@ -481,38 +492,27 @@ export function AdminPage() {
                     </div>
                   ),
                 },
-                { id: "messages", label: "پیامک و پیام", node: <Messages /> },
+                { id: "messages", label: "پیامک", node: <Messages /> },
                 { id: "tickets", label: "تیکت‌ها", node: <TicketsPanel /> },
+                { id: "reviews", label: "نظرات", node: <Reviews /> },
               ]}
               value={tab}
               onChange={setTab}
             />
           )}
-          {tab === "campaigns" && <Campaigns />}
-          {group === "finance" && (
-            <GroupShell
-              sections={[
-                { id: "commerce", label: "تجارت و پرداخت", node: <CommercePanel /> },
-                { id: "returns", label: "مرجوعی‌ها", node: <ReturnsPanel /> },
-                { id: "tryon", label: "پرو و کش‌بک", node: <TryOnPanel /> },
-                { id: "logs", label: "گزارش فعالیت", node: <LogsPanel /> },
-              ]}
-              value={tab}
-              onChange={setTab}
-            />
-          )}
-          {group === "security" && (
+          {group === "system" && (
             <GroupShell
               sections={[
                 { id: "security", label: "امنیت", node: <SecurityPanel /> },
                 { id: "integrations", label: "اتصالات", node: <Integrations /> },
+                { id: "logs", label: "گزارش فعالیت", node: <LogsPanel /> },
+                { id: "settings", label: "تنظیمات", node: <StoreSettings onBack={() => navigate("/")} /> },
+                { id: "staff", label: "کارکنان و نقش‌ها", node: <StaffPanel /> },
               ]}
               value={tab}
               onChange={setTab}
             />
           )}
-          {tab === "settings" && <StoreSettings onBack={() => navigate("/")} />}
-          {tab === "staff" && <StaffPanel />}
             </>
           )}
         </main>
@@ -763,7 +763,7 @@ function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
   const kpis: { icon: typeof Gauge; label: string; value: string; sub: string; to: Tab }[] = [
     { icon: ShoppingBag, label: "سفارش‌ها", value: fa(admin.orders.length), sub: `${fa(admin.orders.filter((o) => o.status === "pending").length)} در انتظار`, to: "orders" },
     { icon: TrendingUp, label: "درآمد", value: formatPrice(revenue), sub: "بدون سفارش‌های لغوشده", to: "orders" },
-    { icon: Users, label: "مشتریان", value: fa(customers), sub: "بر اساس سفارش‌ها", to: "customers" },
+    { icon: Users, label: "مشتریان", value: fa(customers), sub: "بر اساس سفارش‌ها", to: "crm" },
     { icon: Warehouse, label: "ارزش انبار", value: formatPrice(stockValue), sub: `${fa(outCount)} ناموجود · ${fa(lowCount)} کم‌موجود`, to: "inventory" },
     { icon: Megaphone, label: "جشنواره فعال", value: fa(campaignsOn), sub: `${fa(admin.rules.filter((r) => r.active).length)} قانون تخفیف`, to: "campaigns" },
     { icon: Package, label: "محصولات", value: fa(catalog.length), sub: `${fa(admin.customProducts.length)} محصول دست‌ساز`, to: "products" },
