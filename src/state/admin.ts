@@ -230,6 +230,21 @@ export interface CustomerMeta {
 const KEY = "velours.admin.v2";
 const SESSION = "velours.admin.session.v1";
 
+/** a look the owner builds inside the admin panel (base runway looks stay code-side) */
+export interface CustomLook {
+  id: string;
+  name: string;
+  tagline: string;
+  season: string;
+  /** upload data-url; falls back to the first product image when empty */
+  image: string;
+  /** natural aspect (w / h) of the cut-out, keeps the runway free of layout shift */
+  aspect: number;
+  productIds: string[];
+  published: boolean;
+  createdAt: number;
+}
+
 export interface AdminState {
   settings: StoreSettings;
   orders: Order[];
@@ -240,6 +255,8 @@ export interface AdminState {
   hiddenLooks: string[];
   stock: { productId: string; colorId: string; sizeId: string; qty: number }[];
   lookOrder: string[];
+  /** owner-built looks; only `published` ones reach the storefront */
+  customLooks: CustomLook[];
   customProducts: CustomProduct[];
   /** base product id → field overrides (base catalogue products are editable too) */
   productEdits: Record<string, ProductEdit>;
@@ -285,6 +302,7 @@ const DEFAULT_ADMIN: AdminState = {
   hiddenLooks: [],
   stock: [],
   lookOrder: [],
+  customLooks: [],
   customProducts: [
     {
       id: "custom-scarf",
@@ -416,6 +434,7 @@ export function hydrateAdmin(next: Partial<AdminState>) {
       email: { ...DEFAULT_ADMIN.integrations.email, ...(next.integrations?.email ?? {}) },
       shipping: { ...DEFAULT_ADMIN.integrations.shipping, ...(next.integrations?.shipping ?? {}) },
     },
+    customLooks: next.customLooks ?? [],
     customProducts: next.customProducts ?? [],
     productEdits: next.productEdits ?? {},
     complements: next.complements ?? {},
@@ -451,6 +470,20 @@ export const removeOrder = (id: string) => patch({ orders: cache.orders.filter((
 export const setReviewApproved = (id: string, approved: boolean) =>
   patch({ reviews: cache.reviews.map((r) => (r.id === id ? { ...r, approved } : r)) });
 export const removeReview = (id: string) => patch({ reviews: cache.reviews.filter((r) => r.id !== id) });
+export const saveCustomLook = (look: CustomLook) =>
+  patch({
+    customLooks: cache.customLooks.some((l) => l.id === look.id)
+      ? cache.customLooks.map((l) => (l.id === look.id ? look : l))
+      : [look, ...cache.customLooks],
+  });
+export const removeCustomLook = (id: string) =>
+  patch({
+    customLooks: cache.customLooks.filter((l) => l.id !== id),
+    hiddenLooks: cache.hiddenLooks.filter((x) => x !== id),
+    lookOrder: cache.lookOrder.filter((x) => x !== id),
+  });
+export const setCustomLookPublished = (id: string, published: boolean) =>
+  patch({ customLooks: cache.customLooks.map((l) => (l.id === id ? { ...l, published } : l)) });
 export const toggleLookHidden = (id: string) =>
   patch({ hiddenLooks: cache.hiddenLooks.includes(id) ? cache.hiddenLooks.filter((x) => x !== id) : [...cache.hiddenLooks, id] });
 

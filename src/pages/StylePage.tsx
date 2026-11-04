@@ -1,11 +1,14 @@
+import { useMemo } from "react";
 import { useParams } from "react-router-dom";
-import { LOOKS } from "@/data/looks";
+import { liveLooks } from "@/data/catalog";
+import { useAdmin } from "@/state/admin";
 import { RunwaySection } from "@/components/RunwaySection";
 import { Breadcrumbs } from "@/components/ui";
 
 export function StylePage() {
   const { lookId } = useParams();
-  const look = LOOKS.find((l) => l.id === lookId);
+  const admin = useAdmin();
+  const look = useMemo(() => liveLooks().find((l) => l.id === lookId), [lookId, admin]);
 
   return (
     <>

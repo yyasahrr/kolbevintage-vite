@@ -73,7 +73,15 @@ import {
   type SmsTemplate,
   type TryOnPackage,
 } from "@/state/ops";
-import { useAdmin, setStockUnified, restock } from "@/state/admin";
+import {
+  useAdmin,
+  setStockUnified,
+  restock,
+  saveCustomLook,
+  removeCustomLook,
+  setCustomLookPublished,
+  type CustomLook,
+} from "@/state/admin";
 import { useAuth } from "@/state/auth";
 
 /* =====================================================================
@@ -442,9 +450,11 @@ export function MediaPanel() {
 
 export function LooksPanel() {
   const ops = useOps();
+  const admin = useAdmin();
   const [open, setOpen] = useState<string | null>(LOOKS[0]?.id ?? null);
   const [q, setQ] = useState("");
   const [uploadFor, setUploadFor] = useState<string | null>(null);
+  const [composer, setComposer] = useState<CustomLook | "new" | null>(null);
   const lookImgRef = useRef<HTMLInputElement>(null);
   const catalog = liveCatalog();
 
@@ -464,7 +474,69 @@ export function LooksPanel() {
   return (
     <>
       <input ref={lookImgRef} type="file" accept="image/*" hidden onChange={(e) => void uploadLook(e.target.files?.[0])} />
-      <PanelHead title="استایل‌های رانوی" sub="تصویر هر استایل و قطعه‌های پوشیده‌شده در آن را اینجا لینک کن. مشتری با کلیک روی استایل، فهرست همین قطعه‌ها را می‌بیند." />
+      <PanelHead
+        title="استایل‌ها"
+        sub="استایل‌های رانوی را مدیریت کن یا استایل تازه بساز: نام، تصویر و قطعه‌هایش را انتخاب کن و منتشرش کن تا در «خرید بر اساس استایل» دیده شود."
+        action={
+          <button type="button" className="ad-btn is-primary" onClick={() => setComposer("new")}>
+            <Plus width={13} height={13} /> استایل جدید
+          </button>
+        }
+      />
+
+      {composer && (
+        <LookComposer
+          initial={composer === "new" ? undefined : composer}
+          onDone={() => setComposer(null)}
+        />
+      )}
+
+      {admin.customLooks.length > 0 && (
+        <section className="ad-looks-list" aria-label="استایل‌های ساخته‌شده">
+          <p className="ad-field-label">استایل‌های ساخته‌شده</p>
+          {admin.customLooks.map((l) => (
+            <article key={l.id} className="ad-look-edit">
+              <div className="ad-look-edit-head">
+                <img src={l.image || resolveImg(liveGetProduct(l.productIds[0])?.image)} alt={l.name} />
+                <span className="ad-look-edit-main">
+                  <b>{l.name}</b>
+                  <small>{l.tagline || "بدون توضیح"}</small>
+                  <small className="ad-reset">
+                    {l.productIds.length.toLocaleString("fa-IR")} قطعه · {l.published ? "منتشرشده" : "پیش‌نویس"}
+                  </small>
+                </span>
+                <span className="ad-actions">
+                  <button type="button" className="ad-btn is-sm" onClick={() => setComposer(l)}>
+                    <Pencil width={13} height={13} /> ویرایش
+                  </button>
+                  <button
+                    type="button"
+                    className="ad-btn is-sm"
+                    onClick={() => {
+                      setCustomLookPublished(l.id, !l.published);
+                      addLog({ actor: "مدیر", action: l.published ? "پیش‌نویس کردن استایل" : "انتشار استایل", target: l.name });
+                    }}
+                  >
+                    {l.published ? "برداشتن از سایت" : "انتشار"}
+                  </button>
+                  <button
+                    type="button"
+                    className="ad-btn is-sm is-danger"
+                    onClick={() => {
+                      if (!window.confirm(`استایل «${l.name}» حذف شود؟ این کار برگشت‌پذیر نیست.`)) return;
+                      removeCustomLook(l.id);
+                      addLog({ actor: "مدیر", action: "حذف استایل", target: l.name });
+                    }}
+                  >
+                    <Trash2 width={13} height={13} /> حذف
+                  </button>
+                </span>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+
       <div className="ad-looks-list">
         {LOOKS.map((l) => {
           const ids = assigned(l.id).map((p) => p!.id);
@@ -540,6 +612,167 @@ export function LooksPanel() {
         })}
       </div>
     </>
+  );
+}
+
+/* ---------------- build a new look ---------------- */
+
+function LookComposer({ initial, onDone }: { initial?: CustomLook; onDone: () => void }) {
+  const catalog = liveCatalog();
+  const [name, setName] = useState(initial?.name ?? "");
+  const [tagline, setTagline] = useState(initial?.tagline ?? "");
+  const [season, setSeason] = useState(initial?.season ?? "");
+  const [image, setImage] = useState(initial?.image ?? "");
+  const [aspect, setAspect] = useState(initial?.aspect ?? 1.5);
+  const [ids, setIds] = useState<string[]>(initial?.productIds ?? []);
+  const [published, setPublished] = useState(initial?.published ?? false);
+  const [q, setQ] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const pickImage = async (f: File | undefined) => {
+    if (!f) return;
+    const url = await fileToDataUrl(f, 1200);
+    setImage(url);
+    // read the natural ratio so the runway reserves space instead of jumping
+    const probe = new window.Image();
+    probe.onload = () => {
+      const ratio = probe.naturalWidth / probe.naturalHeight;
+      if (Number.isFinite(ratio) && ratio > 0) setAspect(Number(ratio.toFixed(3)));
+    };
+    probe.src = url;
+  };
+
+  const save = () => {
+    if (!name.trim()) {
+      setErr("نام استایل را وارد کن.");
+      return;
+    }
+    if (!ids.length) {
+      setErr("حداقل یک قطعه برای این استایل انتخاب کن.");
+      return;
+    }
+    const look: CustomLook = {
+      id: initial?.id ?? `look-custom-${Date.now().toString(36)}`,
+      name: name.trim(),
+      tagline: tagline.trim(),
+      season: season.trim(),
+      image,
+      aspect,
+      productIds: ids,
+      published,
+      createdAt: initial?.createdAt ?? Date.now(),
+    };
+    saveCustomLook(look);
+    addLog({ actor: "مدیر", action: initial ? "ویرایش استایل" : "ساخت استایل", target: look.name });
+    onDone();
+  };
+
+  return (
+    <section className="ad-look-edit is-open" aria-label={initial ? "ویرایش استایل" : "ساخت استایل"}>
+      <header className="ad-look-edit-head">
+        <span className="ad-look-edit-main">
+          <b>{initial ? "ویرایش استایل" : "استایل جدید"}</b>
+          <small>پیش‌نویس تا وقتی خودت منتشرش نکنی روی سایت دیده نمی‌شود.</small>
+        </span>
+        <span className="ad-actions">
+          <button type="button" className="ad-btn is-sm" onClick={onDone}>انصراف</button>
+          <button type="button" className="ad-btn is-sm is-primary" onClick={save}><Save width={13} height={13} /> ذخیره</button>
+        </span>
+      </header>
+
+      <div className="ad-look-edit-body">
+        <div className="ad-form-grid" style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+          <label>
+            <span className="ad-field-label">نام استایل</span>
+            <input className="ad-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً عصر پاییزی" />
+          </label>
+          <label>
+            <span className="ad-field-label">توضیح کوتاه</span>
+            <input className="ad-input" value={tagline} onChange={(e) => setTagline(e.target.value)} placeholder="پالتو، بافت و کیف چرم" />
+          </label>
+          <label>
+            <span className="ad-field-label">فصل / دوره</span>
+            <input className="ad-input" value={season} onChange={(e) => setSeason(e.target.value)} placeholder="پاییز / زمستان ۲۶" />
+          </label>
+        </div>
+
+        <div className="ad-look-upload">
+          <p className="ad-field-label">تصویر استایل</p>
+          <div className="ad-look-upload-row">
+            <div className="ad-look-upload-prev">
+              {image ? <img src={image} alt={name || "استایل"} /> : <span className="ad-hint">بدون تصویر</span>}
+            </div>
+            <div className="ad-actions">
+              <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => void pickImage(e.target.files?.[0])} />
+              <button type="button" className="ad-btn is-sm" onClick={() => fileRef.current?.click()}><Upload width={13} height={13} /> آپلود تصویر</button>
+              {image && <button type="button" className="ad-btn is-sm is-danger" onClick={() => setImage("")}><Trash2 width={13} height={13} /> حذف</button>}
+              <p className="ad-hint">اگر تصویری نگذاری، عکس اولین قطعهٔ انتخاب‌شده استفاده می‌شود.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="ad-look-assigned">
+          <p className="ad-field-label">قطعه‌های این استایل ({ids.length.toLocaleString("fa-IR")})</p>
+          {ids.length === 0 ? (
+            <p className="ad-hint">از فهرست پایین قطعه‌ها را انتخاب کن.</p>
+          ) : (
+            <ul>
+              {ids.map((id) => {
+                const p = liveGetProduct(id);
+                if (!p) return null;
+                return (
+                  <li key={id}>
+                    <ProductThumb product={p} className="w-[42px]" />
+                    <span>{p.name}</span>
+                    <b>{formatPrice(p.price)}</b>
+                    <button type="button" className="ad-icon is-danger" aria-label={`حذف ${p.name}`} onClick={() => setIds((prev) => prev.filter((x) => x !== id))}>
+                      <X width={12} height={12} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="ad-look-picker">
+          <p className="ad-field-label">افزودن قطعه</p>
+          <div className="ad-tray-search" style={{ maxWidth: "100%" }}>
+            <Search width={13} height={13} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جست‌وجوی محصول…" aria-label="جست‌وجوی محصول برای استایل جدید" />
+          </div>
+          <div className="ad-look-pick-list">
+            {catalog
+              .filter((p) => !q.trim() || p.name.includes(q.trim()))
+              .slice(0, 40)
+              .map((p) => {
+                const on = ids.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={cn("ad-look-pick", on && "is-on")}
+                    onClick={() => setIds((prev) => (on ? prev.filter((x) => x !== p.id) : [...prev, p.id]))}
+                  >
+                    <ProductThumb product={p} className="w-[38px]" />
+                    <span>{p.name}</span>
+                    {on ? <Check width={13} height={13} /> : <Plus width={13} height={13} />}
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+
+        <div className="ad-actions">
+          <label className="ad-hint" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" checked={published} onChange={(e) => setPublished(e.target.checked)} />
+            همین حالا در سایت منتشر شود
+          </label>
+          {err && <p className="ad-hint" style={{ color: "var(--ad-danger, #b04444)" }} role="alert">{err}</p>}
+        </div>
+      </div>
+    </section>
   );
 }
 

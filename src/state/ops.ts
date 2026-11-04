@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { GarmentKind, ProductImage, ProductImageRole } from "@/types";
 import { pushRemote } from "./persist";
+import { DEFAULT_THEME, type ThemeId } from "@/theme/themes";
 
 /* =====================================================================
    Operations store — everything the admin panel edits that is NOT the
@@ -186,6 +187,11 @@ export interface MegaMenuDef {
 
 export interface OpsState {
   brand: Brand;
+  /**
+   * the storefront's visual theme — one store-level decision, applied to every
+   * visitor. Shoppers never get their own theme switch.
+   */
+  siteTheme: ThemeId;
   categories: CategoryDef[];
   sizeSets: SizeSet[];
   /** productId → ordered gallery, each image with its own colour + role */
@@ -234,6 +240,7 @@ const CATEGORIES: CategoryDef[] = [
 ];
 
 const DEFAULT: OpsState = {
+  siteTheme: DEFAULT_THEME,
   brand: {
     logoText: "VELOURS",
     logoImage: "",

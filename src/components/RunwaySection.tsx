@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
-import { BACKDROPS, LOOKS, firstAvailable, stockOf } from "@/data/looks";
+import { BACKDROPS, firstAvailable, stockOf } from "@/data/looks";
+import { liveLooks } from "@/data/catalog";
+import { useAdmin } from "@/state/admin";
+import type { Look } from "@/types";
 import { useCart } from "@/state/cart";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { RunwayScene } from "./RunwayScene";
@@ -10,9 +13,9 @@ import { DEFAULT_SETTINGS, SceneSettingsPopover } from "./SceneSettings";
 import type { AddPayload } from "@/state/cart";
 import type { SceneSettings, SelectionMap, VariantSelection } from "@/types";
 
-function initialSelections(): SelectionMap {
+function initialSelections(looks: Look[]): SelectionMap {
   const map: SelectionMap = {};
-  for (const look of LOOKS) {
+  for (const look of looks) {
     for (const p of look.products) {
       const { colorId, sizeId } = firstAvailable(p);
       map[p.id] = { colorId, sizeId, included: true };
@@ -31,25 +34,34 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
   const isDesktop = useIsDesktop();
   const { add, lines, cartOpen } = useCart();
 
+  // the runway is fed by the live catalogue so owner-built looks appear here
+  const admin = useAdmin();
+  const looks = useMemo(() => liveLooks(), [admin]);
+
   const [activeIndex, setActiveIndex] = useState(() => {
-    const i = LOOKS.findIndex((l) => l.id === initialLookId);
+    const i = looks.findIndex((l) => l.id === initialLookId);
     return i >= 0 ? i : 0;
   });
   const [panelOpen, setPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<SceneSettings>(DEFAULT_SETTINGS);
-  const [selections, setSelections] = useState<SelectionMap>(initialSelections);
+  const [selections, setSelections] = useState<SelectionMap>(() => initialSelections(looks));
 
   useEffect(() => {
     if (!initialLookId) return;
-    const i = LOOKS.findIndex((l) => l.id === initialLookId);
+    const i = looks.findIndex((l) => l.id === initialLookId);
     if (i >= 0) setActiveIndex(i);
-  }, [initialLookId]);
+  }, [initialLookId, looks]);
+
+  // hiding or deleting a look must never leave the runway pointing past the end
+  useEffect(() => {
+    setActiveIndex((i) => Math.min(i, Math.max(0, looks.length - 1)));
+  }, [looks.length]);
 
   const lastStep = useRef(0);
   const restoreFocus = useRef<HTMLElement | null>(null);
 
-  const activeLook = LOOKS[activeIndex];
+  const activeLook = looks[activeIndex] ?? looks[0];
   const backdrop = BACKDROPS.find((b) => b.id === settings.backdrop) ?? BACKDROPS[0];
 
   const cartKeys = useMemo(() => new Set(lines.map((l) => l.key)), [lines]);
@@ -60,7 +72,7 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
     const now = performance.now();
     if (now - lastStep.current < 110) return; // guard against animation pile-up
     lastStep.current = now;
-    setActiveIndex((i) => (i + dir + LOOKS.length) % LOOKS.length);
+    setActiveIndex((i) => (i + dir + looks.length) % Math.max(1, looks.length));
   }, []);
 
   const selectModel = useCallback(
@@ -114,7 +126,7 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
     setSelections((prev) => {
       const current = prev[productId];
       if (!current) return prev;
-      const product = LOOKS.flatMap((l) => l.products).find((p) => p.id === productId);
+      const product = looks.flatMap((l) => l.products).find((p) => p.id === productId);
       let next = { ...current, ...patch };
       // switching colour: keep the size if it exists, otherwise fall back to an available one
       if (product && patch.colorId && stockOf(product, next.colorId, next.sizeId) === 0) {
@@ -197,7 +209,7 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
 
       <div className="mt-5">
         <RunwayScene
-          looks={LOOKS}
+          looks={looks}
           activeIndex={activeIndex}
           onSelect={selectModel}
           onStep={step}
@@ -213,7 +225,7 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
           style={{ paddingLeft: panelOpen && isDesktop ? "min(27rem, 34vw)" : 0 }}
         >
           <RunwayControls
-            looks={LOOKS}
+            looks={looks}
             activeIndex={activeIndex}
             panelOpen={panelOpen}
             onStep={step}

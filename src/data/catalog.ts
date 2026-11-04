@@ -1,5 +1,6 @@
 import { LOOKS, stockOf } from "./looks";
 import { getAdmin, type CustomProduct } from "@/state/admin";
+import { lookProductIds } from "@/state/ops";
 import type { ColorOption, Crop, GarmentKind, Look, Product } from "@/types";
 
 export interface CatalogProduct extends Product {
@@ -258,6 +259,51 @@ export const liveCatalog = (): CatalogProduct[] => {
 };
 
 export const liveGetProduct = (id: string | undefined) => (id ? liveCatalog().find((p) => p.id === id) : undefined);
+
+/**
+ * The runway reads from here, so a look the owner builds in the admin panel is
+ * a first-class citizen: same shape, same product panel, same cart rules.
+ * Order of truth: hidden → explicit order → base order → newest custom.
+ */
+export const liveLooks = (): Look[] => {
+  const admin = getAdmin();
+  const hidden = new Set(admin.hiddenLooks);
+  const explicit = admin.lookOrder;
+
+  const withProducts = (look: Look): Look => {
+    const chosen = lookProductIds(look.id);
+    if (!chosen.length) return look;
+    const products = chosen.map((id) => liveGetProduct(id)).filter((p): p is CatalogProduct => Boolean(p));
+    return products.length ? { ...look, products } : look;
+  };
+
+  const base = LOOKS.filter((l) => !hidden.has(l.id)).map(withProducts);
+
+  const custom: Look[] = admin.customLooks
+    .filter((l) => l.published && !hidden.has(l.id))
+    .map((l) => {
+      const products = l.productIds.map((id) => liveGetProduct(id)).filter((p): p is CatalogProduct => Boolean(p));
+      return {
+        id: l.id,
+        order: 100 + l.createdAt / 1e12,
+        name: l.name,
+        tagline: l.tagline,
+        season: l.season,
+        image: l.image || products[0]?.image || LOOKS[0].image,
+        aspect: l.aspect || products[0]?.aspect || 1.5,
+        accent: "#bc9b70",
+        products,
+      } satisfies Look;
+    })
+    .filter((l) => l.products.length > 0);
+
+  const all = [...base, ...custom];
+  const rank = (id: string, fallback: number) => {
+    const i = explicit.indexOf(id);
+    return i === -1 ? 500 + fallback : i;
+  };
+  return all.sort((a, b) => rank(a.id, a.order) - rank(b.id, b.order));
+};
 
 const isHidden = (id: string) => {
   const admin = getAdmin();

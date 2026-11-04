@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Check, ChevronDown, Heart, Menu, Search, ShieldCheck, ShoppingBag, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, Heart, Menu, Search, ShieldCheck, ShoppingBag, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { useCart } from "@/state/cart";
 import { COLLECTIONS, liveCatalog, productsInCollection } from "@/data/catalog";
 import { formatPrice } from "@/data/looks";
 import { ProductThumb } from "./ProductThumb";
-import { ThemeSwitcher } from "./ThemeSwitcher";
-import { useTheme } from "@/theme/ThemeProvider";
 import { useAuth } from "@/state/auth";
 import { useOps } from "@/state/ops";
 import { useAdmin } from "@/state/admin";
@@ -252,7 +250,6 @@ export function Header() {
               <UserRound className="h-[15px] w-[15px]" />
               <span className="hidden text-[11px] font-medium xl:inline">{account ? account.name.split(" ")[0] : "ورود"}</span>
             </Link>
-            <ThemeSwitcher />
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
@@ -432,7 +429,6 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
 /* ------------------------------------------------------------------ */
 
 function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () => void; onSearch: () => void }) {
-  const { themes, theme: activeTheme, setTheme } = useTheme();
   const { wishlist } = useCart();
   const { account } = useAuth();
   const { settings } = useAdmin();
@@ -557,31 +553,6 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
                 </Link>
               </div>
 
-              <details className="group mt-4 rounded-xl border border-black/[0.07] bg-white/50">
-                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[11.5px] text-ink-70 [&::-webkit-details-marker]:hidden">
-                  سبک و تم سایت
-                  <ChevronDown className="h-4 w-4 text-ink-45 transition-transform group-open:rotate-180" />
-                </summary>
-                <div className="grid grid-cols-2 gap-1.5 border-t border-black/[0.06] p-2">
-                  {themes.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setTheme(t.id)}
-                      aria-pressed={activeTheme.id === t.id}
-                      className={cn(
-                        "flex items-center justify-between gap-1 rounded-lg border px-2.5 py-2 text-start transition-all",
-                        activeTheme.id === t.id
-                          ? "border-ink bg-ink text-bone"
-                          : "border-black/10 bg-white/40 text-ink-70 hover:border-ink/40",
-                      )}
-                    >
-                      <span className="text-[11px] font-medium">{t.label}</span>
-                      {activeTheme.id === t.id && <Check className="h-3 w-3" />}
-                    </button>
-                  ))}
-                </div>
-              </details>
             </nav>
 
             <div className="border-t border-black/[0.07] px-5 py-4 text-[10.5px] leading-relaxed text-ink-45">

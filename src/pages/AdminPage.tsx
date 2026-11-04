@@ -2002,7 +2002,7 @@ function Appearance() {
   const { theme, setTheme } = useTheme();
   return (
     <>
-      <PageHead title="ظاهر سایت" sub="تم پیش‌فرضی که بازدیدکنندگان می‌بینند. مشتری همچنان می‌تواند از هدر عوضش کند." />
+      <PageHead title="ظاهر سایت" sub="یک تصمیم سطح فروشگاه: تم انتخابی برای همهٔ بازدیدکنندگان اعمال می‌شود و مشتری کلید تغییر ظاهر ندارد." />
       <div className="ad-themes">
         {THEMES.map((t) => (
           <button key={t.id} type="button" className={cn("ad-theme", theme.id === t.id && "is-on")} onClick={() => setTheme(t.id)} aria-pressed={theme.id === t.id}>
