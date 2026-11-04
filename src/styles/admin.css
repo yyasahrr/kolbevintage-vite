@@ -3044,3 +3044,38 @@
   font-size:9px; color:#6b6255; white-space:nowrap;
   transform:rotate(-45deg); transform-origin:center;
 }
+
+/* ---------- operational notices (decision 44) ---------- */
+.ad-bell{ position:relative; display:inline-flex }
+.ad-btn.is-attention{ border-color:#c98a2b; color:#8a5a12 }
+.ad-btn.is-attention:hover{ background:rgba(201,138,43,.1) }
+.ad-bell-count{
+  font-style:normal; font-size:10.5px; line-height:1; padding:2px 5px; border-radius:99px;
+  background:#c98a2b; color:#fff; font-variant-numeric:tabular-nums;
+}
+.ad-bell-scrim{ position:fixed; inset:0; z-index:60 }
+.ad-bell-pop{
+  position:absolute; top:calc(100% + 8px); inset-inline-end:0;  z-index:61;
+  width:min(360px, calc(100vw - 24px));
+  background:var(--color-paper, #fff); border:1px solid rgba(0,0,0,.12); border-radius:14px;
+  box-shadow:0 18px 40px rgba(20,16,12,.18); padding:10px;
+  display:grid; gap:4px;
+}
+.ad-bell-pop > header{ display:flex; align-items:center; justify-content:space-between; padding:2px 4px 6px }
+.ad-bell-pop > header b{ font-size:12.5px }
+.ad-bell-note{ margin:0 4px 6px; font-size:11px; color:#8a5a12; line-height:1.7 }
+.ad-bell-empty{ margin:8px 4px; font-size:12px; color:#6b6255 }
+.ad-bell-row{
+  display:flex; align-items:center; gap:9px; width:100%; text-align:start;
+  background:transparent; border:0; border-radius:10px; padding:8px 9px; cursor:pointer;
+  font:inherit;
+}
+.ad-bell-row:hover{ background:rgba(0,0,0,.045) }
+.ad-bell-row > em{ font-style:normal; font-size:12px; font-variant-numeric:tabular-nums; color:#6b6255 }
+.ad-bell-dot{ width:7px; height:7px; border-radius:99px; background:rgba(0,0,0,.18); flex:none }
+.ad-bell-dot.is-on{ background:#c98a2b }
+.ad-bell-main{ display:grid; gap:1px; min-width:0; flex:1 }
+.ad-bell-main b{ font-size:12px; font-weight:600 }
+.ad-bell-main small{ font-size:10.5px; color:#6b6255; line-height:1.6 }
+.ad-bell-stale{ color:#a2711f !important }
+.ad-bell-foot{ margin:4px 4px 2px; font-size:10px; color:#8b8175; text-align:end }

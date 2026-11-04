@@ -200,6 +200,18 @@ test("settings read and write need settings:view / settings:edit, not just a ses
 
   const write = await client.put("/api/commerce/admin/settings", { shippingFlat: 1 });
   assert.equal(write.status, 403, JSON.stringify(write.body));
+
+  // the health screen is a settings:view surface and reports real probes
+  const health = await client.get("/api/admin/health");
+  assert.equal(health.status, 200, JSON.stringify(health.body));
+  assert.equal(health.body.db.ok, true);
+  assert.ok(health.body.db.tables.length > 0, "table sizes come from the live database");
+  assert.ok(health.body.disk.totalBytes > 0, "disk space is read, not invented");
+  assert.equal(typeof health.body.queue.outboxPending, "number");
+
+  const { client: nobody } = await staffWith(["orders:view"], "picker", "dena3", "dena-pass-3");
+  const refused = await nobody.get("/api/admin/health");
+  assert.equal(refused.status, 403, "no settings:view means no health probe");
 });
 
 test("a state save leaves an audit row naming only the keys that changed", async () => {

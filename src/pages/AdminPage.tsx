@@ -21,6 +21,7 @@ import {
   LogOut,
   Megaphone,
   Sparkles,
+  Bell,
   Package,
   Palette,
   Plus,
@@ -58,6 +59,7 @@ import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
 import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
+import type { Permission } from "@/admin/rbac";
 import { type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
@@ -65,7 +67,7 @@ import { resolveImg } from "@/builder/stock";
 import { useCart as useNotifyCart } from "@/state/cart";
 import type { AdminState, Campaign, DiscountRule, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
 import type { GarmentKind, ProductImage } from "@/types";
-import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
+import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
 import { CommercePanel } from "./AdminCommercePanel";
 import { StaffPanel } from "./AdminRbac";
 import { loadAdminMe, invalidateAdminMe, useAdminMe } from "@/state/session";
@@ -103,6 +105,7 @@ type Tab =
   | "tickets"
   | "returns"
   | "logs"
+  | "health"
   | "security"
   | "forms"
   | "tryon"
@@ -185,6 +188,7 @@ const TABS: NavItem[] = [
       { id: "security", label: "امنیت" },
       { id: "integrations", label: "اتصالات" },
       { id: "logs", label: "گزارش فعالیت" },
+      { id: "health", label: "سلامت سیستم" },
       { id: "settings", label: "تنظیمات" },
       { id: "staff", label: "کارکنان و نقش‌ها" },
     ],
@@ -411,6 +415,7 @@ export function AdminPage() {
           <TrendingUp width={13} height={13} />
           {fa(admin.orders.length)} سفارش
         </span>
+        <OpsBell onGo={(next) => setTab(next)} />
         <SyncBadge />
         <Link to="/" className="ad-btn is-sm" aria-label="مشاهده سایت">
           <Store width={14} height={14} />
@@ -542,6 +547,7 @@ export function AdminPage() {
                 { id: "security", label: "امنیت", node: <SecurityPanel /> },
                 { id: "integrations", label: "اتصالات", node: <Integrations /> },
                 { id: "logs", label: "گزارش فعالیت", node: <LogsPanel /> },
+                { id: "health", label: "سلامت سیستم", node: <HealthPanel /> },
                 { id: "settings", label: "تنظیمات", node: <StoreSettings onBack={() => navigate("/")} /> },
                 { id: "staff", label: "کارکنان و نقش‌ها", node: <StaffPanel /> },
               ]}
@@ -2402,6 +2408,173 @@ function CustomerRowView({ r, open, onToggle, meta }: { r: CustomerRow; open: bo
         </tr>
       )}
     </>
+  );
+}
+
+
+/* =====================================================================
+   operational notices (decision 44) — four things the owner must act on.
+   Everything here is counted from real records; a section the viewer is not
+   allowed to open is not shown at all, and an offline panel says so instead
+   of showing a stale number as if it were live.
+   ===================================================================== */
+
+type NoticeId = "orders" | "stock" | "payments" | "tickets";
+
+interface OpsNotice {
+  id: NoticeId;
+  label: string;
+  hint: string;
+  count: number;
+  to: Tab;
+  permission: Permission;
+  live: boolean;
+}
+
+function OpsBell({ onGo }: { onGo: (tab: Tab) => void }) {
+  const admin = useAdmin();
+  const ops = useOps();
+  const session = useAdminMe();
+  const [open, setOpen] = useState(false);
+  const [serverOrders, setServerOrders] = useState<{ id: string; status: string; createdAt: string }[] | null>(null);
+  const [failedPayments, setFailedPayments] = useState<number | null>(null);
+  const [liveError, setLiveError] = useState("");
+
+  const offline = session.offline;
+  useEffect(() => {
+    if (offline) return;
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const { api } = await import("@/lib/api");
+        const [orders, payments] = await Promise.all([
+          api.get<{ id: string; status: string; createdAt: string }[]>("/api/commerce/orders?all=1&limit=100"),
+          api.get<{ status: string; createdAt: string }[]>("/api/commerce/admin/payments?status=failed"),
+        ]);
+        if (cancelled) return;
+        setServerOrders(Array.isArray(orders) ? orders : []);
+        const weekAgo = Date.now() - 7 * 86400000;
+        setFailedPayments(
+          (Array.isArray(payments) ? payments : []).filter((p) => new Date(p.createdAt).getTime() >= weekAgo).length,
+        );
+        setLiveError("");
+      } catch (error) {
+        if (cancelled) return;
+        setLiveError(error instanceof Error ? error.message : "اتصال به سرور برقرار نشد");
+      }
+    };
+    void pull();
+    const timer = window.setInterval(() => void pull(), 60000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [offline]);
+
+  const since = Date.now() - 48 * 3600000;
+  // before the server answers (or offline) fall back to the mirrored document and say so
+  const newOrders = serverOrders
+    ? serverOrders.filter((o) => o.status === "pending" && new Date(o.createdAt).getTime() >= since).length
+    : admin.orders.filter((o) => o.status === "pending").length;
+  const lowStock = liveCatalog().filter((p) => isLowStock(p.id, totalStock(p))).length;
+  const unanswered = ops.tickets.filter((t) => t.status === "open").length;
+
+  const allNotices: OpsNotice[] = [
+    {
+      id: "orders",
+      label: "سفارش تازه در انتظار پرداخت",
+      hint: "سفارش‌های ۴۸ ساعت گذشته که هنوز پرداخت نشده‌اند",
+      count: newOrders,
+      to: "orders",
+      permission: "orders:view",
+      live: !!serverOrders,
+    },
+    {
+      id: "stock",
+      label: "محصول کم‌موجود",
+      hint: "زیر آستانهٔ تعیین‌شده در تنظیمات یا آستانهٔ خودِ محصول",
+      count: lowStock,
+      to: "products",
+      permission: "inventory:view",
+      live: true,
+    },
+    {
+      id: "payments",
+      label: "پرداخت ناموفق (۷ روز)",
+      hint: "تلاش‌های ناموفق پرداخت که ممکن است مشتری را از دست داده باشد",
+      count: failedPayments ?? 0,
+      to: "commerce",
+      permission: "finance:view",
+      live: failedPayments !== null,
+    },
+    {
+      id: "tickets",
+      label: "تیکت بی‌پاسخ",
+      hint: "تیکت‌هایی که آخرین پیام از مشتری است",
+      count: unanswered,
+      to: "tickets",
+      permission: "customers:view",
+      live: true,
+    },
+  ];
+  const notices = allNotices.filter((n) => can(session.permissions, n.permission));
+
+  const total = notices.reduce((sum, n) => sum + n.count, 0);
+
+  return (
+    <div className="ad-bell">
+      <button
+        type="button"
+        className={cn("ad-btn is-sm", total > 0 && "is-attention")}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-label={total > 0 ? `${fa(total)} اعلان عملیاتی` : "اعلان عملیاتی نداریم"}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Bell width={14} height={14} />
+        <span className="ad-top-btn-label">اعلان‌ها</span>
+        {total > 0 && <em className="ad-bell-count">{fa(total)}</em>}
+      </button>
+      {open && (
+        <>
+          <div className="ad-bell-scrim" onClick={() => setOpen(false)} aria-hidden />
+          <div className="ad-bell-pop" role="dialog" aria-label="اعلان‌های عملیاتی">
+            <header>
+              <b>اعلان‌های عملیاتی</b>
+              <button type="button" className="ad-icon" aria-label="بستن" onClick={() => setOpen(false)}>
+                <X width={14} height={14} />
+              </button>
+            </header>
+            {liveError && (
+              <p className="ad-bell-note">
+                اعداد سرور خوانده نشد ({liveError})؛ فقط دادهٔ همین پنل نمایش داده می‌شود.
+              </p>
+            )}
+            {total === 0 && <p className="ad-bell-empty">کاری برای انجام نیست.</p>}
+            {notices.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                className="ad-bell-row"
+                onClick={() => {
+                  onGo(n.to);
+                  setOpen(false);
+                }}
+              >
+                <span className={cn("ad-bell-dot", n.count > 0 && "is-on")} />
+                <span className="ad-bell-main">
+                  <b>{n.label}</b>
+                  <small>{n.hint}</small>
+                  {!n.live && <small className="ad-bell-stale">عدد از نسخهٔ پنل است، نه سرور</small>}
+                </span>
+                <em>{fa(n.count)}</em>
+              </button>
+            ))}
+            <p className="ad-bell-foot">هر ۶۰ ثانیه از سرور تازه می‌شود.</p>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

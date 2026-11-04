@@ -1759,3 +1759,215 @@ function require_stock(p: Parameters<typeof stockOfBase>[0], colorId: string, si
 }
 
 export const _unusedOps = { Bot, BadgePercent, Copy, Mail, Megaphone, MessageSquare, RotateCcw, ShieldCheck, Undo2, Users, Wallet, Layers };
+
+/* =====================================================================
+   system health (decision 48) — every number here comes from the server's
+   /api/admin/health probe; nothing is estimated on the client.
+   ===================================================================== */
+
+interface HealthTableRow {
+  name: string;
+  rows: number;
+  sizeBytes: number;
+}
+
+interface HealthPayload {
+  time: string;
+  uptimeSec: number;
+  node: string;
+  pid: number;
+  db: {
+    ok: boolean;
+    error: string | null;
+    latencyMs: number;
+    database: string;
+    serverVersion: string;
+    sizeBytes: number;
+    pool: { total: number; idle: number; waiting: number };
+    tables: HealthTableRow[];
+  };
+  disk: { path: string; totalBytes: number; freeBytes: number; error: string | null };
+  memory: { rssBytes: number; heapUsedBytes: number };
+  queue: { reservations: number; expiringPayments: number; outboxPending: number; pendingRefunds: number };
+  errors: { at: string; method: string; url: string; status: number; message: string; code: string | null }[];
+}
+
+const fmtBytes = (bytes: number) => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "۰";
+  const units = ["بایت", "کیلوبایت", "مگابایت", "گیگابایت", "ترابایت"];
+  const power = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / 1024 ** power;
+  const shown = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${fa(shown)} ${units[power]}`;
+};
+
+const fmtDuration = (seconds: number) => {
+  if (seconds < 60) return `${fa(seconds)} ثانیه`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${fa(minutes)} دقیقه`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${fa(hours)} ساعت و ${fa(minutes % 60)} دقیقه`;
+  return `${fa(Math.floor(hours / 24))} روز و ${fa(hours % 24)} ساعت`;
+};
+
+export function HealthPanel() {
+  const [data, setData] = useState<HealthPayload | null>(null);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
+  const load = async () => {
+    setPending(true);
+    try {
+      const { api } = await import("@/lib/api");
+      const payload = await api.get<HealthPayload>("/api/admin/health?errors=20");
+      setData(payload);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "وضعیت سرور خوانده نشد");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const diskUsedShare = data && data.disk.totalBytes > 0
+    ? Math.round(((data.disk.totalBytes - data.disk.freeBytes) / data.disk.totalBytes) * 100)
+    : 0;
+
+  return (
+    <>
+      <PanelHead
+        title="سلامت سیستم"
+        sub="اتصال‌ها، حجم داده، کارهای در انتظار، خطاهای اخیر و فضای دیسک — همه از خودِ سرور خوانده می‌شود."
+        action={
+          <button type="button" className="ad-btn is-sm" onClick={() => void load()} disabled={pending}>
+            {pending ? "در حال خواندن…" : "به‌روزرسانی"}
+          </button>
+        }
+      />
+
+      {error && (
+        <div className="ad-empty">
+          سلامت سرور خوانده نشد: {error}
+          <div style={{ marginTop: 8 }}>
+            <button type="button" className="ad-btn is-sm" onClick={() => void load()}>تلاش دوباره</button>
+          </div>
+        </div>
+      )}
+
+      {!data && !error && <p className="ad-hint">در حال خواندن وضعیت سرور…</p>}
+
+      {data && (
+        <>
+          <div className="ad-kpis">
+            <div className="ad-kpi ad-kpi-static">
+              <b>{data.db.ok ? "سالم" : "قطع"}</b>
+              <span className="ad-kpi-label">پایگاه داده · {fa(data.db.latencyMs)} میلی‌ثانیه</span>
+            </div>
+            <div className="ad-kpi ad-kpi-static">
+              <b>{fmtBytes(data.db.sizeBytes)}</b>
+              <span className="ad-kpi-label">حجم داده ({data.db.database})</span>
+            </div>
+            <div className="ad-kpi ad-kpi-static">
+              <b>{data.disk.error ? "نامشخص" : fmtBytes(data.disk.freeBytes)}</b>
+              <span className="ad-kpi-label">فضای آزاد دیسک {data.disk.error ? "" : `(${fa(diskUsedShare)}٪ مصرف)`}</span>
+            </div>
+            <div className="ad-kpi ad-kpi-static">
+              <b>{fmtDuration(data.uptimeSec)}</b>
+              <span className="ad-kpi-label">از روشن شدن سرور</span>
+            </div>
+          </div>
+
+          <div className="ad-grid-2">
+            <Panel title="اتصال‌ها و فرایند">
+              <div className="ad-table-wrap">
+                <table className="ad-table">
+                  <tbody>
+                    <tr><td>پایگاه داده</td><td>{data.db.ok ? "متصل" : `قطع — ${data.db.error ?? "خطای نامشخص"}`}</td></tr>
+                    <tr><td>نسخهٔ PostgreSQL</td><td dir="ltr">{data.db.serverVersion || "—"}</td></tr>
+                    <tr><td>اتصال‌های باز استخر</td><td>{fa(data.db.pool.total)} (آزاد {fa(data.db.pool.idle)} · در انتظار {fa(data.db.pool.waiting)})</td></tr>
+                    <tr><td>Node</td><td dir="ltr">{data.node}</td></tr>
+                    <tr><td>شناسهٔ فرایند</td><td dir="ltr">{data.pid}</td></tr>
+                    <tr><td>حافظهٔ مصرفی</td><td>{fmtBytes(data.memory.rssBytes)} (heap {fmtBytes(data.memory.heapUsedBytes)})</td></tr>
+                    <tr><td>مسیر داده</td><td dir="ltr">{data.disk.path}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              {data.disk.error && <p className="ad-hint">فضای دیسک خوانده نشد: {data.disk.error}</p>}
+            </Panel>
+
+            <Panel title="کارهای در انتظار">
+              <div className="ad-table-wrap">
+                <table className="ad-table">
+                  <tbody>
+                    <tr><td>رزرو موجودی فعال</td><td>{fa(data.queue.reservations)}</td></tr>
+                    <tr><td>پرداخت در جریان</td><td>{fa(data.queue.expiringPayments)}</td></tr>
+                    <tr><td>رویداد پردازش‌نشدهٔ صف</td><td>{fa(data.queue.outboxPending)}</td></tr>
+                    <tr><td>بازپرداخت تأییدشده و تسویه‌نشده</td><td>{fa(data.queue.pendingRefunds)}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="ad-hint">
+                این اعداد لحظه‌ای‌اند؛ رزروها هر ۱۵ ثانیه منقضی می‌شوند و صف پس‌زمینه خودکار پردازش می‌شود.
+              </p>
+            </Panel>
+          </div>
+
+          <Panel title="حجم جدول‌ها">
+            {data.db.tables.length === 0 ? (
+              <p className="ad-hint">جدولی گزارش نشد.</p>
+            ) : (
+              <div className="ad-table-wrap">
+                <table className="ad-table">
+                  <thead><tr><th>جدول</th><th>ردیف</th><th>حجم</th></tr></thead>
+                  <tbody>
+                    {data.db.tables.map((t) => (
+                      <tr key={t.name}>
+                        <td dir="ltr">{t.name}</td>
+                        <td className="ad-num">{fa(t.rows)}</td>
+                        <td className="ad-num">{fmtBytes(t.sizeBytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="آخرین خطاهای سرور">
+            {data.errors.length === 0 ? (
+              <p className="ad-hint">از زمان روشن شدن این نسخه، خطای ۵۰۰ ثبت نشده است.</p>
+            ) : (
+              <div className="ad-table-wrap">
+                <table className="ad-table">
+                  <thead><tr><th>زمان</th><th>مسیر</th><th>کد</th><th>پیام</th></tr></thead>
+                  <tbody>
+                    {data.errors.map((e, i) => (
+                      <tr key={`${e.at}-${i}`}>
+                        <td className="ad-num">{formatJalaliDateTime(e.at)}</td>
+                        <td dir="ltr">{e.method} {e.url}</td>
+                        <td>{fa(e.status)}{e.code ? ` · ${e.code}` : ""}</td>
+                        <td>{e.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="ad-hint">
+              فقط ۵۰ خطای آخر در حافظهٔ سرور نگه داشته می‌شود و با ری‌استارت پاک می‌شود؛ آرشیو دائمی همان
+              لاگ سرویس است، نه این جدول.
+            </p>
+          </Panel>
+
+          <p className="ad-hint">آخرین خواندن: {formatJalaliDateTime(data.time)} — هر ۳۰ ثانیه خودکار تازه می‌شود.</p>
+        </>
+      )}
+    </>
+  );
+}

@@ -13,6 +13,8 @@ import { stateRoutes } from "./routes/state";
 import { uploadRoutes } from "./routes/uploads";
 import { commerceRoutes } from "./commerce/routes";
 import { rbacRoutes } from "./routes/rbac";
+import { healthRoutes } from "./routes/health";
+import { recordServerError } from "./errors";
 import { seedRbac } from "./http/rbac";
 import { ensureCommerceSettings } from "./commerce/settings";
 import { syncPromotions } from "./commerce/promotions";
@@ -69,6 +71,15 @@ export async function buildServer() {
   app.setErrorHandler((error, req, reply) => {
     const status = (error as { statusCode?: number }).statusCode ?? 500;
     if (status >= 500) req.log.error(error);
+    if (status >= 500) {
+      recordServerError({
+        method: req.method,
+        url: req.url,
+        status,
+        message: error instanceof Error ? error.message : "خطای سرور",
+        code: (error as { code?: string }).code ?? null,
+      });
+    }
     const code = (error as { code?: string }).code;
     const details = (error as { details?: unknown }).details;
     reply.code(status).send({
@@ -94,6 +105,7 @@ export async function buildServer() {
   await app.register(uploadRoutes);
   await app.register(commerceRoutes);
   await app.register(rbacRoutes);
+  await app.register(healthRoutes);
 
   if (config.serveStatic && fs.existsSync(path.join(config.distDir, "index.html"))) {
     await app.register(fastifyStatic, {

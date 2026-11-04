@@ -117,6 +117,7 @@ export const SCREEN_PERMISSION: Record<string, Permission> = {
   tryon: "finance:view",
   reports: "finance:view",
   logs: "security:view",
+  health: "settings:view",
 
   security: "security:view",
   integrations: "integrations:view",
