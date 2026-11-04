@@ -389,13 +389,13 @@ export function CheckoutPage() {
               <ShipOption
                 active={shipping === "standard"}
                 title="ارسال استاندارد"
-                note={discount.freeship ? "رایگان (تخفیف فعال)" : settings.freeShipping ? `رایگان بالای ${settings.freeShipping.toLocaleString("fa-IR")} یورو` : "۱۲ یورو"}
+                note={discount.freeship ? "رایگان (تخفیف فعال)" : settings.freeShipping ? `رایگان بالای ${settings.freeShipping.toLocaleString("fa-IR")} تومان` : "۱۲ تومان"}
                 onClick={() => setShipping("standard")}
               />
               <ShipOption
                 active={shipping === "express"}
                 title="ارسال سریع (۲۴ ساعته)"
-                note={discount.freeship ? "رایگان (تخفیف فعال)" : `${settings.expressCost.toLocaleString("fa-IR")} یورو`}
+                note={discount.freeship ? "رایگان (تخفیف فعال)" : `${settings.expressCost.toLocaleString("fa-IR")} تومان`}
                 onClick={() => setShipping("express")}
               />
             </div>

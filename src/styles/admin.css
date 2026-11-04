@@ -2659,18 +2659,20 @@
   content: "";
   position: absolute;
   top: 3px;
-  inset-inline-end: 3px;
+  /* logical inset, not a translated transform: in RTL the old rule pushed the
+     knob outside the track (the "toggle sticking out" bug) */
+  inset-inline-start: 3px;
   width: 16px;
   height: 16px;
   border-radius: 999px;
   background: #fff;
-  transition: transform 0.2s;
+  transition: inset-inline-start 0.2s, background 0.2s;
 }
 .ad-switch.is-on {
   background: #1b1815;
 }
 .ad-switch.is-on::after {
-  transform: translateX(-16px);
+  inset-inline-start: 19px;
 }
 .ad-switch:focus-visible {
   outline: 2px solid #1b1815;

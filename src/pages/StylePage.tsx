@@ -1,7 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { LOOKS } from "@/data/looks";
 import { RunwaySection } from "@/components/RunwaySection";
-import { Breadcrumbs, Newsletter, buttonStyles } from "@/components/ui";
+import { Breadcrumbs, buttonStyles } from "@/components/ui";
 
 
 export function StylePage() {
@@ -28,7 +28,6 @@ export function StylePage() {
         </div>
       </section>
 
-      <Newsletter compact />
     </>
   );
 }

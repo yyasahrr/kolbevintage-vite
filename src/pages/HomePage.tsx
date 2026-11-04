@@ -5,7 +5,7 @@ import { LOOKS, formatPrice } from "@/data/looks";
 import { POSTS, HERO_IMAGE, ATELIER_IMAGE, CAMPAIGN_IMAGE } from "@/data/journal";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductThumb } from "@/components/ProductThumb";
-import { ArrowLink, Marquee, Newsletter, Reveal, SectionHeading, buttonStyles } from "@/components/ui";
+import { ArrowLink, Marquee, Reveal, SectionHeading, buttonStyles } from "@/components/ui";
 
 const COLLECTION_COPY: Record<string, string> = {
   outerwear: "پالتو، ترنچ و کاپشن",
@@ -63,7 +63,7 @@ export function HomePage() {
       <div className="mt-4">
         <Marquee
           items={[
-            "ارسال رایگان بالای ۲۰۰ یورو",
+            "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان",
             "مرجوعی تا ۱۴ روز",
             "ساخت محدود در پاریس",
             "پرداخت امن",
@@ -330,7 +330,6 @@ export function HomePage() {
         </div>
       </section>
 
-      <Newsletter />
     </>
   );
 }

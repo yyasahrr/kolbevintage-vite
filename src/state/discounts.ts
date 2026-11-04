@@ -125,8 +125,8 @@ export function computeDiscounts(lines: CartLineLite[], code?: string): Discount
       amount,
       note:
         c.kind === "percent"
-          ? `${c.value.toLocaleString("fa-IR")}٪ تخفیف${c.minSpend ? ` با خرید بالای ${c.minSpend.toLocaleString("fa-IR")} یورو` : ""}`
-          : `${c.value.toLocaleString("fa-IR")} یورو تخفیف${c.minSpend ? ` با خرید بالای ${c.minSpend.toLocaleString("fa-IR")} یورو` : ""}`,
+          ? `${c.value.toLocaleString("fa-IR")}٪ تخفیف${c.minSpend ? ` با خرید بالای ${c.minSpend.toLocaleString("fa-IR")} تومان` : ""}`
+          : `${c.value.toLocaleString("fa-IR")} تومان تخفیف${c.minSpend ? ` با خرید بالای ${c.minSpend.toLocaleString("fa-IR")} تومان` : ""}`,
       stackable: false,
     });
   }
@@ -137,7 +137,7 @@ export function computeDiscounts(lines: CartLineLite[], code?: string): Discount
     if (cp) {
       const sub = subtotal;
       if (cp.minSpend && sub < cp.minSpend) {
-        return { applied: [], discountTotal: 0, freeship: false, freeshipThreshold: fsThreshold, subtotal, afterDiscount: subtotal, couponError: `حداقل خرید برای این کد ${cp.minSpend.toLocaleString("fa-IR")} یورو است.` } as DiscountResult & { couponError: string };
+        return { applied: [], discountTotal: 0, freeship: false, freeshipThreshold: fsThreshold, subtotal, afterDiscount: subtotal, couponError: `حداقل خرید برای این کد ${cp.minSpend.toLocaleString("fa-IR")} تومان است.` } as DiscountResult & { couponError: string };
       }
       const amount = cp.kind === "percent" ? Math.round((sub * cp.value) / 100) : cp.value;
       candidates.push({
@@ -145,7 +145,7 @@ export function computeDiscounts(lines: CartLineLite[], code?: string): Discount
         name: `کد ${cp.code}`,
         kind: cp.kind,
         amount,
-        note: cp.kind === "percent" ? `${cp.value.toLocaleString("fa-IR")}٪ تخفیف کد ${cp.code}` : `${cp.value.toLocaleString("fa-IR")} یورو تخفیف کد ${cp.code}`,
+        note: cp.kind === "percent" ? `${cp.value.toLocaleString("fa-IR")}٪ تخفیف کد ${cp.code}` : `${cp.value.toLocaleString("fa-IR")} تومان تخفیف کد ${cp.code}`,
         stackable: false,
       });
     }
@@ -170,7 +170,7 @@ export function computeDiscounts(lines: CartLineLite[], code?: string): Discount
       case "fixed": {
         const sub = eligibleSub(r.scope, r.scopeId);
         const amount = Math.min(r.value, sub);
-        if (amount > 0) candidates.push({ id: `r-${r.id}`, name: r.name, kind: "rule", amount, note: `${r.value.toLocaleString("fa-IR")} یورو تخفیف`, stackable: r.stackable });
+        if (amount > 0) candidates.push({ id: `r-${r.id}`, name: r.name, kind: "rule", amount, note: `${r.value.toLocaleString("fa-IR")} تومان تخفیف`, stackable: r.stackable });
         break;
       }
       case "second": {
@@ -185,13 +185,13 @@ export function computeDiscounts(lines: CartLineLite[], code?: string): Discount
         if (sorted.length >= r.qty) {
           const sum = sorted.slice(0, r.qty).reduce((n, x) => n + x.price, 0);
           const amount = Math.max(0, sum - r.value);
-          if (amount > 0) candidates.push({ id: `r-${r.id}`, name: r.name, kind: "rule", amount, note: `${r.qty.toLocaleString("fa-IR")} قطعه به قیمت ${r.value.toLocaleString("fa-IR")} یورو`, stackable: r.stackable });
+          if (amount > 0) candidates.push({ id: `r-${r.id}`, name: r.name, kind: "rule", amount, note: `${r.qty.toLocaleString("fa-IR")} قطعه به قیمت ${r.value.toLocaleString("fa-IR")} تومان`, stackable: r.stackable });
         }
         break;
       }
       case "freeship": {
         const sub = eligibleSub(r.scope, r.scopeId);
-        if (sub >= r.value) candidates.push({ id: `r-${r.id}`, name: r.name, kind: "freeship", amount: 0, note: `ارسال رایگان با ${r.value.toLocaleString("fa-IR")} یورو خرید`, freeship: true, stackable: r.stackable });
+        if (sub >= r.value) candidates.push({ id: `r-${r.id}`, name: r.name, kind: "freeship", amount: 0, note: `ارسال رایگان با ${r.value.toLocaleString("fa-IR")} تومان خرید`, freeship: true, stackable: r.stackable });
         break;
       }
     }
@@ -220,12 +220,12 @@ export function validateCode(code: string, subtotal: number): { ok: boolean; mes
   const camp = campaignByCode(c);
   if (camp) {
     if (camp.minSpend && subtotal < camp.minSpend)
-      return { ok: false, message: `حداقل خرید برای «${camp.name}» ${camp.minSpend.toLocaleString("fa-IR")} یورو است.` };
+      return { ok: false, message: `حداقل خرید برای «${camp.name}» ${camp.minSpend.toLocaleString("fa-IR")} تومان است.` };
     return { ok: true, message: `جشنوارهٔ «${camp.name}» اعمال شد.` };
   }
   const cp = getAdmin().coupons.find((x) => x.code.toUpperCase() === c && x.active && (!x.expires || x.expires >= today()));
   if (cp) {
-    if (cp.minSpend && subtotal < cp.minSpend) return { ok: false, message: `حداقل خرید برای این کد ${cp.minSpend.toLocaleString("fa-IR")} یورو است.` };
+    if (cp.minSpend && subtotal < cp.minSpend) return { ok: false, message: `حداقل خرید برای این کد ${cp.minSpend.toLocaleString("fa-IR")} تومان است.` };
     return { ok: true, message: `کد ${cp.code} اعمال شد.` };
   }
   return { ok: false, message: "کد تخفیف معتبر نیست." };

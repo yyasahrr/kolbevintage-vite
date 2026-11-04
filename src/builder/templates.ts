@@ -90,7 +90,7 @@ const features3 = (): BNode[] => [
     [
       col([w("icon-box", { icon: "Gem", title: "پارچهٔ طبیعی", desc: "پشم، کشمیر، پنبه و کتان؛ بیش از ۹۰٪ کالکشن." })], 33.33, { widthMobile: 100 }),
       col([w("icon-box", { icon: "Scissors", title: "دوخت دستی", desc: "هر قطعه سه هفته زیر دست خیاط آتلیه است." })], 33.33, { widthMobile: 100 }),
-      col([w("icon-box", { icon: "Truck", title: "ارسال و مرجوعی", desc: "ارسال رایگان بالای ۲۰۰ یورو و مرجوعی تا ۱۴ روز." })], 33.33, { widthMobile: 100 }),
+      col([w("icon-box", { icon: "Truck", title: "ارسال و مرجوعی", desc: "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان و مرجوعی تا ۱۴ روز." })], 33.33, { widthMobile: 100 }),
     ],
     { padding: pad(0, 70) },
   ),
@@ -171,28 +171,6 @@ const faq = (): BNode[] => [
 ];
 
 const ctaBanner = (): BNode[] => [sec([col([w("call-to-action", {})])], { padding: pad(40) })];
-
-const newsletter = (): BNode[] => [
-  sec(
-    [
-      col(
-        [
-          w("heading", { title: "اول از همه، نمایش بعدی را ببین.", align: "center", tSize: 30 }),
-          w("form", {
-            formName: "خبرنامه",
-            submit: "عضویت",
-            success: "عضو شدی! ممنون.",
-            showLabels: false,
-            fields: [{ type: "email", label: "ایمیل", placeholder: "نشانی ایمیل", required: true, width: 100 }],
-          }),
-        ],
-        100,
-        { padding: pad(0) },
-      ),
-    ],
-    { ...dark, padding: pad(64), contentWidth: 620 },
-  ),
-];
 
 const contact = (): BNode[] => [
   sec(
@@ -431,9 +409,9 @@ const bentoStats = (): BNode[] => [
 const darkPortfolio = (): BNode[] => [sec([col([w("portfolio-grid", { layout: "grid", cols: 3, colsTablet: 2, colsMobile: 1 })])], { ...dark, padding: pad(50) })];
 
 export const TEMPLATES: Template[] = [
-  { id: "page-landing", title: "لندینگ مد (کامل)", desc: "هرو، ویژگی‌ها، محصولات، رانوی، نظرات و خبرنامه", category: "page", kinds: ["page", "landing"], build: concat(heroBg, features3, productsGrid, runwayBand, testimonials, ctaBanner, newsletter) },
+  { id: "page-landing", title: "لندینگ مد (کامل)", desc: "هرو، ویژگی‌ها، محصولات، رانوی و نظرات", category: "page", kinds: ["page", "landing"], build: concat(heroBg, features3, productsGrid, runwayBand, testimonials, ctaBanner) },
   { id: "page-sale", title: "صفحهٔ فروش ویژه", desc: "شمارش معکوس، محصولات و سؤالات متداول", category: "page", kinds: ["page", "landing"], build: concat(heroSlides, countdownOffer, productsGrid, faq) },
-  { id: "page-about", title: "دربارهٔ ما", desc: "داستان برند، آمار و گالری", category: "page", kinds: ["page"], build: concat(heroSplit, aboutSplit, stats, galleryBlock, newsletter) },
+  { id: "page-about", title: "دربارهٔ ما", desc: "داستان برند، آمار و گالری", category: "page", kinds: ["page"], build: concat(heroSplit, aboutSplit, stats, galleryBlock) },
   { id: "page-contact", title: "تماس با ما", desc: "فرم تماس، اطلاعات و نقشه", category: "page", kinds: ["page"], build: concat(contact, faq) },
   { id: "hero-bg", title: "هرو با تصویر پس‌زمینه", desc: "عنوان بزرگ + دکمه روی تصویر", category: "hero", build: heroBg },
   { id: "hero-slides", title: "هرو اسلایدر", desc: "اسلایدر تمام‌عرض", category: "hero", build: heroSlides },
@@ -451,11 +429,10 @@ export const TEMPLATES: Template[] = [
   { id: "pricing", title: "جدول قیمت سه‌تایی", desc: "سه پلن", category: "pricing", build: pricing3 },
   { id: "testimonials", title: "کاروسل نظرات", desc: "نظر مشتریان", category: "social", build: testimonials },
   { id: "cta", title: "فراخوان (CTA)", desc: "بنر با دکمه", category: "cta", build: ctaBanner },
-  { id: "newsletter", title: "خبرنامه", desc: "فرم ایمیل روی زمینهٔ تیره", category: "cta", build: newsletter },
   { id: "countdown", title: "فروش ویژه + شمارش معکوس", desc: "گرادیان و تایمر", category: "cta", build: countdownOffer },
   { id: "header-simple", title: "هدر ساده", desc: "لوگو، منو و سبد خرید (چسبان)", category: "header", kinds: ["header"], build: headerSimple },
   { id: "header-search", title: "هدر تیره با جست‌وجو", desc: "لوگو، جست‌وجو و سبد", category: "header", kinds: ["header"], build: headerSearch },
-  { id: "footer-4", title: "فوتر چهارستونه", desc: "لینک‌ها، شبکه‌ها و خبرنامه", category: "footer", kinds: ["footer"], build: footer4 },
+  { id: "footer-4", title: "فوتر چهارستونه", desc: "لینک‌ها و شبکه‌ها", category: "footer", kinds: ["footer"], build: footer4 },
   { id: "footer-simple", title: "فوتر ساده", desc: "یک ردیف", category: "footer", kinds: ["footer"], build: footerSimple },
 
   /* ---------- trendy blocks ---------- */

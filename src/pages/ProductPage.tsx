@@ -11,24 +11,16 @@ import {
   Truck,
   Undo2,
 } from "lucide-react";
-import { complementProducts, getProduct, liveGetProduct, productsOfLook, relatedProducts, totalStock } from "@/data/catalog";
+import { COLLECTIONS, complementProducts, getProduct, liveGetProduct, relatedProducts, totalStock } from "@/data/catalog";
 import { ProductGallery } from "@/components/ProductGallery";
 import { SmartSizeGuide } from "@/components/SmartSizeGuide";
 import { useAuth } from "@/state/auth";
 import { useAdmin } from "@/state/admin";
 import { useOps, requestTryon, tryonBalance, type TryOnPackage } from "@/state/ops";
-import { formatPrice, stockOf } from "@/data/looks";
+import { formatPrice, formatRial, stockOf } from "@/data/looks";
 import { useCart } from "@/state/cart";
-import { addItem } from "@/state/outfit";
 import { ProductCard } from "@/components/ProductCard";
-import {
-  Accordion,
-  Breadcrumbs,
-  Newsletter,
-  Reveal,
-  SectionHeading,
-  buttonStyles,
-} from "@/components/ui";
+import { Accordion, Breadcrumbs, Reveal, SectionHeading, buttonStyles } from "@/components/ui";
 import { NotFoundPage } from "./NotFoundPage";
 import { cn } from "@/utils/cn";
 
@@ -37,7 +29,7 @@ export function ProductPage() {
   // subscribe to the admin store so edits, new products and complements render live
   useAdmin();
   const product = liveGetProduct(productId);
-  const { add, toggleWish, isWished, setCartOpen, notify } = useCart();
+  const { add, toggleWish, isWished, setCartOpen } = useCart();
 
   const [colorId, setColorId] = useState(product?.colors[0]?.id ?? "");
   const [sizeId, setSizeId] = useState(product?.sizes[0]?.id ?? "");
@@ -76,7 +68,6 @@ export function ProductPage() {
   const soldOut = stock === 0;
   const wished = isWished(product.id);
 
-  const lookProducts = productsOfLook(product.lookId).filter((p) => p.id !== product.id);
   const complements = complementProducts(product.id);
   const related = relatedProducts(product, 4);
   const colorAvailability = (id: string) => product.sizes.some((s) => stockOf(product, id, s.id) > 0);
@@ -109,6 +100,8 @@ export function ProductPage() {
       title: `${product.name} به سبد اضافه شد`,
       detail: `${color.name} · سایز ${size.label} · ${formatPrice(product.price)}`,
     });
+    // one action, one obvious next step: the drawer opens on the cart
+    setCartOpen(true);
   };
 
   return (
@@ -117,13 +110,16 @@ export function ProductPage() {
         <Breadcrumbs
           items={[
             { label: "فروشگاه", to: "/products" },
-            { label: product.category, to: `/products?category=${encodeURIComponent(product.category)}` },
+            {
+              label: COLLECTIONS.find((c) => c.garments.includes(product.garment))?.label ?? "فروشگاه",
+              to: `/products?collection=${COLLECTIONS.find((c) => c.garments.includes(product.garment))?.id ?? "all"}`,
+            },
             { label: product.name },
           ]}
         />
       </div>
 
-      <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 pt-5 sm:px-6 lg:grid-cols-[1.15fr_0.85fr] lg:gap-10 lg:px-10">
+      <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 pt-5 sm:px-6 md:grid-cols-[1.15fr_0.85fr] md:gap-8 lg:gap-10 lg:px-10">
         {/* ---------------- gallery ---------------- */}
         <div>
           <div className="relative">
@@ -148,14 +144,14 @@ export function ProductPage() {
             </Link>
           </div>
 
-          <p className="mt-3 hidden text-[10.5px] leading-relaxed text-ink-45 lg:block">
+          <p className="mt-3 hidden text-[10.5px] leading-relaxed text-ink-45 md:block">
             تصاویر از عکاسی رسمی رانوی پاییز / زمستان ۲۶ گرفته شده‌اند. رنگ واقعی ممکن است بسته به نمایشگر
             کمی متفاوت دیده شود.
           </p>
         </div>
 
         {/* ---------------- buy box ---------------- */}
-        <div className="lg:sticky lg:top-[112px] lg:self-start">
+        <div className="md:sticky md:top-[112px] md:self-start">
           <div className="flex items-center justify-between gap-3">
             <Link
               to={`/style/${product.lookSlug}`}
@@ -171,7 +167,9 @@ export function ProductPage() {
             {product.name}
           </h1>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <p className="text-[13px] text-ink-70">{product.category}</p>
+            <p className="text-[13px] text-ink-70">
+              {COLLECTIONS.find((c) => c.garments.includes(product.garment))?.label ?? product.category}
+            </p>
             <span className="h-1 w-1 rounded-full bg-clay" />
             <div className="flex items-center gap-1 text-[11px] text-ink-70">
               <div className="flex">
@@ -183,7 +181,8 @@ export function ProductPage() {
             </div>
           </div>
 
-          <div ref={priceRef} className="mt-3.5 flex items-baseline gap-2.5">
+          <div className="mt-3">
+          <div ref={priceRef} className="flex flex-wrap items-baseline gap-2.5">
             <span className="font-display text-[24px] font-medium text-ink">{formatPrice(product.price)}</span>
             {product.compareAt && (
               <>
@@ -193,6 +192,8 @@ export function ProductPage() {
                 </span>
               </>
             )}
+          </div>
+          <p className="mt-1 text-[10.5px] text-ink-45">{formatRial(product.price)}</p>
           </div>
 
           <p className="mt-3 text-[12.5px] leading-[1.95] text-ink-70">{product.description}</p>
@@ -293,7 +294,7 @@ export function ProductPage() {
               disabled={soldOut}
               className={buttonStyles("solid", "lg", "flex-1")}
             >
-              {soldOut ? "ناموجود" : "افزودن به سبد"}
+              {soldOut ? "ناموجود" : "خرید آنلاین — افزودن به سبد"}
               {!soldOut && <ArrowLeft className="h-4 w-4" />}
             </button>
             <button
@@ -310,39 +311,21 @@ export function ProductPage() {
             </button>
           </div>
 
-          <Link
-            to="/style-builder"
-            onClick={() => {
-              addItem(product.id, color.id, size.id);
-              notify("به بوم استایل اضافه شد", "در استایل بیلدر جابه‌جایش کن و با بقیهٔ قطعه‌ها بسنج.");
-            }}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-full border border-dashed border-ink/30 px-5 py-3 text-[11.5px] text-ink transition-colors hover:border-ink hover:bg-ink/[0.04]"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            افزودن به بوم استایل بیلدر
-          </Link>
-
           <button
             type="button"
-            onClick={() => {
-              handleAdd();
-              setCartOpen(true);
-            }}
-            className="mt-2 w-full rounded-full border border-ink/20 px-5 py-3 text-[11.5px] font-medium text-ink transition-colors hover:border-ink hover:bg-ink/[0.04] disabled:opacity-50"
-            disabled={soldOut}
+            onClick={() => setTryonOpen(true)}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-full bg-ink/[0.055] px-4 py-3 text-[11.5px] font-medium text-ink transition-colors hover:bg-ink/[0.1]"
           >
-            خرید فوری — رفتن به سبد
-          </button>
-
-          <button type="button" onClick={() => setTryonOpen(true)} className="mt-2 flex w-full items-center justify-center gap-2 rounded-full bg-ink/[0.055] px-5 py-3 text-[11.5px] font-medium text-ink transition-colors hover:bg-ink/[0.1]">
-            <Sparkles className="h-3.5 w-3.5" />
-            پرو آنلاین — ببین رویت چطور می‌شود
-            <span className="rounded-full bg-white px-2 py-0.5 text-[9.5px] text-ink-70">{myCredits.toLocaleString("fa-IR")} اعتبار</span>
+            <Sparkles className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">پرو آنلاین — ببین رویت چطور می‌شود</span>
+            <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[9.5px] text-ink-70">
+              {myCredits.toLocaleString("fa-IR")} اعتبار
+            </span>
           </button>
 
           <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-[#f3ede4] p-3">
             {[
-              { icon: Truck, t: "ارسال رایگان", s: "بالای ۲۰۰ یورو" },
+              { icon: Truck, t: "ارسال رایگان", s: "بالای ۲۰۰٬۰۰۰ تومان" },
               { icon: Undo2, t: "مرجوعی", s: "تا ۱۴ روز" },
               { icon: ShieldCheck, t: "اصالت", s: "ساخت ولور" },
             ].map((item) => (
@@ -385,33 +368,6 @@ export function ProductPage() {
           </div>
         </div>
       </div>
-
-      {/* ---------------- complete the look ---------------- */}
-      {lookProducts.length > 0 && (
-        <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
-          <div className="rounded-2xl border border-black/[0.07] bg-[#f1ebe2] p-4 sm:p-6">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="text-[10px] text-ink-45">استایل کامل</p>
-                <h2 className="mt-1.5 font-display text-[clamp(1.3rem,2.6vw,1.8rem)] font-medium text-ink">
-                  همین قطعه با بقیهٔ «{product.lookName}»
-                </h2>
-              </div>
-              <Link
-                to={`/style/${product.lookSlug}`}
-                className={buttonStyles("solid", "md", "gap-1.5")}
-              >
-                دیدن روی رانوی <ArrowLeft className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
-              {lookProducts.slice(0, 4).map((p) => (
-                <ProductCard key={p.id} product={p} />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* ---------------- complementary products ---------------- */}
       {complements.length > 0 && (
@@ -489,8 +445,6 @@ export function ProductPage() {
       )}
 
       {tryonOpen && <TryOnSheet product={product} onClose={() => setTryonOpen(false)} />}
-
-      <Newsletter compact />
     </div>
   );
 }

@@ -13,7 +13,7 @@ import { ProductThumb } from "@/components/ProductThumb";
 import { StyleCanvas } from "@/components/StyleCanvas";
 import { OutfitSummary } from "@/components/OutfitSummary";
 import { StyleWizard } from "@/components/StyleWizard";
-import { PageIntro, Newsletter, buttonStyles } from "@/components/ui";
+import { PageIntro, buttonStyles } from "@/components/ui";
 import "@/styles/style-builder.css";
 
 type Mode = "canvas" | "wizard";
@@ -232,7 +232,6 @@ export function StyleBuilderPage() {
         </div>
       </details>
 
-      <Newsletter compact />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatJalali, formatJalaliDateTime } from "@/utils/date";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BadgeCheck,
@@ -151,7 +152,7 @@ export function AccountPage() {
                       <div className="acc-order-row">
                         <div>
                           <p className="acc-order-id" dir="ltr">{o.id}</p>
-                          <p className="acc-muted">{new Date(o.at).toLocaleDateString("fa-IR")} · {o.lines.length.toLocaleString("fa-IR")} قلم</p>
+                          <p className="acc-muted">{formatJalali(o.at)} · {o.lines.length.toLocaleString("fa-IR")} قلم</p>
                         </div>
                         <span className={cn("acc-pill", o.status === "done" ? "is-done" : o.status === "cancelled" ? "is-bad" : "is-open")}>
                           {o.status === "pending" ? "در انتظار" : o.status === "processing" ? "آماده‌سازی" : o.status === "shipped" ? "ارسال شده" : o.status === "done" ? "تحویل شده" : "لغو شده"}
@@ -204,7 +205,7 @@ function OrderRowCompact({ order }: { order: ReturnType<typeof useAdmin>["orders
     <div className="acc-order-mini">
       <div>
         <p className="acc-order-id" dir="ltr">{order.id}</p>
-        <p className="acc-muted">{new Date(order.at).toLocaleDateString("fa-IR")}</p>
+        <p className="acc-muted">{formatJalali(order.at)}</p>
       </div>
       <b>{formatPrice(order.total)}</b>
     </div>
@@ -354,7 +355,7 @@ function TryOn({ acc }: { acc: string }) {
               <li key={r.id}>
                 <div>
                   <p className="acc-order-id" dir="ltr">{r.id}</p>
-                  <p className="acc-muted">{r.productName} · {new Date(r.at).toLocaleDateString("fa-IR")}</p>
+                  <p className="acc-muted">{r.productName} · {formatJalali(r.at)}</p>
                 </div>
                 <span className={cn("acc-pill", r.status === "ready" ? "is-done" : r.status === "rejected" ? "is-bad" : "is-open")}>
                   {r.status === "queued" ? "در صف" : r.status === "ready" ? "آماده" : "رد شد"}
@@ -439,7 +440,7 @@ function WalletTab({ email }: { email: string }) {
               ? ` · در انتظار آزادسازی: ${wallet.pending.toLocaleString("fa-IR")} (پس از تحویل و پایان مهلت مرجوعی)`
               : ""}
             {wallet.nextExpiry
-              ? ` · نزدیک‌ترین انقضا: ${new Date(wallet.nextExpiry).toLocaleDateString("fa-IR")}`
+              ? ` · نزدیک‌ترین انقضا: ${formatJalali(wallet.nextExpiry)}`
               : ""}
           </small>
         )}
@@ -462,7 +463,7 @@ function WalletTab({ email }: { email: string }) {
           {cashes.map((t) => (
             <li key={t.id}>
               <span>{t.kind === "earn" ? "کش‌بک خرید" : "استفاده"}</span>
-              <small>{new Date(t.at).toLocaleDateString("fa-IR")} · {t.orderId}</small>
+              <small>{formatJalali(t.at)} · {t.orderId}</small>
               <b className={t.kind === "earn" ? "is-ok" : ""}>{t.kind === "earn" ? "+" : "−"} {t.amount.toLocaleString("fa-IR")}</b>
             </li>
           ))}
@@ -560,7 +561,7 @@ function Tickets({ email }: { email: string }) {
               <li key={t.id} className={cn(open === t.id && "is-open")}>
                 <button type="button" className="acc-ticket-head" onClick={() => setOpen(open === t.id ? null : t.id)} aria-expanded={open === t.id}>
                   <b>{t.subject}</b>
-                  <span className="acc-muted">{t.id} · {new Date(t.at).toLocaleDateString("fa-IR")}</span>
+                  <span className="acc-muted">{t.id} · {formatJalali(t.at)}</span>
                   <span className={cn("acc-pill", t.status === "closed" ? "is-done" : t.status === "pending" ? "is-open" : "is-bad")}>
                     {t.status === "open" ? "باز" : t.status === "pending" ? "منتظر پاسخ" : "بسته"}
                   </span>
@@ -571,7 +572,7 @@ function Tickets({ email }: { email: string }) {
                       {t.messages.map((m) => (
                         <li key={m.id} className={m.from === "customer" ? "is-me" : "is-staff"}>
                           <p>{m.body}</p>
-                          <small>{m.author} · {new Date(m.at).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}</small>
+                          <small>{m.author} · {formatJalaliDateTime(m.at)}</small>
                         </li>
                       ))}
                     </ul>

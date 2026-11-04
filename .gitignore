@@ -28,3 +28,9 @@ Thumbs.db
 server/.pgdata/
 server/uploads/*
 !server/uploads/.gitkeep
+
+# Agent skill packs installed locally (npx skills add …) — not part of the app
+.agents/
+.claude/
+agent/
+skills-lock.json

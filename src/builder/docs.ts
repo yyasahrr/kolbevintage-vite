@@ -117,12 +117,12 @@ export function uniqueSlug(base: string, ignoreId?: string): string {
   return slug;
 }
 
-export function createDoc(kind: DocKind, title: string, content: BNode[] = []): BDoc {
+export function createDoc(kind: DocKind, title: string, content: BNode[] = [], slug?: string): BDoc {
   const doc: BDoc = {
     id: uid(),
     title,
     kind,
-    slug: uniqueSlug(title),
+    slug: slug ?? uniqueSlug(title),
     status: "draft",
     content,
     page: {
@@ -240,4 +240,35 @@ export function matchesDisplay(doc: BDoc, route: RouteKind): boolean {
 
 export function activeTemplate(docs: BDoc[], kind: "header" | "footer", route: RouteKind): BDoc | undefined {
   return docs.find((d) => d.kind === kind && d.active && d.status === "published" && matchesDisplay(d, route));
+}
+
+/* ------------------------------------------------------------------ */
+/* pages the site already has                                          */
+/* ------------------------------------------------------------------ */
+
+export interface CorePage {
+  /** the builder document slug that takes over this route */
+  slug: string;
+  title: string;
+  path: string;
+  hint: string;
+}
+
+/** built-in routes the page builder is allowed to take over */
+export const CORE_PAGES: CorePage[] = [
+  { slug: "home", title: "صفحه اصلی", path: "/", hint: "هرو، محصولات و بخش‌های صفحهٔ اول" },
+  { slug: "about", title: "دربارهٔ ما", path: "/about", hint: "داستان برند، آمار و گالری" },
+];
+
+/** the published document that owns a core route, if the owner built one */
+export function corePageDoc(docs: BDoc[], slug: string): BDoc | undefined {
+  return docs.find((d) => d.kind === "page" && d.slug === slug && d.status === "published");
+}
+
+/** opens (or starts) the editable document for a built-in page */
+export function openCorePage(slug: string, content: BNode[] = []): BDoc {
+  const existing = getDocs().find((d) => d.kind === "page" && d.slug === slug);
+  if (existing) return existing;
+  const page = CORE_PAGES.find((p) => p.slug === slug);
+  return createDoc("page", page?.title ?? slug, content, slug);
 }

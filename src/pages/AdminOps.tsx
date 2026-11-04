@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { formatJalali, formatJalaliDateTime } from "@/utils/date";
 import {
   BadgePercent,
   Bot,
@@ -186,6 +187,51 @@ export function BrandPanel() {
    categories & size sets
    ===================================================================== */
 
+/**
+ * A list typed as text. The raw string is kept locally, so a half-typed
+ * "S, M" never collapses back on every keystroke — the old bug made it
+ * impossible to enter a second size at all.
+ */
+function CsvField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string[];
+  onChange: (next: string[]) => void;
+  placeholder?: string;
+}) {
+  const [text, setText] = useState(value.join(", "));
+  const [focused, setFocused] = useState(false);
+  const key = value.join("|");
+
+  useEffect(() => {
+    if (!focused) setText(value.join(", "));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, focused]);
+
+  return (
+    <label className="ad-field">
+      {label}
+      <input
+        className="ad-input"
+        dir="ltr"
+        value={text}
+        placeholder={placeholder}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onChange={(e) => {
+          const raw = e.target.value;
+          setText(raw);
+          onChange(raw.split(/[,،]/).map((x) => x.trim()).filter(Boolean));
+        }}
+      />
+    </label>
+  );
+}
+
 export function CategoriesPanel() {
   const ops = useOps();
   const [draft, setDraft] = useState<CategoryDef | null>(null);
@@ -307,7 +353,12 @@ export function CategoriesPanel() {
             <header className="ad-modal-head"><h3>مجموعهٔ سایز</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setSizeDraft(null)}><X width={16} height={16} /></button></header>
             <div className="ad-modal-body">
               <label className="ad-field">نام<input className="ad-input" value={sizeDraft.name} onChange={(e) => setSizeDraft({ ...sizeDraft, name: e.target.value })} placeholder="مثلاً کفش زنانه" /></label>
-              <label className="ad-field">سایزها (با ویرگول)<input className="ad-input" dir="ltr" value={sizeDraft.sizes.join(", ")} onChange={(e) => setSizeDraft({ ...sizeDraft, sizes: e.target.value.split(",").map((x) => x.trim()).filter(Boolean) })} placeholder="S, M, L, XL" /></label>
+              <CsvField
+                label="سایزها (با ویرگول جدا کن)"
+                value={sizeDraft.sizes}
+                onChange={(sizes) => setSizeDraft({ ...sizeDraft, sizes })}
+                placeholder="S, M, L, XL"
+              />
               <p className="ad-hint">این سایزها هنگام افزودن کالا و در راهنمای سایز هوشمند استفاده می‌شوند.</p>
             </div>
             <footer className="ad-modal-foot">
@@ -834,7 +885,7 @@ export function LogsPanel() {
   const list = ops.logs.filter((l) => !q.trim() || `${l.actor} ${l.action} ${l.target}`.includes(q.trim()));
   const exportCsv = async () => {
     const { download } = await import("@/builder/util");
-    download("logs.csv", "\uFEFF" + [["زمان", "کاربر", "عملیات", "هدف", "جزئیات"], ...ops.logs.map((l) => [new Date(l.at).toLocaleString("fa-IR"), l.actor, l.action, l.target, l.meta ?? ""])].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv");
+    download("logs.csv", "\uFEFF" + [["زمان", "کاربر", "عملیات", "هدف", "جزئیات"], ...ops.logs.map((l) => [formatJalaliDateTime(l.at), l.actor, l.action, l.target, l.meta ?? ""])].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv");
     setExported(true);
   };
   return (
@@ -1010,7 +1061,7 @@ export function TryOnPanel() {
                         <option value="queued">در صف</option><option value="ready">آماده</option><option value="rejected">رد</option>
                       </select>
                     </td>
-                    <td>{new Date(r.at).toLocaleDateString("fa-IR")}</td>
+                    <td>{formatJalali(r.at)}</td>
                   </tr>
                 ))}
               </tbody>

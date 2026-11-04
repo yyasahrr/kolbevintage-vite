@@ -240,7 +240,7 @@ const DEFAULT: OpsState = {
     favicon: "",
     name: "ولور",
     tagline: "خانهٔ پوشاک آماده — پاریس",
-    announcement: "ارسال رایگان بالای ۲۰۰ یورو — مرجوعی تا ۱۴ روز",
+    announcement: "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان — مرجوعی تا ۱۴ روز",
     announcementActive: true,
     footerNote: "خانهٔ پوشاک آماده در پاریس؛ قطعه‌های محدود، پارچه‌های طبیعی و ساخت آهسته.",
     socials: { instagram: "#", telegram: "#", whatsapp: "#" },
@@ -259,7 +259,7 @@ const DEFAULT: OpsState = {
   smsTemplates: [
     { id: "s1", name: "خوش‌آمد", body: "{{name}} عزیز، به ولور خوش آمدی. کد ۱۰٪ تخفیف: VELOURS10" },
     { id: "s2", name: "سبد رها‌شده", body: "{{name}} عزیز، ست انتخابی‌ات منتظر توست. امروز تا ۲۴ ساعت رزرو شده." },
-    { id: "s3", name: "جشنواره", body: "{{name}} عزیز، جشنوارهٔ پاییزه شروع شد — ۱۵٪ روی خرید بالای ۱۵۰ یورو." },
+    { id: "s3", name: "جشنواره", body: "{{name}} عزیز، جشنوارهٔ پاییزه شروع شد — ۱۵٪ روی خرید بالای ۱۵۰ تومان." },
   ],
   smsCampaigns: [],
   cashbackRate: 5,

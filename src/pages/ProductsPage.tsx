@@ -5,7 +5,6 @@ import { SlidersHorizontal, X, PackageSearch, RotateCcw } from "lucide-react";
 import {
   ALL_COLORS,
   ALL_SIZES,
-  CATEGORIES,
   COLLECTIONS,
   SORTS,
   filterProducts,
@@ -59,9 +58,6 @@ export function ProductsPage() {
   );
 
   const activeCollection = COLLECTIONS.find((c) => c.id === collection);
-  const availableCategories = CATEGORIES.filter(
-    (c) => !activeCollection || c.collectionId === activeCollection.id,
-  );
   const title = query
     ? `نتیجهٔ جست‌وجو برای «${query}»`
     : activeCollection
@@ -99,20 +95,6 @@ export function ProductsPage() {
             >
               {c.label}
               <span className="text-[9.5px] opacity-60">{productsInCollection(c.id).length}</span>
-            </Chip>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-[10px] text-ink-45">گروه محصول</p>
-        <div className="flex flex-wrap gap-1.5">
-          <Chip active={!category} onClick={() => patch({ category: null })}>
-            همهٔ گروه‌ها
-          </Chip>
-          {availableCategories.map((c) => (
-            <Chip key={c.name} active={category === c.name} onClick={() => patch({ category: c.name })}>
-              {c.name}
             </Chip>
           ))}
         </div>
@@ -290,7 +272,7 @@ export function ProductsPage() {
                 نمایش {(list.length > 0 ? 1 : 0).toLocaleString("fa-IR")} تا{" "}
                 {list.length.toLocaleString("fa-IR")} از {list.length.toLocaleString("fa-IR")} قطعه
               </p>
-              <p>همهٔ قطعه‌ها ساخت محدود دارند · ارسال رایگان بالای ۲۰۰ یورو</p>
+              <p>همهٔ قطعه‌ها ساخت محدود دارند · ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان</p>
             </div>
           </div>
         </div>

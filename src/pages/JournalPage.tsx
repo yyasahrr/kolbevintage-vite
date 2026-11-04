@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, BookOpen } from "lucide-react";
 import { POSTS } from "@/data/journal";
-import { Chip, Newsletter, PageIntro, Reveal } from "@/components/ui";
+import { Chip, PageIntro, Reveal } from "@/components/ui";
 
 const CATEGORIES = ["همه", "استایل", "آتلیه", "پارچه", "رانوی"] as const;
 
@@ -119,7 +119,6 @@ export function JournalPage() {
       </div>
 
       <div className="mt-12">
-        <Newsletter />
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { formatJalaliDateTime } from "@/utils/date";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Copy,
@@ -21,7 +22,9 @@ import {
 import { DISPLAY_LABEL, KIND_LABEL, type BDoc, type DisplayCond, type DocKind } from "./core";
 import {
   clearSubmissions,
+  CORE_PAGES,
   createDoc,
+  openCorePage,
   duplicateDoc,
   exportDoc,
   importDoc,
@@ -117,6 +120,37 @@ export function Dashboard() {
             <div className="ebd-stat"><b>{docs.filter((d) => d.kind === "page" || d.kind === "landing").length.toLocaleString("fa-IR")}</b><small>صفحه</small></div>
             <div className="ebd-stat"><b>{docs.filter((d) => d.status === "published").length.toLocaleString("fa-IR")}</b><small>منتشرشده</small></div>
             <div className="ebd-stat"><b>{TEMPLATES.length.toLocaleString("fa-IR")}</b><small>قالب آماده</small></div>
+          </div>
+        </section>
+
+        {/* built-in pages: the site's own screens, editable with the builder */}
+        <section className="ebd-core" aria-label="صفحه‌های خود سایت">
+          <h2 className="ebd-core-title">صفحه‌های سایت را ویرایش کن</h2>
+          <p className="ebd-core-sub">
+            هر صفحهٔ آمادهٔ سایت (مثل صفحه اصلی) می‌تواند با همین صفحه‌ساز بازنویسی شود؛ تا وقتی سند را منتشر
+            نکنی، نسخهٔ فعلی سایت دست‌نخورده می‌ماند.
+          </p>
+          <div className="ebd-core-grid">
+            {CORE_PAGES.map((p) => {
+              const doc = docs.find((d) => d.kind === "page" && d.slug === p.slug);
+              return (
+                <button
+                  key={p.slug}
+                  type="button"
+                  className="ebd-core-card"
+                  onClick={() => {
+                    const target = openCorePage(p.slug, cloneNodes(TEMPLATES.find((t) => t.id === "page-landing")!.build()));
+                    navigate(`/builder/edit/${target.id}`);
+                  }}
+                >
+                  <span className="ebd-core-name">{p.title}</span>
+                  <span className="ebd-core-hint">{p.hint}</span>
+                  <span className={`ebd-core-state ${doc?.status === "published" ? "is-live" : ""}`}>
+                    {doc ? (doc.status === "published" ? "منتشرشده — سایت را همین نشان می‌دهد" : "پیش‌نویس آماده") : "ویرایش با صفحه‌ساز"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </section>
 
@@ -312,7 +346,7 @@ function Submissions() {
   }
   const csv = () => {
     const keys = [...new Set(subs.flatMap((s) => Object.keys(s.data)))];
-    const rows = [["فرم", "صفحه", "زمان", ...keys], ...subs.map((s) => [s.form, s.page, new Date(s.at).toLocaleString("fa-IR"), ...keys.map((k) => s.data[k] ?? "")])];
+    const rows = [["فرم", "صفحه", "زمان", ...keys], ...subs.map((s) => [s.form, s.page, formatJalaliDateTime(s.at), ...keys.map((k) => s.data[k] ?? "")])];
     download("submissions.csv", "\uFEFF" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv");
   };
   return (

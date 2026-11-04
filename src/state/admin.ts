@@ -15,6 +15,8 @@ export interface StoreSettings {
   phone: string;
   email: string;
   currency: string;
+  /** how many Toman one stored price unit is worth (display only) */
+  currencyRate: number;
   freeShipping: number;
   expressCost: number;
   returnDays: number;
@@ -259,7 +261,8 @@ const DEFAULT_ADMIN: AdminState = {
     address: "پاریس، خیابان سن‌آنوره، پلاک ۲۴",
     phone: "+33 1 84 80 24 24",
     email: "client@velours.store",
-    currency: "€",
+    currency: "تومان",
+    currencyRate: 1000,
     freeShipping: 200,
     expressCost: 25,
     returnDays: 14,
@@ -315,7 +318,7 @@ const DEFAULT_ADMIN: AdminState = {
       value: 15,
       minSpend: 150,
       scope: "all",
-      banner: { title: "جشنوارهٔ پاییزه", text: "۱۵٪ تخفیف روی خرید بالای ۱۵۰ یورو", active: true, tone: "gold" },
+      banner: { title: "جشنوارهٔ پاییزه", text: "۱۵٪ تخفیف روی خرید بالای ۱۵۰ تومان", active: true, tone: "gold" },
       active: true,
       uses: 0,
     },
@@ -336,7 +339,7 @@ const DEFAULT_ADMIN: AdminState = {
     },
     {
       id: "rule-ship",
-      name: "ارسال رایگان با ۲۰۰ یورو",
+      name: "ارسال رایگان با ۲۰۰ تومان",
       type: "freeship",
       value: 200,
       qty: 1,

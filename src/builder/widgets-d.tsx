@@ -152,7 +152,7 @@ const notification: WidgetDef = {
     speed: 3500,
     dismiss: true,
     items: [
-      { text: "ارسال رایگان سفارش‌های بالای ۲۰۰ یورو", link: "/products", more: "خرید کن" },
+      { text: "ارسال رایگان سفارش‌های بالای ۲۰۰٬۰۰۰ تومان", link: "/products", more: "خرید کن" },
       { text: "کد VELOURS10 برای ۱۰٪ تخفیف", link: "", more: "" },
     ],
   },

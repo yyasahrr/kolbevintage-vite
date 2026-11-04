@@ -7,7 +7,6 @@ import { ProductCard } from "@/components/ProductCard";
 import {
   Breadcrumbs,
   Marquee,
-  Newsletter,
   Reveal,
   SectionHeading,
   buttonStyles,
@@ -209,7 +208,6 @@ export function LandingPage() {
         </div>
       </section>
 
-      <Newsletter />
     </div>
   );
 }

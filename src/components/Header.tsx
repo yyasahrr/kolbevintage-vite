@@ -129,8 +129,8 @@ export function Header() {
                         <Link to="/products?sort=price-asc" className="flex-1 px-2 transition-colors hover:text-ink">
                           از ارزان‌ترین
                         </Link>
-                        <Link to="/products?collection=shoes" className="flex-1 px-2 transition-colors hover:text-ink">
-                          کفش و کیف
+                        <Link to="/products?collection=bags" className="flex-1 px-2 transition-colors hover:text-ink">
+                          کیف و اکسسوری
                         </Link>
                       </div>
                     </div>
@@ -463,21 +463,26 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
                 </li>
               </ul>
 
-              <p className="mt-6 mb-2 px-2 text-[10px] text-ink-45">دسته‌بندی‌ها</p>
-              <ul className="space-y-0.5">
-                {COLLECTIONS.map((c) => (
-                  <li key={c.id}>
-                    <Link
-                      to={`/products?collection=${c.id}`}
-                      onClick={onClose}
-                      className="flex items-center justify-between rounded-lg px-2 py-2 text-[12.5px] text-ink-70 hover:bg-ink/[0.03] hover:text-ink"
-                    >
-                      {c.label}
-                      <span className="text-[10px] text-ink-45">{productsInCollection(c.id).length}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <details className="group mt-4 rounded-xl border border-black/[0.07] bg-white/50">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-[12.5px] font-medium text-ink [&::-webkit-details-marker]:hidden">
+                  دسته‌بندی‌ها
+                  <ChevronDown className="h-4 w-4 text-ink-45 transition-transform group-open:rotate-180" />
+                </summary>
+                <ul className="space-y-0.5 border-t border-black/[0.06] px-1.5 py-2">
+                  {COLLECTIONS.map((c) => (
+                    <li key={c.id}>
+                      <Link
+                        to={`/products?collection=${c.id}`}
+                        onClick={onClose}
+                        className="flex items-center justify-between rounded-lg px-2 py-2 text-[12.5px] text-ink-70 hover:bg-ink/[0.04] hover:text-ink"
+                      >
+                        {c.label}
+                        <span className="text-[10px] text-ink-45">{productsInCollection(c.id).length.toLocaleString("fa-IR")}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             <div className="mt-6 border-t border-black/[0.06] pt-4">
               <div className="mb-2.5 flex items-center justify-between px-2">
                 <p className="text-[10px] text-ink-45">سبک و تم سایت</p>

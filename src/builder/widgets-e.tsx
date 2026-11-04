@@ -635,7 +635,7 @@ const newsTicker: WidgetDef = {
   icon: Zap,
   category: "dynamic",
   keywords: "ticker marquee news تیکر",
-  defaults: { label: "تازه‌ها", speed: 26, items: [{ text: "ارسال رایگان بالای ۲۰۰ یورو", link: "/products" }, { text: "کالکشن AW26 رسید", link: "/landing" }, { text: "کد VELOURS10 برای تخفیف", link: "" }] },
+  defaults: { label: "تازه‌ها", speed: 26, items: [{ text: "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان", link: "/products" }, { text: "کالکشن AW26 رسید", link: "/landing" }, { text: "کد VELOURS10 برای تخفیف", link: "" }] },
   sections: [
     sec("c", "اخبار", "content", [txt("label", "برچسب"), rep("items", "مورد", [txt("text", "متن"), url("link")], { text: "خبر", link: "" }, "text"), num("speed", "سرعت (ثانیه)", { min: 8, max: 90 })]),
     sec("s", "استایل", "style", [clr("labelBg", "پس‌زمینهٔ برچسب", { "{{WRAPPER}} .ew-tk-label": "background-color:{{VALUE}};" }), clr("bg", "پس‌زمینه", { "{{WRAPPER}} .ew-ticker": "background-color:{{VALUE}};" }), ...typo("t", "{{WRAPPER}} .ew-tk-item")]),
@@ -754,8 +754,8 @@ const priceMenu = makeCardWidget({
   keywords: "price menu list منو قیمت",
   layouts: ["list", "grid"],
   items: [
-    { title: "تنظیم سایز اختصاصی", price: "۸۰ €", desc: "اصلاح فرم روی بدن.", image: "" },
-    { title: "بسته‌بندی هدیه", price: "۱۵ €", desc: "جعبهٔ دست‌ساز با کارت.", image: "" },
+    { title: "تنظیم سایز اختصاصی", price: "۸۰۰٬۰۰۰ تومان", desc: "اصلاح فرم روی بدن.", image: "" },
+    { title: "بسته‌بندی هدیه", price: "۱۵۰٬۰۰۰ تومان", desc: "جعبهٔ دست‌ساز با کارت.", image: "" },
     { title: "مشاورهٔ استایل", price: "رایگان", desc: "یک ساعت با تیم.", image: "" },
   ],
   itemFields: [],

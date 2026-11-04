@@ -20,7 +20,6 @@ import {
   Lock,
   LogOut,
   Megaphone,
-  MessageSquare,
   Package,
   Palette,
   Plus,
@@ -39,19 +38,13 @@ import {
   Users,
   Warehouse,
   Wifi,
-  Palette as PaletteIcon,
-  Image as ImageIcon,
-  Ticket as TicketIcon,
-  Undo2 as UndoIcon,
-  ScrollText as ScrollIcon,
   ShieldCheck as ShieldIcon,
-  FolderTree,
-  Sparkles as SparkIcon,
-  LayoutGrid,
+  Wallet,
   X,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
+import { weekdayName } from "@/utils/date";
 import { COLLECTIONS, liveCatalog, liveGetProduct, type CatalogProduct } from "@/data/catalog";
 import { LOOKS, formatPrice, stockOf } from "@/data/looks";
 import { computeDiscounts } from "@/state/discounts";
@@ -110,35 +103,122 @@ type Tab =
   | "content"
   | "appearance"
   | "commerce"
-  | "settings";
+  | "settings"
+  /* grouped areas — each one nests the screens that used to be separate tabs */
+  | "catalog"
+  | "design"
+  | "customers"
+  | "finance";
 
-const TABS: { id: Tab; label: string; icon: typeof Gauge }[] = [
+interface NavItem {
+  id: Tab;
+  label: string;
+  icon: typeof Gauge;
+  /** related screens that used to live as separate sidebar entries */
+  children?: { id: Tab; label: string }[];
+}
+
+const TABS: NavItem[] = [
   { id: "dashboard", label: "داشبورد", icon: Gauge },
   { id: "orders", label: "سفارش‌ها", icon: ShoppingBag },
-  { id: "products", label: "محصولات و انبار", icon: Package },
-  { id: "inventory", label: "انبارداری", icon: Warehouse },
-  { id: "categories", label: "دسته‌بندی و سایز", icon: FolderTree },
-  { id: "media", label: "تصاویر محصول", icon: ImageIcon },
-  { id: "looks", label: "استایل‌ها و قطعه‌ها", icon: Layers },
-  { id: "brand", label: "برند و لوگو", icon: PaletteIcon },
-  { id: "megamenu", label: "مگا منو", icon: LayoutGrid },
-  { id: "crm", label: "CRM و پیامک", icon: Users },
-  { id: "tryon", label: "پرو و کش‌بک", icon: SparkIcon },
-  { id: "tickets", label: "تیکت‌ها", icon: TicketIcon },
-  { id: "returns", label: "مرجوعی‌ها", icon: UndoIcon },
-  { id: "forms", label: "فرم‌ها", icon: ClipboardList },
-  { id: "logs", label: "گزارش فعالیت", icon: ScrollIcon },
-  { id: "security", label: "امنیت", icon: ShieldIcon },
-  { id: "customers", label: "مشتریان (CRM)", icon: Users },
-  { id: "campaigns", label: "جشنواره و تخفیف", icon: Megaphone },
-  { id: "messages", label: "پیام‌ها", icon: Inbox },
-  { id: "reviews", label: "نظرات", icon: MessageSquare },
-  { id: "integrations", label: "اتصالات", icon: Wifi },
-  { id: "commerce", label: "تجارت و پرداخت", icon: Settings },
-  { id: "content", label: "محتوا", icon: LayoutTemplate },
-  { id: "appearance", label: "ظاهر", icon: Palette },
+  {
+    id: "catalog" as Tab,
+    label: "کاتالوگ و انبار",
+    icon: Package,
+    children: [
+      { id: "products", label: "محصولات" },
+      { id: "inventory", label: "انبارداری" },
+      { id: "categories", label: "دسته‌بندی و سایز" },
+      { id: "media", label: "تصاویر محصول" },
+      { id: "reviews", label: "نظرات" },
+    ],
+  },
+  { id: "looks", label: "استایل‌ها", icon: Layers },
+  {
+    id: "design" as Tab,
+    label: "ظاهر و محتوا",
+    icon: Palette,
+    children: [
+      { id: "brand", label: "برند و لوگو" },
+      { id: "megamenu", label: "مگا منو" },
+      { id: "content", label: "محتوا" },
+      { id: "appearance", label: "ظاهر" },
+      { id: "forms", label: "فرم‌ها" },
+    ],
+  },
+  {
+    id: "customers" as Tab,
+    label: "مشتریان و پیامک",
+    icon: Users,
+    children: [
+      { id: "crm", label: "پروفایل مشتری" },
+      { id: "messages", label: "پیامک و پیام" },
+      { id: "tickets", label: "تیکت‌ها" },
+    ],
+  },
+  { id: "campaigns", label: "فروش و تخفیف", icon: Megaphone },
+  {
+    id: "finance" as Tab,
+    label: "مالی و حسابداری",
+    icon: Wallet,
+    children: [
+      { id: "commerce", label: "تجارت و پرداخت" },
+      { id: "returns", label: "مرجوعی‌ها" },
+      { id: "tryon", label: "پرو و کش‌بک" },
+      { id: "logs", label: "گزارش فعالیت" },
+    ],
+  },
+  {
+    id: "security" as Tab,
+    label: "امنیت و اتصالات",
+    icon: ShieldIcon,
+    children: [
+      { id: "security", label: "امنیت" },
+      { id: "integrations", label: "اتصالات" },
+    ],
+  },
   { id: "settings", label: "تنظیمات", icon: Settings },
 ];
+
+/** the screens reachable from each grouped sidebar entry */
+const GROUP_CHILDREN: Partial<Record<Tab, Tab[]>> = Object.fromEntries(
+  TABS.filter((t) => t.children?.length).map((t) => [t.id as Tab, t.children!.map((c) => c.id)]),
+);
+
+/* =====================================================================
+   grouped panels — one sidebar entry, several screens inside
+   ===================================================================== */
+
+function GroupShell({
+  sections,
+  value,
+  onChange,
+}: {
+  sections: { id: Tab; label: string; node: React.ReactNode }[];
+  value: Tab;
+  onChange: (id: Tab) => void;
+}) {
+  const active = sections.find((s) => s.id === value) ?? sections[0];
+  return (
+    <div>
+      <div className="ad-chips mb-4" role="tablist" aria-label="بخش‌های این گروه">
+        {sections.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            role="tab"
+            aria-selected={active.id === s.id}
+            className={cn("ad-chip", active.id === s.id && "is-on")}
+            onClick={() => onChange(s.id)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+      {active.node}
+    </div>
+  );
+}
 
 /* =====================================================================
    page
@@ -163,6 +243,8 @@ export function AdminPage() {
   }, [tab]);
 
   if (!unlocked) return <Gate onUnlock={() => setUnlocked(true)} />;
+
+  const group = (Object.keys(GROUP_CHILDREN) as Tab[]).find((g) => GROUP_CHILDREN[g]!.includes(tab)) ?? null;
 
   const badges: Partial<Record<Tab, number>> = {
     orders: admin.orders.filter((o) => o.status === "pending").length,
@@ -200,13 +282,25 @@ export function AdminPage() {
       <div className="ad-body">
         <nav className={cn("ad-nav", navOpen && "is-open")} aria-label="بخش‌های پنل">
           <div className="ad-nav-inner">
-            {TABS.map((t) => (
-              <button key={t.id} type="button" className={cn("ad-nav-item", tab === t.id && "is-on")} onClick={() => { setTab(t.id); setNavOpen(false); }}>
-                <t.icon width={15} height={15} />
-                <span>{t.label}</span>
-                {badges[t.id] ? <em>{fa(badges[t.id] as number)}</em> : null}
-              </button>
-            ))}
+            {TABS.map((t) => {
+              const kids = GROUP_CHILDREN[t.id as Tab];
+              const isOn = tab === t.id || (kids ? kids.includes(tab) : false);
+              const badge = kids
+                ? kids.reduce((n, k) => n + (badges[k] ?? 0), 0)
+                : (badges[t.id] ?? 0);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={cn("ad-nav-item", isOn && "is-on")}
+                  onClick={() => { setTab(kids ? kids[0] : t.id); setNavOpen(false); }}
+                >
+                  <t.icon width={15} height={15} />
+                  <span>{t.label}</span>
+                  {badge ? <em>{fa(badge)}</em> : null}
+                </button>
+              );
+            })}
             <div className="ad-nav-foot">
               <p>{admin.settings.name}</p>
               <small>{admin.settings.tagline}</small>
@@ -218,28 +312,77 @@ export function AdminPage() {
         <main className="ad-main">
           {tab === "dashboard" && <Dashboard onGo={setTab} />}
           {tab === "orders" && <Orders />}
-          {tab === "products" && <Products />}
-          {tab === "inventory" && <InventoryPanel />}
-          {tab === "categories" && <CategoriesPanel />}
-          {tab === "media" && <MediaPanel />}
+          {group === "catalog" && (
+            <GroupShell
+              sections={[
+                { id: "products", label: "محصولات", node: <Products /> },
+                { id: "inventory", label: "انبارداری", node: <InventoryPanel /> },
+                { id: "categories", label: "دسته‌بندی و سایز", node: <CategoriesPanel /> },
+                { id: "media", label: "تصاویر محصول", node: <MediaPanel /> },
+                { id: "reviews", label: "نظرات", node: <Reviews /> },
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
+          )}
           {tab === "looks" && <LooksPanel />}
-          {tab === "brand" && <BrandPanel />}
-          {tab === "megamenu" && <MegaMenuPanel />}
-          {tab === "crm" && <CrmPanel />}
-          {tab === "tryon" && <TryOnPanel />}
-          {tab === "tickets" && <TicketsPanel />}
-          {tab === "returns" && <ReturnsPanel />}
-          {tab === "forms" && <FormsPanel />}
-          {tab === "logs" && <LogsPanel />}
-          {tab === "security" && <SecurityPanel />}
-          {tab === "customers" && <Customers />}
+          {group === "design" && (
+            <GroupShell
+              sections={[
+                { id: "brand", label: "برند و لوگو", node: <BrandPanel /> },
+                { id: "megamenu", label: "مگا منو", node: <MegaMenuPanel /> },
+                { id: "content", label: "محتوا", node: <Content /> },
+                { id: "appearance", label: "ظاهر", node: <Appearance /> },
+                { id: "forms", label: "فرم‌ها", node: <FormsPanel /> },
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
+          )}
+          {group === "customers" && (
+            <GroupShell
+              sections={[
+                {
+                  id: "crm",
+                  label: "مشتریان و CRM",
+                  // one screen: the customer book and its CRM notes/sms history together
+                  node: (
+                    <div className="space-y-6">
+                      <Customers />
+                      <CrmPanel />
+                    </div>
+                  ),
+                },
+                { id: "messages", label: "پیامک و پیام", node: <Messages /> },
+                { id: "tickets", label: "تیکت‌ها", node: <TicketsPanel /> },
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
+          )}
           {tab === "campaigns" && <Campaigns />}
-          {tab === "messages" && <Messages />}
-          {tab === "reviews" && <Reviews />}
-          {tab === "integrations" && <Integrations />}
-          {tab === "content" && <Content />}
-          {tab === "appearance" && <Appearance />}
-          {tab === "commerce" && <CommercePanel />}
+          {group === "finance" && (
+            <GroupShell
+              sections={[
+                { id: "commerce", label: "تجارت و پرداخت", node: <CommercePanel /> },
+                { id: "returns", label: "مرجوعی‌ها", node: <ReturnsPanel /> },
+                { id: "tryon", label: "پرو و کش‌بک", node: <TryOnPanel /> },
+                { id: "logs", label: "گزارش فعالیت", node: <LogsPanel /> },
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
+          )}
+          {group === "security" && (
+            <GroupShell
+              sections={[
+                { id: "security", label: "امنیت", node: <SecurityPanel /> },
+                { id: "integrations", label: "اتصالات", node: <Integrations /> },
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
+          )}
           {tab === "settings" && <StoreSettings onBack={() => navigate("/")} />}
         </main>
       </div>
@@ -337,7 +480,7 @@ function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
     const list = admin.orders.filter((o) => o.at >= start.getTime() && o.at < end.getTime());
-    return { label: start.toLocaleDateString("fa-IR", { weekday: "short" }), value: list.reduce((n, o) => n + o.total, 0) };
+    return { label: weekdayName(start), value: list.reduce((n, o) => n + o.total, 0) };
   });
   const maxDay = Math.max(1, ...days.map((d) => d.value));
 
@@ -858,7 +1001,7 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
               </label>
             </div>
             <div className="ad-two">
-              <label className="ad-field">قیمت (یورو)<input className="ad-input" type="number" min={0} value={price} onChange={(e) => setPrice(Number(e.target.value) || 0)} /></label>
+              <label className="ad-field">قیمت (واحد پایه)<input className="ad-input" type="number" min={0} value={price} onChange={(e) => setPrice(Number(e.target.value) || 0)} /></label>
               <label className="ad-field">قیمت قبل از تخفیف (اختیاری)<input className="ad-input" type="number" min={0} value={compareAt || ""} onChange={(e) => setCompareAt(Number(e.target.value) || 0)} /></label>
             </div>
             <label className="ad-field">توضیح کوتاه (اختیاری)
@@ -1249,8 +1392,8 @@ function Campaigns() {
               <div className="ad-card-inline-main">
                 <b>{c.name}</b>
                 <small>
-                  {c.kind === "percent" ? `${fa(c.value)}٪` : c.kind === "fixed" ? `${fa(c.value)} یورو` : "ارسال رایگان"}
-                  {c.minSpend > 0 && ` · حداقل ${fa(c.minSpend)} یورو`}
+                  {c.kind === "percent" ? `${fa(c.value)}٪` : c.kind === "fixed" ? `${fa(c.value)} تومان` : "ارسال رایگان"}
+                  {c.minSpend > 0 && ` · حداقل ${fa(c.minSpend)} تومان`}
                   {` · ${SCOPE_LABEL[c.scope]}`}
                   {c.code && ` · کد ${c.code}`}
                   {` · ${fa(c.uses)} بار`}
@@ -1280,10 +1423,10 @@ function Campaigns() {
                 <small>
                   {RULE_TYPE_LABEL[r.type]}
                   {r.type === "percent" && ` ${fa(r.value)}٪`}
-                  {r.type === "fixed" && ` ${fa(r.value)} یورو`}
+                  {r.type === "fixed" && ` ${fa(r.value)} تومان`}
                   {r.type === "second" && ` ${fa(r.value)}٪ روی دوم`}
-                  {r.type === "bundle" && ` ${fa(r.qty)} عدد = ${fa(r.value)} یورو`}
-                  {r.type === "freeship" && ` بالای ${fa(r.value)} یورو`}
+                  {r.type === "bundle" && ` ${fa(r.qty)} عدد = ${fa(r.value)} تومان`}
+                  {r.type === "freeship" && ` بالای ${fa(r.value)} تومان`}
                   {` · ${SCOPE_LABEL[r.scope]}`}
                   {r.stackable && " · قابل جمع‌بندی"}
                 </small>
@@ -1310,7 +1453,7 @@ function Campaigns() {
               <div className="ad-card-inline-main">
                 <b dir="ltr">{c.code}</b>
                 <small>
-                  {c.kind === "percent" ? `${fa(c.value)}٪` : `${fa(c.value)} یورو`}
+                  {c.kind === "percent" ? `${fa(c.value)}٪` : `${fa(c.value)} تومان`}
                   {c.minSpend > 0 && ` · حداقل ${fa(c.minSpend)}`}
                   {c.expires && ` · تا ${c.expires}`}
                   {` · ${fa(c.uses)} بار`}
@@ -1467,7 +1610,7 @@ function RuleModal({ initial, onClose }: { initial: DiscountRule; onClose: () =>
           </label>
           <div className="ad-two">
             <label className="ad-field">
-              {r.type === "bundle" ? "قیمت مجموع" : r.type === "freeship" ? "آستانهٔ ارسال (یورو)" : r.type === "percent" ? "درصد" : r.type === "second" ? "درصد تخفیف دوم" : "مبلغ (یورو)"}
+              {r.type === "bundle" ? "قیمت مجموع" : r.type === "freeship" ? "آستانهٔ ارسال (واحد پایه)" : r.type === "percent" ? "درصد" : r.type === "second" ? "درصد تخفیف دوم" : "مبلغ (واحد پایه)"}
               <input className="ad-input" type="number" min={0} value={r.value} onChange={(e) => setR({ ...r, value: Number(e.target.value) || 0 })} />
             </label>
             {r.type === "bundle" && (
@@ -1899,10 +2042,10 @@ function StoreSettings({ onBack }: { onBack: () => void }) {
         </Card>
         <Card title="ارسال و پرداخت" icon={<Truck width={14} height={14} />}>
           <div className="ad-two">
-            <label className="ad-field">آستانهٔ ارسال رایگان (یورو)
+            <label className="ad-field">آستانهٔ ارسال رایگان (واحد پایه)
               <input className="ad-input" type="number" min={0} value={draft.freeShipping} onChange={(e) => setD({ ...draft, freeShipping: Number(e.target.value) || 0 })} />
             </label>
-            <label className="ad-field">هزینهٔ ارسال سریع (یورو)
+            <label className="ad-field">هزینهٔ ارسال سریع (تومان)
               <input className="ad-input" type="number" min={0} value={draft.expressCost} onChange={(e) => setD({ ...draft, expressCost: Number(e.target.value) || 0 })} />
             </label>
           </div>
@@ -1910,8 +2053,16 @@ function StoreSettings({ onBack }: { onBack: () => void }) {
             <label className="ad-field">مهلت مرجوعی (روز)
               <input className="ad-input" type="number" min={0} value={draft.returnDays} onChange={(e) => setD({ ...draft, returnDays: Number(e.target.value) || 0 })} />
             </label>
-            <label className="ad-field">نماد ارز
-              <input className="ad-input" dir="ltr" value={draft.currency} onChange={(e) => setD({ ...draft, currency: e.target.value })} />
+            <label className="ad-field">ضریب تبدیل به تومان
+              <input
+                className="ad-input"
+                dir="ltr"
+                type="number"
+                min={1}
+                value={draft.currencyRate ?? 1000}
+                onChange={(e) => setD({ ...draft, currencyRate: Number(e.target.value) || 1 })}
+              />
+              <span className="ad-hint">قیمت‌های ذخیره‌شده در این عدد ضرب می‌شوند تا مبلغ تومانی نمایش داده شود.</span>
             </label>
           </div>
           <label className="ad-check"><input type="checkbox" checked={draft.maintenance} onChange={(e) => setD({ ...draft, maintenance: e.target.checked })} /> حالت تعمیرات (نشان در پنل؛ سایت باز می‌ماند)</label>

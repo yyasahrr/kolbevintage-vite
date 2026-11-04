@@ -110,7 +110,7 @@ export const DEFAULT_COMMERCE_SETTINGS: CommerceSettings = {
   liveRefundsEnabled: false,
   superadmins: ["superadmin"],
   taxRate: 0,
-  currency: "EUR",
+  currency: "IRT",
   cashbackEnabled: true,
   cashbackMode: "tier_rate",
   cashbackBase: "merchandise",

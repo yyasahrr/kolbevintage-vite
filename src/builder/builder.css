@@ -551,9 +551,9 @@ textarea.eb-in { resize: vertical; line-height: 1.7; }
 textarea.eb-in.is-code { direction: ltr; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
 select.eb-in { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'><path d='m6 9 6 6 6-6'/></svg>"); background-repeat: no-repeat; background-position: left 9px center; padding-inline-end: 10px; padding-left: 28px; }
 .eb-switch { position: relative; width: 38px; height: 22px; border-radius: 999px; background: #3a3d44; border: 0; cursor: pointer; transition: background 0.2s; flex: none; padding: 0; }
-.eb-switch::after { content: ''; position: absolute; top: 3px; right: 3px; width: 16px; height: 16px; border-radius: 999px; background: #fff; transition: transform 0.2s; }
+.eb-switch::after { content: ''; position: absolute; top: 3px; inset-inline-start: 3px; width: 16px; height: 16px; border-radius: 999px; background: #fff; transition: inset-inline-start 0.2s; }
 .eb-switch.is-on { background: #6366f1; }
-.eb-switch.is-on::after { transform: translateX(-16px); }
+.eb-switch.is-on::after { inset-inline-start: 19px; }
 .eb-choose { display: inline-flex; background: #14161a; border: 1px solid #3a3d44; border-radius: 8px; overflow: hidden; }
 .eb-choose button { flex: 1; min-width: 34px; padding: 7px 8px; background: transparent; border: 0; color: #9ca3af; cursor: pointer; font-size: 11.5px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .eb-choose button:hover { color: #fff; }
@@ -736,9 +736,9 @@ select.eb-in { appearance: none; background-image: url("data:image/svg+xml;utf8,
 .ebd-table th { background: #f4efe7; font-weight: 600; color: #5d5142; }
 .ebd-empty { padding: 56px 20px; text-align: center; background: #fffdfa; border: 1px dashed #d8cdbd; border-radius: 20px; color: #8c7e6d; line-height: 2; }
 .ebd-sw { position: relative; width: 38px; height: 22px; border-radius: 999px; background: #d8cdbd; border: 0; cursor: pointer; padding: 0; transition: background 0.2s; flex: none; }
-.ebd-sw::after { content: ''; position: absolute; top: 3px; right: 3px; width: 16px; height: 16px; border-radius: 999px; background: #fff; transition: transform 0.2s; }
+.ebd-sw::after { content: ''; position: absolute; top: 3px; inset-inline-start: 3px; width: 16px; height: 16px; border-radius: 999px; background: #fff; transition: inset-inline-start 0.2s; }
 .ebd-sw.is-on { background: #16130f; }
-.ebd-sw.is-on::after { transform: translateX(-16px); }
+.ebd-sw.is-on::after { inset-inline-start: 19px; }
 .ebd-sw:disabled { opacity: 0.4; }
 
 /* published page chrome */
@@ -1209,4 +1209,64 @@ select.eb-in { appearance: none; background-image: url("data:image/svg+xml;utf8,
 .ew-mm-cta span { font-size: 11px; font-weight: 600; margin-top: 4px; }
 @media (max-width: 640px) {
   .ew-mm-cta { flex-basis: 100%; max-width: none; }
+}
+
+/* ---------- built-in pages (edit the site's own screens) ---------- */
+.ebd-core {
+  background: #fffdfa;
+  border: 1px solid #e5ded3;
+  border-radius: 20px;
+  padding: 20px;
+  margin: 18px 0 6px;
+}
+.ebd-core-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #16130f;
+}
+.ebd-core-sub {
+  margin: 0 0 14px;
+  font-size: 12px;
+  line-height: 1.9;
+  color: #7a7062;
+  max-width: 44rem;
+}
+.ebd-core-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.ebd-core-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: start;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid #e5ded3;
+  background: #faf6ef;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s, background 0.2s;
+}
+.ebd-core-card:hover {
+  border-color: #16130f;
+  background: #fffdfa;
+  transform: translateY(-2px);
+}
+.ebd-core-name { font-size: 13.5px; font-weight: 600; color: #16130f; }
+.ebd-core-hint { font-size: 11.5px; color: #7a7062; line-height: 1.8; }
+.ebd-core-state {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: #8c7e6d;
+  border-radius: 999px;
+  border: 1px solid #e5ded3;
+  padding: 2px 9px;
+}
+.ebd-core-state.is-live {
+  color: #2f6f4e;
+  border-color: rgba(47, 111, 78, 0.35);
+  background: rgba(47, 111, 78, 0.08);
 }

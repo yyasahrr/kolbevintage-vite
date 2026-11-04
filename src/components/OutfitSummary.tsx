@@ -200,7 +200,7 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
               placeholder="اختیاری"
               onChange={(e) => setBudget(Number(e.target.value) || 0)}
             />
-            <span>یورو</span>
+            <span>تومان</span>
           </label>
           <div className="sb-total-row">
             <span>جمع ست</span>

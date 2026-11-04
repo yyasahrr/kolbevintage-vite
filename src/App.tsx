@@ -20,7 +20,7 @@ import { NotFoundPage } from "@/pages/NotFoundPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { StyleBuilderPage } from "@/pages/StyleBuilderPage";
 import { BuilderApp } from "@/builder/BuilderApp";
-import { PublishedPage, SiteShell } from "@/builder/SiteIntegration";
+import { CorePageSlot, PublishedPage, SiteShell } from "@/builder/SiteIntegration";
 
 function BrandMeta() {
   const { brand } = useOps();
@@ -49,7 +49,8 @@ function SiteRoutes() {
   return (
     <SiteShell>
       <Routes>
-        <Route path="/" element={<HomePage />} />
+        {/* an owner-built page wins over the hand-written one, once published */}
+        <Route path="/" element={<CorePageSlot slug="home"><HomePage /></CorePageSlot>} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/product/:productId" element={<ProductPage />} />
         <Route path="/style" element={<StylePage />} />
@@ -58,7 +59,7 @@ function SiteRoutes() {
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/journal" element={<JournalPage />} />
         <Route path="/journal/:slug" element={<ArticlePage />} />
-        <Route path="/about" element={<AboutPage />} />
+        <Route path="/about" element={<CorePageSlot slug="about"><AboutPage /></CorePageSlot>} />
         <Route path="/wishlist" element={<WishlistPage />} />
         <Route path="/auth" element={<AuthPage />} />
         <Route path="/account" element={<AccountPage />} />

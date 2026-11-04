@@ -184,7 +184,7 @@ export function StyleWizard({ onFinish }: Props) {
           <MemChip icon={<User width={11} height={11} />} text={`${profile.age} سال · ${profile.height} سانتی‌متر`} />
           <MemChip icon={<Ruler width={11} height={11} />} text={SHAPES.find((s) => s.id === profile.shape)?.label ?? ""} />
           <MemChip icon={<Shirt width={11} height={11} />} text={TASTES.find((t) => t.id === profile.taste)?.label ?? ""} />
-          <MemChip icon={<Wallet width={11} height={11} />} text={`${profile.budget} یورو`} />
+          <MemChip icon={<Wallet width={11} height={11} />} text={`${profile.budget} تومان`} />
           {picks.map((p) => (
             <span key={p.slot.id} className="sb-mem-pick" title={`${p.slot.label}: ${p.suggestion.product.name}`}>
               <i style={{ background: p.suggestion.color.hex }} />

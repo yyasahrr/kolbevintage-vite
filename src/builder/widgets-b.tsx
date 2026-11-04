@@ -596,12 +596,12 @@ const priceList: WidgetDef = {
   defaults: {
     items: [
       { title: "پرو و مشاورهٔ استایل", price: "رایگان", desc: "یک ساعت با تیم استایل، بدون تعهد خرید.", image: "", link: "" },
-      { title: "تنظیم سایز اختصاصی", price: "۸۰ €", desc: "اصلاح فرم روی بدن توسط خیاط آتلیه.", image: "", link: "" },
-      { title: "بسته‌بندی هدیه", price: "۱۵ €", desc: "جعبهٔ دست‌ساز با کارت دست‌نویس.", image: "", link: "" },
+      { title: "تنظیم سایز اختصاصی", price: "۸۰۰٬۰۰۰ تومان", desc: "اصلاح فرم روی بدن توسط خیاط آتلیه.", image: "", link: "" },
+      { title: "بسته‌بندی هدیه", price: "۱۵۰٬۰۰۰ تومان", desc: "جعبهٔ دست‌ساز با کارت دست‌نویس.", image: "", link: "" },
     ],
   },
   sections: [
-    sec("c", "آیتم‌ها", "content", [rep("items", "آیتم‌ها", [txt("title", "عنوان"), txt("price", "قیمت"), area("desc", "توضیح"), img("image"), url("link")], { title: "آیتم", price: "۰ €", desc: "", image: "", link: "" })]),
+    sec("c", "آیتم‌ها", "content", [rep("items", "آیتم‌ها", [txt("title", "عنوان"), txt("price", "قیمت"), area("desc", "توضیح"), img("image"), url("link")], { title: "آیتم", price: "۰ تومان", desc: "", image: "", link: "" })]),
     sec("s", "استایل", "style", [
       slider("gap", "فاصلهٔ آیتم‌ها", 0, 60, { "{{WRAPPER}} .ew-pl": "gap:{{VALUE}}px;" }, { default: 20 }),
       clr("tc", "رنگ عنوان", { "{{WRAPPER}} .ew-pl-title": "color:{{VALUE}};" }),
@@ -653,7 +653,7 @@ const priceTable: WidgetDef = {
     title: "عضویت طلایی",
     subtitle: "برای مشتریان وفادار",
     price: "۴۹",
-    currency: "€",
+    currency: "تومان",
     period: "/ ماه",
     featured: true,
     ribbon: "پیشنهاد ویژه",

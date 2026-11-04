@@ -686,7 +686,7 @@ const iconList: WidgetDef = {
   defaults: {
     layout: "vertical",
     items: [
-      { text: "ارسال رایگان بالای ۲۰۰ یورو", icon: "Truck", link: "" },
+      { text: "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان", icon: "Truck", link: "" },
       { text: "مرجوعی تا ۱۴ روز", icon: "Check", link: "" },
       { text: "ساخت محدود در پاریس", icon: "Gem", link: "" },
     ],

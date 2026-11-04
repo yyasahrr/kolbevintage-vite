@@ -5,7 +5,7 @@ import { getPost, POSTS } from "@/data/journal";
 import { CATALOG } from "@/data/catalog";
 import { useCart } from "@/state/cart";
 import { ProductCard } from "@/components/ProductCard";
-import { Breadcrumbs, Newsletter, buttonStyles } from "@/components/ui";
+import { Breadcrumbs, buttonStyles } from "@/components/ui";
 import { NotFoundPage } from "./NotFoundPage";
 
 export function ArticlePage() {
@@ -163,7 +163,6 @@ export function ArticlePage() {
       </section>
 
       <div className="mt-12">
-        <Newsletter />
       </div>
     </div>
   );
