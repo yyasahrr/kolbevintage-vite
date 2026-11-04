@@ -2998,3 +2998,30 @@
   padding-inline:8px; border-inline-start:1px solid rgba(0,0,0,.12);
 }
 .ad-input.is-tiny{ width:64px; padding-block:4px; font-size:12px }
+
+/* ---------- single order page ---------- */
+.ad-panel-adm{ display:grid; gap:14px }
+.ad-back{
+  display:inline-flex; align-items:center; gap:5px;
+  border:0; background:transparent; padding:0 0 6px; cursor:pointer;
+  font:inherit; font-size:11.5px; color:#6b6255;
+}
+.ad-back:hover{ color:#1b1815; text-decoration:underline; text-underline-offset:3px }
+.ad-link{ color:inherit; text-decoration:underline; text-underline-offset:3px; text-decoration-color:rgba(0,0,0,.25) }
+.ad-link:hover{ text-decoration-color:currentColor }
+.ad-order-grid{ display:grid; gap:14px; grid-template-columns:1fr }
+@media (min-width: 1000px){ .ad-order-grid{ grid-template-columns:1.6fr 1fr } }
+.ad-order-totals{ display:grid; gap:6px; border-block-start:1px solid rgba(0,0,0,.08); padding-block-start:12px }
+.ad-order-totals > div{ display:flex; justify-content:space-between; font-size:12.5px }
+.ad-order-totals .is-total{ font-weight:700; font-size:13.5px; padding-block-start:6px; border-block-start:1px dashed rgba(0,0,0,.15) }
+.ad-order-customer{ display:grid; gap:6px; font-size:12.5px }
+.ad-order-customer p{ margin:0 }
+.ad-order-tracking{ display:flex; align-items:center; gap:8px; flex-wrap:wrap }
+.ad-notes{ list-style:none; margin:0; padding:0; display:grid; gap:8px }
+.ad-notes li{
+  display:grid; gap:2px; padding:9px 11px; border-radius:10px;
+  background:var(--surface-2, rgba(0,0,0,.04));
+}
+.ad-notes li span{ font-size:12.5px; line-height:1.8 }
+.ad-notes li small{ font-size:10.5px; opacity:.6 }
+.ad-note-add{ display:grid; gap:8px; margin-block-start:12px }

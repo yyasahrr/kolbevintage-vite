@@ -57,7 +57,7 @@ import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
 import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
-import { useAdmin, setOrderStatus, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
+import { useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
 import { resolveImg } from "@/builder/stock";
@@ -241,8 +241,12 @@ const SCREEN_PATH: Record<string, string> = Object.fromEntries(
   ),
 );
 
+/** an individual order has its own address (decision 19) */
+const ORDER_PATH = /^\/admin\/sales\/orders\/([^/]+)\/?$/;
+
 /** the inverse: an address is resolved to the screen it names */
 const tabFromPath = (pathname: string): Tab => {
+  if (ORDER_PATH.test(pathname)) return "orders";
   const rest = pathname.replace(/^\/admin\/?/, "").replace(/\/+$/, "");
   if (!rest) return "dashboard";
   const screen = rest.split("/").filter(Boolean).pop() ?? "";
@@ -258,6 +262,8 @@ export function AdminPage() {
   // the URL is the source of truth: deep links, back/forward and bookmarks all work
   const location = useLocation();
   const tab = tabFromPath(location.pathname);
+  const orderMatch = location.pathname.match(ORDER_PATH);
+  const orderId = orderMatch ? decodeURIComponent(orderMatch[1]) : null;
   const setTab = useCallback(
     (id: Tab) => {
       navigate(SCREEN_PATH[id] ?? "/admin");
@@ -464,7 +470,8 @@ export function AdminPage() {
           ) : (
             <>
           {tab === "dashboard" && <Dashboard onGo={setTab} />}
-          {group === "sales" && (
+          {group === "sales" && orderId && <OrderPage orderId={orderId} />}
+          {group === "sales" && !orderId && (
             <GroupShell
               sections={[
                 { id: "orders", label: "سفارش‌ها", node: <Orders /> },
@@ -870,6 +877,160 @@ function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
 const REASON_LABEL: Record<StockMove["reason"], string> = { sale: "فروش", restock: "شارژ", edit: "ویرایش", create: "ایجاد" };
 
 /* =====================================================================
+   one order, at its own address
+   ===================================================================== */
+
+function OrderPage({ orderId }: { orderId: string }) {
+  const admin = useAdmin();
+  const navigate = useNavigate();
+  const session = useAdminMe();
+  const order = admin.orders.find((o) => o.id === orderId);
+  const [note, setNote] = useState("");
+  const [tracking, setTracking] = useState(order?.tracking ?? "");
+  const [saved, setSaved] = useState(false);
+
+  if (!order) {
+    return (
+      <div className="ad-empty ad-empty-error" role="alert">
+        <h3>این سفارش پیدا نشد</h3>
+        <p>شناسهٔ «{orderId}» در سفارش‌های ثبت‌شده نیست.</p>
+        <button type="button" className="ad-btn" onClick={() => navigate("/admin/sales/orders")}>
+          <ArrowLeft width={13} height={13} /> بازگشت به سفارش‌ها
+        </button>
+      </div>
+    );
+  }
+
+  const items = order.lines.reduce((n, l) => n + l.qty, 0);
+  const author = session.me?.staff?.name ?? "مالک";
+
+  return (
+    <div className="ad-panel-adm">
+      <header className="ad-head">
+        <div>
+          <button type="button" className="ad-back" onClick={() => navigate("/admin/sales/orders")}>
+            <ArrowLeft width={13} height={13} /> سفارش‌ها
+          </button>
+          <h2 className="latin-track" dir="ltr">{order.id}</h2>
+          <p>
+            ثبت‌شده {new Date(order.at).toLocaleString("fa-IR")} · {fa(items)} قطعه · {order.shipping === "express" ? "پیشتاز" : "پست"}
+          </p>
+        </div>
+        <div className="ad-head-actions">
+          <select
+            className="ad-select"
+            value={order.status}
+            aria-label="وضعیت سفارش"
+            onChange={(e) => setOrderStatus(order.id, e.target.value as OrderStatus)}
+          >
+            {(Object.keys(ORDER_STATUS_LABEL) as OrderStatus[]).map((st) => (
+              <option key={st} value={st}>{ORDER_STATUS_LABEL[st]}</option>
+            ))}
+          </select>
+        </div>
+      </header>
+
+      <div className="ad-order-grid">
+        <section className="ad-card">
+          <header className="ad-card-head"><h3>اقلام</h3></header>
+          <div className="ad-table-wrap">
+            <table className="ad-table">
+              <thead><tr><th>قطعه</th><th>رنگ / سایز</th><th>تعداد</th><th>قیمت</th></tr></thead>
+              <tbody>
+                {order.lines.map((l, i) => (
+                  <tr key={i}>
+                    <td>{l.name}</td>
+                    <td>{l.color} · {l.size}</td>
+                    <td className="ad-num">{fa(l.qty)}</td>
+                    <td className="ad-money">{formatPrice(l.price * l.qty)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="ad-card-body ad-order-totals">
+            <div><span>جمع اقلام</span><b>{formatPrice(order.subtotal)}</b></div>
+            {order.discountTotal > 0 && <div><span>تخفیف</span><b>− {formatPrice(order.discountTotal)}</b></div>}
+            <div><span>ارسال</span><b>{order.shippingCost === 0 ? "رایگان" : formatPrice(order.shippingCost)}</b></div>
+            <div className="is-total"><span>مبلغ نهایی</span><b>{formatPrice(order.total)}</b></div>
+          </div>
+        </section>
+
+        <section className="ad-card">
+          <header className="ad-card-head"><h3>مشتری</h3></header>
+          <div className="ad-card-body ad-order-customer">
+            <p><b>{order.customer}</b> · {order.city}</p>
+            <p className="latin-track" dir="ltr">{order.phone}</p>
+            <p className="latin-track" dir="ltr">{order.email}</p>
+            <p>{order.address}</p>
+            <a className="ad-btn is-sm" href={`sms:${order.phone}?body=${encodeURIComponent(`سلام ${order.customer}، دربارهٔ سفارش ${order.id}…`)}`}>
+              <Send width={13} height={13} /> پیام به مشتری
+            </a>
+          </div>
+
+          <header className="ad-card-head"><h3>کد رهگیری</h3></header>
+          <div className="ad-card-body ad-order-tracking">
+            <input
+              className="ad-input latin-track"
+              dir="ltr"
+              value={tracking}
+              onChange={(e) => { setTracking(e.target.value); setSaved(false); }}
+              placeholder="کد رهگیری پستی"
+              aria-label="کد رهگیری"
+            />
+            <button
+              type="button"
+              className="ad-btn is-sm is-primary"
+              disabled={tracking === (order.tracking ?? "")}
+              onClick={() => { patchOrder(order.id, { tracking: tracking.trim() || undefined }); setSaved(true); }}
+            >
+              ذخیره
+            </button>
+            {saved && <span className="ad-hint">ذخیره شد؛ در صفحهٔ سفارش مشتری همین کد دیده می‌شود.</span>}
+          </div>
+        </section>
+      </div>
+
+      <section className="ad-card">
+        <header className="ad-card-head"><h3>یادداشت داخلی</h3></header>
+        <div className="ad-card-body">
+          {(order.notes ?? []).length === 0 ? (
+            <p className="ad-hint">هنوز یادداشتی نیست. یادداشت‌ها فقط برای تیم است و مشتری نمی‌بیند.</p>
+          ) : (
+            <ul className="ad-notes">
+              {(order.notes ?? []).map((n) => (
+                <li key={n.id}>
+                  <span>{n.text}</span>
+                  <small>{n.by} · {new Date(n.at).toLocaleString("fa-IR")}</small>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="ad-note-add">
+            <textarea
+              className="ad-input"
+              rows={2}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="مثلاً: مشتری خواست سایز L عوض شود…"
+              aria-label="یادداشت تازه"
+            />
+            <button
+              type="button"
+              className="ad-btn is-sm is-primary"
+              disabled={!note.trim()}
+              onClick={() => { addOrderNote(order.id, note.trim(), author); setNote(""); }}
+            >
+              <Plus width={13} height={13} /> افزودن یادداشت
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* =====================================================================
    orders
    ===================================================================== */
 
@@ -959,7 +1120,11 @@ function OrderRow({ o, open, onToggle, picked, onPick }: { o: AdminState["orders
     <>
       <tr className={cn(open && "is-open")} onClick={onToggle}>
         <td><input type="checkbox" className="ad-checkbox" checked={picked} onChange={(e) => { e.stopPropagation(); onPick(); }} aria-label={`انتخاب سفارش ${o.id}`} /></td>
-        <td dir="ltr">{o.id}</td>
+        <td dir="ltr">
+          <Link to={`/admin/sales/orders/${encodeURIComponent(o.id)}`} className="ad-link" onClick={(e) => e.stopPropagation()}>
+            {o.id}
+          </Link>
+        </td>
         <td>{o.customer}<small>{o.city}</small></td>
         <td className="ad-num">{fa(o.lines.reduce((n, l) => n + l.qty, 0))}</td>
         <td>{timeAgo(o.at)}</td>

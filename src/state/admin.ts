@@ -64,6 +64,10 @@ export interface Order {
   coupon?: string;
   campaign?: string;
   gateway?: string;
+  /** internal notes — the customer never sees these */
+  notes?: { id: string; at: number; by: string; text: string }[];
+  /** carrier tracking code, shown to the customer */
+  tracking?: string;
 }
 
 export interface Coupon {
@@ -462,6 +466,19 @@ export const patchSettings = (p: Partial<StoreSettings>) => patch({ settings: { 
 
 /* ---------------- orders ---------------- */
 export const addOrder = (o: Order) => patch({ orders: [o, ...cache.orders].slice(0, 400) });
+/** any order field, without inventing a mutator per field */
+export const patchOrder = (id: string, change: Partial<Order>) =>
+  patch({ orders: cache.orders.map((o) => (o.id === id ? { ...o, ...change } : o)) });
+
+export const addOrderNote = (id: string, text: string, by: string) =>
+  patch({
+    orders: cache.orders.map((o) =>
+      o.id === id
+        ? { ...o, notes: [...(o.notes ?? []), { id: `n-${Math.random().toString(36).slice(2, 8)}`, at: Date.now(), by, text }] }
+        : o,
+    ),
+  });
+
 export const setOrderStatus = (id: string, status: OrderStatus) =>
   patch({ orders: cache.orders.map((o) => (o.id === id ? { ...o, status } : o)) });
 export const removeOrder = (id: string) => patch({ orders: cache.orders.filter((o) => o.id !== id) });
