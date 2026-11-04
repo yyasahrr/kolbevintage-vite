@@ -20,6 +20,7 @@ import { useOps, requestTryon, tryonBalance, type TryOnPackage } from "@/state/o
 import { formatPrice, formatRial, stockOf } from "@/data/looks";
 import { useCart } from "@/state/cart";
 import { ProductCard } from "@/components/ProductCard";
+import { CardMedia } from "@/components/CardMedia";
 import { Accordion, Breadcrumbs, Reveal, SectionHeading, buttonStyles } from "@/components/ui";
 import { NotFoundPage } from "./NotFoundPage";
 import { cn } from "@/utils/cn";
@@ -337,6 +338,29 @@ export function ProductPage() {
             ))}
           </div>
 
+          {complements.length > 0 && (
+            <div className="mt-5 rounded-xl border border-black/[0.08] bg-[#fbf7f1] p-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-[11px] font-medium text-ink">با اینا می‌تونی ست کنی</p>
+                <span className="text-[9.5px] text-ink-45">انتخاب استایلیست</span>
+              </div>
+              <ul className="mt-2.5 grid grid-cols-4 gap-2">
+                {complements.slice(0, 4).map((p) => (
+                  <li key={p.id}>
+                    <Link to={`/product/${p.id}`} className="group/item block outline-offset-4">
+                      {/* CardMedia renders a block element, so the frame is a div — no div inside span */}
+                      <div className="overflow-hidden rounded-lg bg-[#efe9e0] ring-1 ring-black/[0.05] transition-transform duration-500 group-hover/item:-translate-y-0.5">
+                        <CardMedia product={p} />
+                      </div>
+                      <div className="mt-1 truncate text-[9.5px] text-ink-70 group-hover/item:text-ink">{p.name}</div>
+                      <div className="text-[9.5px] text-ink-45">{formatPrice(p.price)}</div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="mt-5">
             <Accordion
               items={[
@@ -368,30 +392,6 @@ export function ProductPage() {
           </div>
         </div>
       </div>
-
-      {/* ---------------- complementary products ---------------- */}
-      {complements.length > 0 && (
-        <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
-          <div className="rounded-2xl border border-black/[0.07] bg-[#f1ebe2] p-4 sm:p-6">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="text-[10px] text-ink-45">کالاهای مکمل</p>
-                <h2 className="mt-1.5 font-display text-[clamp(1.3rem,2.6vw,1.8rem)] font-medium text-ink">
-                  این قطعه را با این‌ها کامل کن
-                </h2>
-              </div>
-              <Link to="/products" className={buttonStyles("solid", "md", "gap-1.5")}>
-                همهٔ محصولات <ArrowLeft className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
-              {complements.slice(0, 8).map((p) => (
-                <ProductCard key={p.id} product={p} />
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* ---------------- related ---------------- */}
       <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
