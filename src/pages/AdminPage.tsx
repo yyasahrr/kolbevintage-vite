@@ -39,6 +39,9 @@ import {
   Warehouse,
   Wifi,
   ShieldCheck as ShieldIcon,
+  ChevronsLeft,
+  ChevronsRight,
+  CornerDownLeft,
   Wallet,
   X,
   XCircle,
@@ -240,6 +243,35 @@ export function AdminPage() {
   const navigate = useNavigate();
   const session = useAdminMe();
   const { permissions, offline } = session;
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("kv_admin_nav") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("kv_admin_nav", navCollapsed ? "1" : "0");
+    } catch {
+      /* private mode */
+    }
+  }, [navCollapsed]);
+
+  // ⌘K / Ctrl+K — the only global shortcut in the panel
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+      if (e.key === "Escape") setPaletteOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   /**
    * The sidebar is the role: a group survives when it or any of its screens is
@@ -282,6 +314,9 @@ export function AdminPage() {
     ? tab
     : (groupIds.find((g) => GROUP_CHILDREN[g]!.includes(tab)) ?? null);
 
+  const currentGroup = group ? TABS.find((t) => t.id === group) ?? null : null;
+  const currentScreen = TABS.flatMap((t) => [t, ...(t.children ?? [])]).find((t) => t.id === tab) ?? null;
+
   const badges: Partial<Record<Tab, number>> = {
     orders: admin.orders.filter((o) => o.status === "pending").length,
     reviews: admin.reviews.filter((r) => !r.approved).length,
@@ -299,7 +334,38 @@ export function AdminPage() {
           <span className="ad-top-logo latin-track">VELOURS</span>
           <span className="ad-top-badge">پنل مدیریت</span>
         </Link>
+        <nav className="ad-crumb" aria-label="مسیر صفحه">
+          <span>پنل</span>
+          {currentGroup && currentGroup.id !== tab && (
+            <>
+              <i aria-hidden>/</i>
+              <span>{currentGroup.label}</span>
+            </>
+          )}
+          <i aria-hidden>/</i>
+          <strong>{currentScreen?.label ?? "داشبورد"}</strong>
+        </nav>
         <div className="ad-top-spacer" />
+        <button
+          type="button"
+          className="ad-nav-toggle"
+          aria-label={navCollapsed ? "باز کردن سایدبار" : "جمع کردن سایدبار"}
+          aria-pressed={navCollapsed}
+          title="جمع/باز کردن سایدبار"
+          onClick={() => setNavCollapsed((v) => !v)}
+        >
+          {navCollapsed ? <ChevronsLeft width={15} height={15} /> : <ChevronsRight width={15} height={15} />}
+        </button>
+        <button
+          type="button"
+          className="ad-btn is-sm ad-cmd-trigger"
+          onClick={() => setPaletteOpen(true)}
+          aria-label="جست‌وجوی سریع بخش‌ها (Ctrl+K)"
+        >
+          <Search width={14} height={14} />
+          <span className="ad-top-btn-label">جست‌وجو</span>
+          <kbd className="ad-kbd latin-track" dir="ltr">⌘K</kbd>
+        </button>
         {session.me?.staff && (
           <span className="ad-role-pill" title={`نقش: ${session.me.staff.roleName}`}>
             <ShieldIcon width={12} height={12} />
@@ -323,7 +389,7 @@ export function AdminPage() {
       </header>
 
       <div className="ad-body">
-        <nav className={cn("ad-nav", navOpen && "is-open")} aria-label="بخش‌های پنل">
+        <nav className={cn("ad-nav", navOpen && "is-open", navCollapsed && "is-collapsed")} aria-label="بخش‌های پنل">
           <div className="ad-nav-inner">
             {!session.ready && !offline && (
               <p className="ad-nav-loading" aria-busy="true">در حال خواندن سطح دسترسی…</p>
@@ -450,6 +516,123 @@ export function AdminPage() {
             </>
           )}
         </main>
+      </div>
+
+      {paletteOpen && (
+        <CommandPalette
+          tabs={navTabs}
+          onClose={() => setPaletteOpen(false)}
+          onPick={(id) => {
+            setTab(id);
+            setPaletteOpen(false);
+            setNavOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* =====================================================================
+   command palette — keyboard-first navigation over the *permitted* screens
+   ===================================================================== */
+
+function CommandPalette({
+  tabs,
+  onClose,
+  onPick,
+}: {
+  tabs: NavItem[];
+  onClose: () => void;
+  onPick: (id: Tab) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [cursor, setCursor] = useState(0);
+
+  const items = useMemo(() => {
+    const flat = tabs.flatMap((t) => [
+      { id: t.id, label: t.label, group: null as string | null, icon: t.icon },
+      ...(t.children ?? []).map((c) => ({ id: c.id, label: c.label, group: t.label, icon: t.icon })),
+    ]);
+    const needle = q.trim();
+    if (!needle) return flat;
+    return flat.filter((item) => item.label.includes(needle) || String(item.id).includes(needle.toLowerCase()));
+  }, [tabs, q]);
+
+  useEffect(() => {
+    setCursor(0);
+  }, [q]);
+
+  // the palette owns the keyboard while it is open
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setCursor((c) => Math.min(c + 1, items.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setCursor((c) => Math.max(c - 1, 0));
+      } else if (e.key === "Enter" && items[cursor]) {
+        e.preventDefault();
+        onPick(items[cursor].id);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [items, cursor, onPick]);
+
+  return (
+    <div className="ad-palette-scrim" role="presentation" onClick={onClose}>
+      <div
+        className="ad-palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="جست‌وجوی سریع بخش‌های پنل"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="ad-palette-input">
+          <Search width={15} height={15} />
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="بخش مورد نظر…"
+            aria-label="جست‌وجوی بخش"
+          />
+          <button type="button" className="ad-palette-close" onClick={onClose} aria-label="بستن">
+            <X width={14} height={14} />
+          </button>
+        </div>
+        {items.length === 0 ? (
+          <p className="ad-palette-empty">
+            {tabs.length === 0 ? "سطح دسترسی هنوز خوانده نشده است." : "بخشی با این نام پیدا نشد."}
+          </p>
+        ) : (
+          <ul className="ad-palette-list" role="listbox" aria-label="نتایج">
+            {items.map((item, i) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={i === cursor}
+                  className={cn("ad-palette-item", i === cursor && "is-on")}
+                  onMouseEnter={() => setCursor(i)}
+                  onClick={() => onPick(item.id)}
+                >
+                  <item.icon width={15} height={15} />
+                  <span>{item.label}</span>
+                  {item.group && <em>{item.group}</em>}
+                  {i === cursor && <CornerDownLeft width={12} height={12} className="ad-palette-enter" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <footer className="ad-palette-foot">
+          <span><kbd className="ad-kbd">↑</kbd><kbd className="ad-kbd">↓</kbd> جابه‌جایی</span>
+          <span><kbd className="ad-kbd">Enter</kbd> رفتن</span>
+          <span><kbd className="ad-kbd">Esc</kbd> بستن</span>
+        </footer>
       </div>
     </div>
   );

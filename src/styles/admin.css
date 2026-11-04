@@ -2850,3 +2850,107 @@
   .ad-rbac-row-head{ display:none }
   .ad-role-pill em{ display:none }
 }
+
+/* =====================================================================
+   Shell — collapsible sidebar, breadcrumb, command palette
+   ===================================================================== */
+
+.ad-crumb{
+  display:none; align-items:center; gap:6px;
+  margin-inline-start:14px; font-size:11.5px;
+  color:rgba(242,239,233,.55); min-width:0;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.ad-crumb i{ font-style:normal; opacity:.4 }
+.ad-crumb strong{ color:#f2efe9; font-weight:600; overflow:hidden; text-overflow:ellipsis }
+
+.ad-nav-toggle{
+  display:none; align-items:center; justify-content:center;
+  width:32px; height:32px; flex:none;
+  border-radius:9px; border:1px solid #3a342e;
+  background:transparent; color:#f2efe9; cursor:pointer;
+}
+.ad-nav-toggle:hover{ background:#f2efe9; color:#1b1815 }
+
+.ad-kbd{
+  font-family:ui-monospace, monospace; font-size:10px; line-height:1;
+  padding:3px 5px; border-radius:5px;
+  border:1px solid rgba(242,239,233,.25);
+  background:rgba(242,239,233,.08); color:inherit;
+}
+.ad-top .ad-kbd{ border-color:#3a342e; background:#241f1b; color:#cfc8bd }
+.ad-cmd-trigger{ display:inline-flex; align-items:center; gap:6px }
+.ad-cmd-trigger .ad-kbd{ display:none }
+
+@media (min-width: 900px){
+  .ad-crumb{ display:flex }
+  .ad-nav-toggle{ display:inline-flex }
+
+  /* the rail: icons only, labels and footer folded away */
+  .ad-nav.is-collapsed{ width:58px }
+  .ad-nav.is-collapsed .ad-nav-inner{ padding:14px 6px }
+  .ad-nav.is-collapsed .ad-nav-item{
+    justify-content:center; padding:10px 0;
+  }
+  .ad-nav.is-collapsed .ad-nav-item span,
+  .ad-nav.is-collapsed .ad-nav-item em,
+  .ad-nav.is-collapsed .ad-nav-foot{ display:none }
+}
+@media (min-width: 1180px){
+  .ad-cmd-trigger .ad-kbd{ display:inline-block }
+}
+
+/* ---------- palette ---------- */
+.ad-palette-scrim{
+  position:fixed; inset:0; z-index:80;
+  background:rgba(12,10,9,.5); backdrop-filter:blur(2px);
+  display:flex; align-items:flex-start; justify-content:center;
+  padding:10vh 16px 16px;
+}
+.ad-palette{
+  width:min(560px, 100%); max-height:70vh;
+  display:flex; flex-direction:column;
+  background:#fdfbf7; color:#1b1815;
+  border:1px solid #d9d2c6; border-radius:14px;
+  box-shadow:0 30px 70px -30px rgba(0,0,0,.55);
+  overflow:hidden;
+}
+.ad-palette-input{
+  display:flex; align-items:center; gap:8px;
+  padding:12px 14px; border-block-end:1px solid #e6dfd3;
+  color:#6b6255;
+}
+.ad-palette-input input{
+  flex:1; min-width:0; border:0; outline:0; background:transparent;
+  font:inherit; font-size:13.5px; color:#1b1815;
+}
+.ad-palette-close{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:24px; height:24px; border-radius:7px; border:0;
+  background:transparent; color:#6b6255; cursor:pointer;
+}
+.ad-palette-close:hover{ background:#efe9dd }
+.ad-palette-list{
+  list-style:none; margin:0; padding:6px; overflow-y:auto;
+}
+.ad-palette-item{
+  display:flex; align-items:center; gap:9px; width:100%;
+  padding:9px 10px; border:0; border-radius:9px;
+  background:transparent; color:inherit; font:inherit; font-size:12.5px;
+  cursor:pointer; text-align:start;
+}
+.ad-palette-item em{
+  font-style:normal; font-size:10.5px; opacity:.55;
+  margin-inline-start:auto;
+}
+.ad-palette-item.is-on{ background:#1b1815; color:#f2efe9 }
+.ad-palette-item.is-on em{ opacity:.7 }
+.ad-palette-enter{ margin-inline-start:8px }
+.ad-palette-empty{ margin:0; padding:18px 16px; font-size:12.5px; color:#6b6255 }
+.ad-palette-foot{
+  display:flex; gap:14px; flex-wrap:wrap;
+  padding:8px 14px; border-block-start:1px solid #e6dfd3;
+  font-size:10.5px; color:#6b6255;
+}
+.ad-palette-foot span{ display:inline-flex; align-items:center; gap:4px }
+.ad-palette-foot .ad-kbd{ border-color:#d9d2c6; background:#f2ede3; color:#4a4337 }
