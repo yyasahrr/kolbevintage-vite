@@ -222,6 +222,12 @@ test("a state save leaves an audit row naming only the keys that changed", async
   const after = typeof rows.rows[0].after === "string" ? JSON.parse(rows.rows[0].after) : rows.rows[0].after;
   assert.deepEqual(after, { changed: ["brand"] });
 
+  // the panel reads the same trail through one endpoint, filterable by action
+  const feed = await client.get("/api/commerce/admin/audit?action=state.update&limit=5");
+  assert.equal(feed.status, 200);
+  assert.ok(feed.body.length > 0, "the save is visible to the panel");
+  assert.ok(feed.body.every((row: { action: string }) => row.action === "state.update"));
+
   // the store passcode survives a save that forgot to include it
   const stripped = await client.put("/api/state/ops", { brand: { name: "بدون رمز" } });
   assert.equal(stripped.status, 200);

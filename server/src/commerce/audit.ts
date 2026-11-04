@@ -79,9 +79,19 @@ export interface AuditRow {
   request_id: string | null;
 }
 
-export async function listAudit(filter: { targetType?: string; targetId?: string; limit?: number } = {}) {
+export async function listAudit(
+  filter: { targetType?: string; targetId?: string; action?: string; actor?: string; limit?: number } = {},
+) {
   const params: unknown[] = [];
   const where: string[] = [];
+  if (filter.action) {
+    params.push(filter.action);
+    where.push(`action = $${params.length}`);
+  }
+  if (filter.actor) {
+    params.push(filter.actor);
+    where.push(`actor = $${params.length}`);
+  }
   if (filter.targetType) {
     params.push(filter.targetType);
     where.push(`target_type = $${params.length}`);

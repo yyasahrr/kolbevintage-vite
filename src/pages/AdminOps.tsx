@@ -1124,39 +1124,258 @@ export function ReturnsPanel() {
    logs + security + forms
    ===================================================================== */
 
+/* ---------- activity log: the real, append-only server audit trail ---------- */
+
+interface AuditEntry {
+  id: string;
+  at: string;
+  actor: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  before: unknown;
+  after: unknown;
+  reason: string | null;
+  requestId: string | null;
+}
+
+const AUDIT_ACTION_LABEL: Record<string, string> = {
+  "state.update": "ذخیرهٔ سند پنل",
+  "settings.update": "تغییر تنظیمات تجارت",
+  "settings.bnpl_toggle": "کلید عمومی پرداخت اقساطی",
+  "catalog.price_changed": "تغییر قیمت کاتالوگ",
+  "stock_adjustment.approve": "تأیید تعدیل انبار",
+  "stock_adjustment.reject": "رد تعدیل انبار",
+  "refund.approve": "تأیید بازپرداخت",
+  "refund.reject": "رد بازپرداخت",
+  "refund.receive": "ثبت بازپرداخت",
+  "refund.settled": "تسویهٔ بازپرداخت",
+  "return.received": "دریافت مرجوعی",
+  "return.qc_pass": "کنترل کیفیت مرجوعی: قبول",
+  "return.qc_fail": "کنترل کیفیت مرجوعی: رد",
+  "exchange.difference_paid": "پرداخت مابه‌التفاوت تعویض",
+  "role.create": "ساخت نقش",
+  "role.update": "ویرایش نقش",
+  "role.delete": "حذف نقش",
+  "staff.create": "افزودن کارمند",
+  "staff.update": "ویرایش کارمند",
+  "order.legacy_create": "سفارش دستی",
+  "order.legacy_status_change": "تغییر وضعیت سفارش دستی",
+};
+
+/** which chip a row belongs to — the action codes above are the real server vocabulary */
+const AUDIT_GROUPS: { id: string; label: string; match: (action: string) => boolean }[] = [
+  { id: "", label: "همه", match: () => true },
+  { id: "content", label: "محتوا و کاتالوگ", match: (a) => a === "state.update" || a.startsWith("catalog.") },
+  { id: "stock", label: "انبار", match: (a) => a.startsWith("stock_adjustment.") || a.startsWith("return.") },
+  { id: "money", label: "مالی و بازپرداخت", match: (a) => a.startsWith("refund.") || a.startsWith("exchange.") },
+  { id: "settings", label: "تنظیمات", match: (a) => a.startsWith("settings.") },
+  { id: "access", label: "دسترسی", match: (a) => a.startsWith("role.") || a.startsWith("staff.") },
+];
+
+const AUDIT_TARGET_LABEL: Record<string, string> = {
+  state_admin: "سند پنل (کاتالوگ/سفارش)",
+  state_ops: "سند محتوا و ظاهر",
+  settings: "تنظیمات تجارت",
+  inventory: "انبار",
+  refund: "بازپرداخت",
+  role: "نقش",
+  staff: "کارمند",
+  order: "سفارش",
+};
+
+/** what actually changed: the panel writes a changed-key list, other events a small diff */
+function auditSummary(entry: AuditEntry): string {
+  const after = entry.after as Record<string, unknown> | null;
+  if (after && Array.isArray((after as { changed?: unknown }).changed)) {
+    const changed = (after as { changed: unknown[] }).changed.map(String);
+    return changed.length ? `کلیدهای عوض‌شده: ${changed.join("، ")}` : "بدون تغییر محسوس";
+  }
+  const keys = (value: unknown) => (value && typeof value === "object" ? Object.keys(value as object) : []);
+  const afterKeys = keys(after);
+  const before = entry.before as Record<string, unknown> | null;
+  if (afterKeys.length) {
+    const beforeKeys = new Set(keys(before));
+    const fresh = afterKeys.filter((k) => !beforeKeys.has(k));
+    return fresh.length ? `فیلدها: ${afterKeys.join("، ")}` : `فیلدها: ${afterKeys.join("، ")}`;
+  }
+  return entry.reason ?? "—";
+}
+
 export function LogsPanel() {
   const ops = useOps();
+  const [rows, setRows] = useState<AuditEntry[] | null>(null);
+  const [error, setError] = useState("");
   const [q, setQ] = useState("");
+  const [group, setGroup] = useState("");
+  const [pending, setPending] = useState(false);
   const [exported, setExported] = useState(false);
-  const list = ops.logs.filter((l) => !q.trim() || `${l.actor} ${l.action} ${l.target}`.includes(q.trim()));
+
+  const load = async () => {
+    setPending(true);
+    setError("");
+    try {
+      const { api } = await import("@/lib/api");
+      const data = await api.get<AuditEntry[]>("/api/commerce/admin/audit?limit=300");
+      setRows(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setRows(null);
+      setError(err instanceof Error ? err.message : "خطای نامشخص");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const reload = () => {
+    void load();
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const matchGroup = AUDIT_GROUPS.find((g) => g.id === group) ?? AUDIT_GROUPS[0];
+  const list = (rows ?? []).filter((row) => {
+    if (!matchGroup.match(row.action)) return false;
+    if (!q.trim()) return true;
+    const needle = q.trim().toLowerCase();
+    return `${row.actor} ${row.action} ${row.targetType} ${row.targetId ?? ""}`.toLowerCase().includes(needle);
+  });
+
   const exportCsv = async () => {
     const { download } = await import("@/builder/util");
-    download("logs.csv", "\uFEFF" + [["زمان", "کاربر", "عملیات", "هدف", "جزئیات"], ...ops.logs.map((l) => [formatJalaliDateTime(l.at), l.actor, l.action, l.target, l.meta ?? ""])].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv");
+    const header = ["زمان", "کاربر", "عملیات", "کد عملیات", "هدف", "خلاصه", "درخواست"];
+    const body = list.map((row) => [
+      formatJalaliDateTime(row.at),
+      row.actor,
+      AUDIT_ACTION_LABEL[row.action] ?? row.action,
+      row.action,
+      `${AUDIT_TARGET_LABEL[row.targetType] ?? row.targetType}${row.targetId ? ` — ${row.targetId}` : ""}`,
+      auditSummary(row),
+      row.requestId ?? "",
+    ]);
+    download(
+      "audit-log.csv",
+      "\uFEFF" + [header, ...body].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"),
+      "text/csv",
+    );
     setExported(true);
   };
+
   return (
     <>
-      <PanelHead title="گزارش فعالیت (Log)" sub="هر تغییر در محصولات، تخفیف‌ها، تیکت‌ها و ورودها اینجا ثبت می‌شود." action={<><button type="button" className="ad-btn is-sm" onClick={exportCsv}><Save width={13} height={13} /> خروجی CSV</button>{exported && <span className="ad-hint">دانلود شد</span>}</>} />
-      <input className="ad-input ad-input-inline" value={q} onChange={(e) => setQ(e.target.value)} placeholder="جست‌وجو در لاگ…" aria-label="جست‌وجو در لاگ" />
-      {list.length === 0 ? (
-        <p className="ad-empty">هنوز رویدادی ثبت نشده.</p>
-      ) : (
+      <PanelHead
+        title="گزارش فعالیت"
+        sub="هر ذخیرهٔ پنل، تعدیل انبار، بازپرداخت و تغییر نقش یک ردیف این‌جا می‌گذارد. این دفتر فقط افزودنی است و از سرور خوانده می‌شود."
+        action={
+          <>
+            <button type="button" className="ad-btn is-sm" disabled={!list.length} onClick={exportCsv}>
+              <Save width={13} height={13} /> خروجی CSV
+            </button>
+            {exported && <span className="ad-hint">دانلود شد</span>}
+          </>
+        }
+      />
+
+      <div className="ad-filters">
+        {AUDIT_GROUPS.map((g) => (
+          <button key={g.id || "all"} type="button" className={cn("ad-chip", group === g.id && "is-on")} onClick={() => setGroup(g.id)}>
+            {g.label}
+          </button>
+        ))}
+        <button type="button" className="ad-btn is-sm" onClick={reload} disabled={pending}>
+          {pending ? "…" : "به‌روزرسانی"}
+        </button>
+      </div>
+
+      <input
+        className="ad-input ad-input-inline"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="جست‌وجو در کاربر، عملیات یا هدف…"
+        aria-label="جست‌وجو در گزارش فعالیت"
+      />
+
+      {pending && rows === null && <p className="ad-hint">در حال خواندن دفتر ممیزی…</p>}
+
+      {error && (
+        <div className="ad-empty">
+          دفتر ممیزی خوانده نشد: {error}
+          <div style={{ marginTop: 8 }}>
+            <button type="button" className="ad-btn is-sm" onClick={reload}>
+              تلاش دوباره
+            </button>
+          </div>
+        </div>
+      )}
+
+      {rows !== null && list.length === 0 && (
+        <p className="ad-empty">
+          {rows.length === 0
+            ? "سرور هنوز رویدادی ثبت نکرده. از این به بعد هر ذخیره‌ای که در پنل انجام شود همین‌جا می‌آید."
+            : "با این فیلتر چیزی پیدا نشد."}
+        </p>
+      )}
+
+      {list.length > 0 && (
         <div className="ad-table-wrap">
           <table className="ad-table">
-            <thead><tr><th>زمان</th><th>کاربر</th><th>عملیات</th><th>هدف</th><th>جزئیات</th></tr></thead>
+            <thead>
+              <tr>
+                <th>زمان</th>
+                <th>کاربر</th>
+                <th>عملیات</th>
+                <th>هدف</th>
+                <th>خلاصهٔ تغییر</th>
+                <th>درخواست</th>
+              </tr>
+            </thead>
             <tbody>
-              {list.slice(0, 200).map((l) => (
-                <tr key={l.id}>
-                  <td>{timeAgo(l.at)}</td>
-                  <td dir="ltr">{l.actor}</td>
-                  <td>{l.action}</td>
-                  <td>{l.target}</td>
-                  <td>{l.meta ?? "—"}</td>
+              {list.slice(0, 300).map((row) => (
+                <tr key={row.id}>
+                  <td className="ad-num">{formatJalaliDateTime(row.at)}</td>
+                  <td dir="ltr">{row.actor}</td>
+                  <td title={row.action}>{AUDIT_ACTION_LABEL[row.action] ?? row.action}</td>
+                  <td>
+                    {AUDIT_TARGET_LABEL[row.targetType] ?? row.targetType}
+                    {row.targetId && <small className="ad-hint" style={{ display: "block" }} dir="ltr">{row.targetId}</small>}
+                  </td>
+                  <td>{auditSummary(row)}</td>
+                  <td className="ad-num" dir="ltr">{row.requestId ? row.requestId.slice(0, 8) : "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {rows !== null && (
+        <p className="ad-hint">
+          {fa(list.length)} رویداد نمایش داده شده (حداکثر ۳۰۰ رویداد آخر). دفتر ممیزی سرور را نمی‌شود ویرایش یا پاک کرد.
+        </p>
+      )}
+
+      {ops.logs.length > 0 && (
+        <Panel title="لاگ محلی همین مرورگر">
+          <p className="ad-hint">
+            این فهرست فقط در همین مرورگر ذخیره شده و سند رسمی نیست؛ مرجع، جدول بالا است.
+          </p>
+          <div className="ad-table-wrap">
+            <table className="ad-table">
+              <thead><tr><th>زمان</th><th>کاربر</th><th>عملیات</th><th>هدف</th></tr></thead>
+              <tbody>
+                {ops.logs.slice(0, 20).map((l) => (
+                  <tr key={l.id}>
+                    <td>{timeAgo(l.at)}</td>
+                    <td dir="ltr">{l.actor}</td>
+                    <td>{l.action}</td>
+                    <td>{l.target}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       )}
     </>
   );

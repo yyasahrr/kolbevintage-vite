@@ -405,17 +405,18 @@ export async function commerceRoutes(app: FastifyInstance) {
     return { email: session.subject, ...wallet, transactions };
   });
 
-  app.get<{ Querystring: { targetType?: string; targetId?: string; limit?: string } }>(
-    "/api/commerce/admin/audit",
-    async (req) => {
-      await requireAdminSession(req);
-      return listAudit({
-        targetType: req.query.targetType,
-        targetId: req.query.targetId,
-        limit: req.query.limit ? Number(req.query.limit) : 100,
-      });
-    },
-  );
+  app.get<{
+    Querystring: { targetType?: string; targetId?: string; action?: string; actor?: string; limit?: string };
+  }>("/api/commerce/admin/audit", async (req) => {
+    await requireAdminSession(req);
+    return listAudit({
+      targetType: req.query.targetType,
+      targetId: req.query.targetId,
+      action: req.query.action,
+      actor: req.query.actor,
+      limit: req.query.limit ? Number(req.query.limit) : 100,
+    });
+  });
 
   app.get("/api/commerce/admin/cashback", async (req) => {
     await requireAdminSession(req);
