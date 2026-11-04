@@ -1366,7 +1366,7 @@ test("the panel's campaign ceiling and coupon limits reach the pricing tables", 
     coupons: [{ code: "CAPX", kind: "percent", value: 10, maxDiscount: 700, usageLimit: 5, active: true }],
   });
 
-  const capped = await query<{ max_discount: string; min_subtotal: string }>(
+  const capped = await query(
     "select max_discount, min_subtotal from price_rules where id = 'sync-cap'",
   );
   assert.equal(Number(capped.rows[0].max_discount), 5000);
@@ -1374,7 +1374,7 @@ test("the panel's campaign ceiling and coupon limits reach the pricing tables", 
   const plain = await query("select max_discount from price_rules where id = 'sync-plain'");
   assert.equal(plain.rows[0].max_discount, null, "no ceiling means no ceiling, not zero");
 
-  const coupon = await query<{ max_discount: string; usage_limit: number }>(
+  const coupon = await query(
     "select max_discount, usage_limit from coupons where code = 'CAPX'",
   );
   assert.equal(Number(coupon.rows[0].max_discount), 700);

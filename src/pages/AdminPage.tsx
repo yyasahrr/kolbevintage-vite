@@ -2004,7 +2004,36 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
                   >
                     <Plus width={12} height={12} /> افزودن سایز
                   </button>
+                  {catSizeSet && (
+                    <button
+                      type="button"
+                      className="ad-btn is-sm"
+                      onClick={() => {
+                        // back to the shared set: keep every stock cell by size label
+                        setSizes(poolSizes.map((label) => sizes.find((x) => x.label === label) ?? { id: "s-" + label, label }));
+                        setCustomSize("");
+                      }}
+                      title={`سایزهای محصول برابر ست مشترک «${catSizeSet.name}» می‌شود`}
+                    >
+                      <RotateCcw width={12} height={12} /> بازگشت به ست مشترک
+                    </button>
+                  )}
                 </div>
+                {/* decision 55: a product may keep its own sizes next to the shared set — say which is which */}
+                <p className="ad-hint">
+                  {catSizeSet
+                    ? `ست مشترک این دسته «${catSizeSet.name}» است. `
+                    : "این دسته ست مشترک ندارد. "}
+                  {(() => {
+                    const own = sizes.filter((x) => !poolSizes.includes(x.label));
+                    const off = poolSizes.filter((label) => !sizes.some((x) => x.label === label));
+                    if (!own.length && !off.length) return "این محصول دقیقاً همان ست مشترک را دارد.";
+                    return [
+                      own.length ? `سایزهای اختصاصی این محصول: ${own.map((x) => x.label).join("، ")}.` : "",
+                      off.length ? `از ست مشترک حذف شده: ${off.join("، ")}.` : "",
+                    ].filter(Boolean).join(" ");
+                  })()}
+                </p>
                 {err && <p className="ad-form-err">{err}</p>}
               </div>
               <div className="ad-form-col">
