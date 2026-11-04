@@ -81,7 +81,7 @@ export default function App() {
           <BrandMeta />
           <Routes>
             <Route path="/builder/*" element={<BuilderApp />} />
-            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/admin/*" element={<AdminPage />} />
             <Route path="/account" element={<SiteShell><AccountPage /></SiteShell>} />
             <Route path="/auth" element={<SiteShell><AuthPage /></SiteShell>} />
             <Route path="/p/:slug" element={<PublishedPage />} />

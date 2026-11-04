@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   BarChart3,
@@ -232,15 +232,40 @@ function GroupShell({
    page
    ===================================================================== */
 
+/** where each screen lives — the panel is addressable, not a state blob */
+const SCREEN_PATH: Record<string, string> = Object.fromEntries(
+  TABS.flatMap((group) =>
+    group.children?.length
+      ? group.children.map((child) => [child.id as string, `/admin/${group.id}/${child.id}`])
+      : [[group.id as string, group.id === "dashboard" ? "/admin" : `/admin/${group.id}`]],
+  ),
+);
+
+/** the inverse: an address is resolved to the screen it names */
+const tabFromPath = (pathname: string): Tab => {
+  const rest = pathname.replace(/^\/admin\/?/, "").replace(/\/+$/, "");
+  if (!rest) return "dashboard";
+  const screen = rest.split("/").filter(Boolean).pop() ?? "";
+  return (screen in SCREEN_PATH ? screen : "dashboard") as Tab;
+};
+
 /** every screen id in sidebar order — the fallback when a link is refused */
 const SCREEN_ORDER: string[] = TABS.flatMap((t) => [t.id as string, ...(t.children ?? []).map((c) => c.id as string)]);
 
 export function AdminPage() {
   const [unlocked, setUnlocked] = useState(() => adminUnlocked());
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const navigate = useNavigate();
+  // the URL is the source of truth: deep links, back/forward and bookmarks all work
+  const location = useLocation();
+  const tab = tabFromPath(location.pathname);
+  const setTab = useCallback(
+    (id: Tab) => {
+      navigate(SCREEN_PATH[id] ?? "/admin");
+    },
+    [navigate],
+  );
   const [navOpen, setNavOpen] = useState(false);
   const admin = useAdmin();
-  const navigate = useNavigate();
   const session = useAdminMe();
   const { permissions, offline } = session;
   const [navCollapsed, setNavCollapsed] = useState(() => {
