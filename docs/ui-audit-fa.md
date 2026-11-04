@@ -44,6 +44,8 @@
 | UI-06 | جدول «پیام‌های فرم» در صفحه‌ساز | ۳۲۰–۷۶۸ | سرریز افقی | `<table>` بدون ظرف اسکرول | `.ebd-table-wrap { overflow-x:auto }` | `builder/Dashboard.tsx`, `builder.css` | ✅ |
 | UI-07 | نوار خرید چسبان محصول | ≥۷۶۸ | تکرار کنترل | در دسکتاپ هم فعال می‌شد | `display:none` در `min-width:768px` | `account.css` | ✅ |
 | UI-08 | صفحهٔ محصول | ۷۶۸–۱۰۲۳ | چیدمان ریسپانسیو | دو ستون فقط از `lg` | بریک‌پوینت به `md` (گالری + ستون خرید، sticky و توضیح تصویر) | `ProductPage.tsx` | ✅ |
+| UI-30 | شیت منوی موبایل (`.xl:hidden`) | ۳۲۰–۱۲۷۹ | کیبورد + قفل اسکرول | هیچ‌کدام از دو قلاب روی این شیت نبود؛ صفحهٔ پشت با اسکرول حرکت می‌کرد | `useEscape(open,onClose)` + `useScrollLock(open)` | `Header.tsx` | ✅ |
+| UI-32 | اطلاعات تماس و متن‌های «پاریس / +33 / €» در سایت زنده | همه | بومی‌سازی ایران | فوتر و شیت منو آدرس و تلفن را هاردکد داشتند؛ `ops.tagline`، `footerNote`، `origin` محصولات، صفحهٔ درباره/لندینگ/خانه، تنظیمات ادمین، `seed/state.json` و `commerce_settings.currency="EUR"` هنوز اروپایی بودند | فوتر و شیت منو از `admin.settings` می‌خوانند (`tel:`/`mailto:` واقعی)؛ منابع و seed به تهران/تومان اصلاح شد؛ بانک زنده هم با SQL هم‌سان شد | `SiteFooter.tsx`, `Header.tsx`, `state/admin.ts`, `state/ops.ts`, `data/catalog.ts`, `pages/AboutPage.tsx`, `HomePage.tsx`, `LandingPage.tsx`, `lib/stylist.ts`, `builder/templates.ts`, `builder/widgets-*.tsx`, `server/seed/state.json` + دادهٔ زنده | ✅ تأییدشده با `GET /api/bootstrap` |
 
 ### P2 — متوسط
 
@@ -61,6 +63,7 @@
 | UI-18 | ایمیل/تلفن در متن RTL قاطی می‌شد | RTL/LTR | بدون `dir` ایزوله | `dir="ltr"` روی ایمیل فوتر و شیت منو، `break-all` روی شمارهٔ سفارش | `SiteFooter.tsx`, `Header.tsx`, `CheckoutPage.tsx` | ✅ |
 | UI-19 | لینک اینستاگرام فوتر به `#newsletter` اشاره می‌کرد | لینک شکسته | باقی‌ماندهٔ خبرنامه | لینک خارجی با `rel="noreferrer noopener"` | `SiteFooter.tsx` | ✅ |
 | UI-20 | خلاصهٔ سفارش موفق: سه ستون در ۳۲۰px | چیدمان | `grid-cols-3` بی‌بریک‌پوینت | `grid-cols-1 sm:grid-cols-3` | `CheckoutPage.tsx` | ✅ |
+| UI-31 | باقی‌ماندهٔ خبرنامه در کد | بومی‌سازی/داده | حذف خبرنامه فقط در صفحات انجام شده بود: کامپوننت بی‌استفادهٔ `Newsletter`، پریست «خبرنامه» در پالت فرم، ستون خبرنامه در قالب فوتر و متن پیش‌فرض CTA | کامپوننت حذف شد؛ پریست حذف؛ ستون فوتر به «پشتیبانی» تبدیل؛ CTA به «کالکشن تازه رسید» تغییر کرد | `components/ui.tsx`, `builder/widgets-b.tsx`, `builder/templates.ts` | ✅ |
 
 ### P3 — پایین (ثبت‌شده؛ وضعیت هر ردیف در ستون یادداشت)
 
@@ -74,6 +77,7 @@
 | UI-22 | `body { overflow-x: hidden }` | سرریز افقی را پنهان می‌کند نه اصلاح. بدون مرورگر نمی‌توان منبع دقیق را یافت؛ تغییر نمی‌دهم تا سرریز واقعی آشکار نشود. |
 | UI-25 | مقیاس فاصله یکدست نیست | ترکیب Tailwind آزاد + CSS خام؛ پیشنهاد توکن `--space-*` در گام بعد. |
 | UI-26 | حالت «بارگذاری» برای لیست‌ها وجود ندارد | فروشگاه از استیت محلی می‌خواند پس تا کنون لازم نبود؛ با API واقعی لازم می‌شود. |
+| UI-33 | پنل تجارت، واحد پول را با کد لاتین چاپ می‌کرد («EUR»/«IRT») | ✅ اصلاح شد — `currencyLabel()` در `data/looks.ts` و استفاده در `AdminCommercePanel.tsx` |
 
 ---
 
@@ -104,6 +108,11 @@ npm run preview (SERVE_STATIC=1، پورت ۴۰۰۰)
   GET /p/<any>     → ۲۰۰  (SPA fallback)
   GET /uploads/<missing> → ۴۰۴ (فقط برای /api و /uploads استثنا)
   هدر x-frame-options در حالت پیش‌نمایش ارسال نمی‌شود؛ در تولید DENY است.
+GET /api/bootstrap  → ۰ مورد «پاریس»، ۰ مورد «€»، ۰ مورد «+33»؛
+  tagline «خانهٔ پوشاک آماده — تهران»، phone «021 8888 2424»، currency «تومان»
+POST /api/admin/login (1234) + GET /api/commerce/admin/settings → currency "IRT"
+UPDATE products … origin → ۲۷ ردیف «آتلیهٔ تهران»
+grep «پاریس|Paris|+33|خبرنامه» در src → ۰ مورد واقعی (فقط تطبیق‌های نادرست مثل «سردبیر»)
 ```
 
 شاهد سطح مرورگر: لاگ سرور درخواست‌های واقعی مرورگر پیش‌نمایش را نشان می‌دهد

@@ -214,7 +214,7 @@ export function StyleWizard({ onFinish }: Props) {
               <div className="sb-field-row">
                 <label className="sb-field">
                   شهر
-                  <input value={profile.city} onChange={(e) => set({ city: e.target.value })} placeholder="مثلاً پاریس" />
+                  <input value={profile.city} onChange={(e) => set({ city: e.target.value })} placeholder="مثلاً تهران" />
                 </label>
                 <div className="sb-field">
                   <span>فصل</span>

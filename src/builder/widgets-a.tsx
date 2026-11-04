@@ -355,7 +355,7 @@ const maps: WidgetDef = {
   icon: MapIcon,
   category: "basic",
   keywords: "map google نقشه",
-  defaults: { address: "Rue Saint-Honoré 24, Paris", zoom: 14 },
+  defaults: { address: "Valiasr St 24, Tehran", zoom: 14 },
   sections: [
     sec("c", "نقشه", "content", [
       txt("address", "نشانی"),
@@ -370,7 +370,7 @@ const maps: WidgetDef = {
       <iframe
         title="نقشه"
         loading="lazy"
-        src={`https://maps.google.com/maps?q=${encodeURIComponent(s.address || "Paris")}&t=m&z=${s.zoom || 14}&output=embed`}
+        src={`https://maps.google.com/maps?q=${encodeURIComponent(s.address || "Tehran")}&t=m&z=${s.zoom || 14}&output=embed`}
       />
     </div>
   ),
@@ -688,7 +688,7 @@ const iconList: WidgetDef = {
     items: [
       { text: "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان", icon: "Truck", link: "" },
       { text: "مرجوعی تا ۱۴ روز", icon: "Check", link: "" },
-      { text: "ساخت محدود در پاریس", icon: "Gem", link: "" },
+      { text: "ساخت محدود در تهران", icon: "Gem", link: "" },
     ],
   },
   sections: [

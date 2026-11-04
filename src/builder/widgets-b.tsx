@@ -211,7 +211,7 @@ const portfolio: WidgetDef = {
 };
 
 const slidesItems = [
-  { image: "stock:hero", title: "کلکسیون پاییز / زمستان", desc: "پالتو، کشمیر و چرم؛ ساخت پاریس.", btn: "مشاهدهٔ کالکشن", link: "/products" },
+  { image: "stock:hero", title: "کلکسیون پاییز / زمستان", desc: "پالتو، کشمیر و چرم؛ ساخت تهران.", btn: "مشاهدهٔ کالکشن", link: "/products" },
   { image: "stock:atelier", title: "آتلیه‌ای که آهسته می‌سازد", desc: "هر قطعه، سه هفته کار دست.", btn: "داستان ما", link: "/about" },
   { image: "stock:campaign", title: "نرمی یک فصل کامل", desc: "کشمیر عاجی با ساتن ماسه‌ای.", btn: "ورود به لندینگ", link: "/landing" },
 ];
@@ -349,7 +349,6 @@ const form: WidgetDef = {
   keywords: "form contact فرم تماس",
   presets: [
     preset("contact", "فرم تماس کامل", { formName: "فرم تماس" }, "چهار فیلد"),
-    preset("newsletter", "خبرنامه", { formName: "خبرنامه", showLabels: false, fields: [{ type: "email", label: "ایمیل", placeholder: "ایمیل", required: true, width: 100 }] }, "تک‌فیلد"),
     preset("compact", "فشرده دوستونه", { formName: "پیام سریع", fields: [{ type: "text", label: "نام", placeholder: "نام", required: true, width: 50 }, { type: "email", label: "ایمیل", placeholder: "ایمیل", required: true, width: 50 }] }, "دو فیلد"),
   ],
   defaults: {
@@ -781,7 +780,7 @@ const cta: WidgetDef = {
   icon: Megaphone,
   category: "pro",
   keywords: "cta call to action فراخوان",
-  defaults: { title: "عضو خبرنامه شو", desc: "اول از همه، نمایش بعدی را ببین.", btn: "عضویت", link: "/", image: "stock:atelier", layout: "cover", align: "center" },
+  defaults: { title: "کالکشن تازه رسید", desc: "قطعه‌های محدودِ فصل، آمادهٔ سفارش آنلاین.", btn: "مشاهدهٔ کالکشن", link: "/products", image: "stock:atelier", layout: "cover", align: "center" },
   presets: [
     preset("cover", "تصویر پس‌زمینه", { layout: "cover" }, "کلاسیک"),
     preset("split", "تصویر کنار متن", { layout: "split" }, "مدرن"),

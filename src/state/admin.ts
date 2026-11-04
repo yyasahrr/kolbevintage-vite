@@ -257,9 +257,9 @@ const days = (n: number) => new Date(Date.now() + n * 86400000).toISOString().sl
 const DEFAULT_ADMIN: AdminState = {
   settings: {
     name: "ولور",
-    tagline: "خانهٔ پوشاک آماده — پاریس",
-    address: "پاریس، خیابان سن‌آنوره، پلاک ۲۴",
-    phone: "+33 1 84 80 24 24",
+    tagline: "خانهٔ پوشاک آماده — تهران",
+    address: "تهران، خیابان ولیعصر، پلاک ۲۴، طبقهٔ دوم",
+    phone: "021 8888 2424",
     email: "client@velours.store",
     currency: "تومان",
     currencyRate: 1000,

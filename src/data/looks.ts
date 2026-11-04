@@ -497,6 +497,20 @@ export const formatPrice = (value: number) =>
 export const formatRial = (value: number) =>
   `${formatNumber(Math.round(value * tomanRate() * CURRENCY.rialPerToman))} ${CURRENCY.sub}`;
 
+/**
+ * Commerce settings store an ISO currency code; the panel is Persian, so the
+ * code is translated once here instead of every screen inventing its own label.
+ */
+const CURRENCY_LABELS: Record<string, string> = {
+  IRT: CURRENCY.main,
+  IRR: CURRENCY.sub,
+  EUR: "یورو",
+  USD: "دلار",
+};
+
+export const currencyLabel = (code: string | undefined | null) =>
+  (code && CURRENCY_LABELS[code.toUpperCase()]) || CURRENCY.main;
+
 /** compact form for tight UI (cart rows, chips) */
 export const formatPriceShort = (value: number) => formatNumber(Math.round(value * tomanRate()));
 

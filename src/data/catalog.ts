@@ -145,7 +145,7 @@ export const CATALOG: CatalogProduct[] = LOOKS.flatMap((look) =>
       material: detail.material,
       care: detail.care,
       fit: detail.fit,
-      origin: "طراحی و تولید در آتلیهٔ پاریس",
+      origin: "طراحی و تولید در آتلیهٔ تهران",
       badge,
     };
   }),

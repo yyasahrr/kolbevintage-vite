@@ -666,7 +666,7 @@ const weather: WidgetDef = {
   icon: Wind,
   category: "dynamic",
   keywords: "weather climate آب و هوا",
-  defaults: { city: "پاریس", temp: 14, cond: "ابری", icon: "Cloud", unit: "°C" },
+  defaults: { city: "تهران", temp: 22, cond: "آفتابی", icon: "Sun", unit: "°C" },
   sections: [
     sec("c", "شهر", "content", [txt("city", "شهر"), num("temp", "دمای نمایشی"), txt("cond", "وضعیت"), icn("icon"), sel("unit", "واحد", [["°C", "سلسیوس"], ["°F", "فارنهایت"]])]),
     sec("s", "استایل", "style", [clr("bg", "پس‌زمینه", { "{{WRAPPER}} .ew-weather": "background-color:{{VALUE}};" }), clr("tc", "رنگ دما", { "{{WRAPPER}} .ew-w-temp": "color:{{VALUE}};" }), ...typo("t", "{{WRAPPER}} .ew-w-city"), ...borderCtls("wt", "{{WRAPPER}} .ew-weather")]),

@@ -183,7 +183,7 @@ const timeline: WidgetDef = {
     side: "alternate",
     items: [
       { date: "۱۳۹۲", title: "آغاز آتلیه", desc: "شش قطعه و یک چرخ خیاطی.", icon: "Sparkles" },
-      { date: "۱۳۹۸", title: "اولین رانوی", desc: "نمایش شش‌نفره در پاریس.", icon: "Star" },
+      { date: "۱۳۹۸", title: "اولین رانوی", desc: "نمایش شش‌نفره در تهران.", icon: "Star" },
       { date: "۱۴۰۳", title: "فروشگاه آنلاین", desc: "ارسال به ۳۰ کشور.", icon: "Globe" },
     ],
   },
@@ -742,7 +742,7 @@ const panelSlider: WidgetDef = {
     height: 420,
     items: [
       { image: "stock:hero", title: "کالکشن AW26", desc: "شش استایل", link: "/products" },
-      { image: "stock:atelier", title: "آتلیه", desc: "ساخت پاریس", link: "/about" },
+      { image: "stock:atelier", title: "آتلیه", desc: "ساخت تهران", link: "/about" },
       { image: "stock:campaign", title: "کشمیر", desc: "نرمی یک فصل", link: "/landing" },
     ],
   },

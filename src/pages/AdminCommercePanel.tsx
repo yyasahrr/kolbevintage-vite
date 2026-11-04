@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CreditCard, RefreshCw, ShieldCheck, Truck } from "lucide-react";
 import { api } from "@/lib/api";
+import { currencyLabel } from "@/data/looks";
 
 /* =====================================================================
    Commerce settings — the store-wide switches that used to be invented
@@ -480,7 +481,7 @@ export function CommercePanel() {
             پردازش صف رویدادها
           </button>
           <span className="ad-actions-spacer" />
-          <span className="ad-hint">واحد پول: {settings.currency}</span>
+          <span className="ad-hint">واحد پول: {currencyLabel(settings.currency)}</span>
         </div>
       )}
 

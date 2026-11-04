@@ -48,7 +48,7 @@ const heroBg = (): BNode[] => [
       col(
         [
           w("heading", { title: "سکوتِ ساختار. حضورِ پارچه.", tag: "h1", tSize: 56, tSizeMobile: 34, tWeight: "600", color: "#ffffff", align: "start", animation: "fadeInUp" }),
-          w("text-editor", { content: "<p>مجموعهٔ پاییز / زمستان ۲۶ — پالتو، کشمیر و چرم، ساخت آتلیهٔ پاریس.</p>", color: "rgba(255,255,255,.85)", tSize: 18, align: "start" }),
+          w("text-editor", { content: "<p>مجموعهٔ پاییز / زمستان ۲۶ — پالتو، کشمیر و چرم، ساخت آتلیهٔ تهران.</p>", color: "rgba(255,255,255,.85)", tSize: 18, align: "start" }),
           w("button", { text: "خرید کالکشن", link: "/products", size: "lg", bg: "#ffffff", color: "#16130f", align: "flex-start" }),
         ],
         60,
@@ -153,7 +153,7 @@ const pricing3 = (): BNode[] => [
   ),
   sec(
     [
-      col([w("price-table", { title: "پایه", subtitle: "برای شروع", price: "۰", period: "/ همیشه", featured: false, ribbon: "", btn: "ثبت‌نام رایگان", features: [{ text: "خبرنامه ماهانه", on: true }, { text: "ارسال رایگان", on: false }, { text: "پرو اختصاصی", on: false }] })], 33.33, { widthMobile: 100 }),
+      col([w("price-table", { title: "پایه", subtitle: "برای شروع", price: "۰", period: "/ همیشه", featured: false, ribbon: "", btn: "ثبت‌نام رایگان", features: [{ text: "گزارش ماهانه فروش", on: true }, { text: "ارسال رایگان", on: false }, { text: "پرو اختصاصی", on: false }] })], 33.33, { widthMobile: 100 }),
       col([w("price-table", {})], 33.33, { widthMobile: 100 }),
       col([w("price-table", { title: "پلاتینیوم", subtitle: "تجربهٔ کامل", price: "۱۲۹", featured: false, ribbon: "", btn: "تماس با مشاور", features: [{ text: "همهٔ مزایای طلایی", on: true }, { text: "مشاور استایل شخصی", on: true }, { text: "دعوت به رانوهای خصوصی", on: true }] })], 33.33, { widthMobile: 100 }),
     ],
@@ -178,8 +178,8 @@ const contact = (): BNode[] => [
       col([h("تماس با ما", { align: "start" }), w("form", {}), ], 55, { widthMobile: 100 }),
       col(
         [
-          w("icon-list", { items: [{ text: "پاریس، خیابان سن‌آنوره، پلاک ۲۴", icon: "MapPin", link: "" }, { text: "+33 1 84 80 24 24", icon: "Phone", link: "" }, { text: "client@velours.store", icon: "Mail", link: "" }, { text: "همه‌روزه ۱۱ تا ۱۹", icon: "Clock", link: "" }] }),
-          w("google-maps", { address: "Rue Saint-Honoré 24, Paris", height: 280 }),
+          w("icon-list", { items: [{ text: "تهران، خیابان ولیعصر، پلاک ۲۴", icon: "MapPin", link: "" }, { text: "021 8888 2424", icon: "Phone", link: "tel:02188882424" }, { text: "client@velours.store", icon: "Mail", link: "" }, { text: "همه‌روزه ۱۱ تا ۱۹", icon: "Clock", link: "" }] }),
+          w("google-maps", { address: "Valiasr St 24, Tehran", height: 280 }),
         ],
         45,
         { widthMobile: 100, vAlign: "center" },
@@ -272,7 +272,7 @@ const footer4 = (): BNode[] => [
       col(
         [
           w("site-logo", { align: "flex-start", c: "#ffffff" }),
-          w("text-editor", { content: "<p>خانهٔ پوشاک آماده در پاریس؛ قطعه‌های محدود، پارچه‌های طبیعی و ساخت آهسته.</p>", align: "start", color: "rgba(255,255,255,.65)" }),
+          w("text-editor", { content: "<p>خانهٔ پوشاک آماده در تهران؛ قطعه‌های محدود، پارچه‌های طبیعی و ساخت آهسته.</p>", align: "start", color: "rgba(255,255,255,.65)" }),
           w("social-icons", { align: "flex-start" }),
         ],
         34,
@@ -296,8 +296,8 @@ const footer4 = (): BNode[] => [
       ),
       col(
         [
-          w("heading", { title: "خبرنامه", tag: "h4", tSize: 15, align: "start", color: "#ffffff" }),
-          w("form", { formName: "خبرنامه فوتر", submit: "عضویت", success: "عضو شدی!", showLabels: false, fields: [{ type: "email", label: "ایمیل", placeholder: "ایمیل", required: true, width: 100 }] }),
+          w("heading", { title: "پشتیبانی", tag: "h4", tSize: 15, align: "start", color: "#ffffff" }),
+          w("icon-list", { items: [{ text: "پیگیری سفارش", icon: "", link: "/account" }, { text: "ارسال و مرجوعی", icon: "", link: "/about" }, { text: "تماس با ما", icon: "", link: "/about" }], color: "rgba(255,255,255,.7)" }),
         ],
         22,
         { widthMobile: 100 },
@@ -306,7 +306,7 @@ const footer4 = (): BNode[] => [
     { ...dark, padding: pad(56, 28), headingColor: undefined },
   ),
   sec(
-    [col([w("text-editor", { content: "<p>© {{year}} ولور پاریس — تمام حقوق محفوظ است.</p>", align: "center", tSize: 12, color: "rgba(255,255,255,.5)" })])],
+    [col([w("text-editor", { content: "<p>© {{year}} ولور — تمام حقوق محفوظ است.</p>", align: "center", tSize: 12, color: "rgba(255,255,255,.5)" })])],
     { bgType: "color", bgColor: "#0d0b09", padding: pad(14) },
   ),
 ];

@@ -39,7 +39,7 @@ export function HomePage() {
                   <span className="mt-1 block text-bone/80">حضورِ پارچه.</span>
                 </h1>
                 <p className="mt-4 max-w-[26rem] text-[12.5px] leading-[1.95] text-bone/75">
-                  شش استایل، از پالتوی بلند نوار تا ترنچ شتری. هر قطعه در آتلیهٔ پاریس ساخته می‌شود و روی
+                  شش استایل، از پالتوی بلند نوار تا ترنچ شتری. هر قطعه در آتلیهٔ تهران ساخته می‌شود و روی
                   رانوی همین سایت می‌توانی آن را تن‌به‌تن ببینی.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-2.5">
@@ -55,7 +55,7 @@ export function HomePage() {
           </div>
           <div className="absolute bottom-4 left-5 hidden items-center gap-2 text-[9.5px] text-bone/60 sm:flex lg:left-8">
             <span className="h-1.5 w-1.5 rounded-full bg-bone/70" />
-            عکاسی: استودیوی ولور — پاریس
+            عکاسی: استودیوی ولور — تهران
           </div>
         </div>
       </section>
@@ -65,7 +65,7 @@ export function HomePage() {
           items={[
             "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان",
             "مرجوعی تا ۱۴ روز",
-            "ساخت محدود در پاریس",
+            "ساخت محدود در تهران",
             "پرداخت امن",
             "رانوی تعاملی AW26",
           ]}

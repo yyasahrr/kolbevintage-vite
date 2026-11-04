@@ -189,7 +189,7 @@ export function adviseSize(p: CatalogProduct, profile: Profile): SizeAdvice {
   if (shoe) {
     const eu = Math.round(profile.height / 6.6 + (profile.weight > 78 ? 1 : 0));
     const best = labels.reduce((a, b) => (Math.abs(Number(a) - eu) <= Math.abs(Number(b) - eu) ? a : b));
-    return { size: best, note: `سایز پیشنهادی اروپایی ${best}` };
+    return { size: best, note: `سایز پیشنهادی ${best}` };
   }
   const order = ["XS", "S", "M", "L", "XL"];
   const idx = bmi < 19 ? 0 : bmi < 22 ? 1 : bmi < 26 ? 2 : bmi < 30 ? 3 : 4;

@@ -554,8 +554,8 @@ const contactInfo: WidgetDef = {
   keywords: "contact info address phone تماس",
   defaults: {
     items: [
-      { icon: "MapPin", title: "نشانی", desc: "پاریس، سن‌آنوره ۲۴", link: "" },
-      { icon: "Phone", title: "تلفن", desc: "+33 1 84 80 24 24", link: "tel:+33184802424" },
+      { icon: "MapPin", title: "نشانی", desc: "تهران، ولیعصر ۲۴", link: "" },
+      { icon: "Phone", title: "تلفن", desc: "021 8888 2424", link: "tel:02188882424" },
       { icon: "Mail", title: "ایمیل", desc: "client@velours.store", link: "mailto:client@velours.store" },
     ],
   },

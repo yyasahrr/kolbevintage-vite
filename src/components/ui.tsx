@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ChevronDown, Minus, Plus, Sparkles } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { useCart } from "@/state/cart";
 
 /* ------------------------------------------------------------------ */
 /* buttons                                                             */
@@ -241,52 +240,6 @@ export function Marquee({ items }: { items: string[] }) {
       <style>{`@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
       @media (prefers-reduced-motion: reduce) { .animate-\\[marquee_46s_linear_infinite\\] { animation: none; } }`}</style>
     </div>
-  );
-}
-
-export function Newsletter({ compact = false }: { compact?: boolean }) {
-  const [email, setEmail] = useState("");
-  const { notify } = useCart();
-  return (
-    <section className={cn("bg-ink text-bone", compact ? "py-10" : "py-14 sm:py-16")}>
-      <div className="mx-auto grid max-w-[1500px] gap-8 px-4 sm:px-6 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:px-10">
-        <div>
-          <p className="text-[10px] text-bone/45">نامهٔ ولور</p>
-          <h2 className="mt-2.5 font-display text-[clamp(1.4rem,2.8vw,2rem)] leading-[1.4] font-medium">
-            اول از همه، نمایش بعدی را ببین.
-          </h2>
-          <p className="mt-2 max-w-[30rem] text-[12px] leading-[1.9] text-bone/60">
-            یادداشت‌های آتلیه، دسترسی زودتر به کالکشن و دعوت به رانوهای خصوصی. بدون ایمیل اضافه.
-          </p>
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!email.trim()) return;
-            notify("ثبت شد", "از این پس خبرهای ولور را دریافت می‌کنی.");
-            setEmail("");
-          }}
-          className="flex flex-col gap-2 sm:flex-row"
-        >
-          <label className="sr-only" htmlFor="newsletter-email">
-            نشانی ایمیل
-          </label>
-          <input
-            id="newsletter-email"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="نشانی ایمیل"
-            dir="ltr"
-            className="min-w-0 flex-1 rounded-[var(--btn-radius)] border border-bone/20 bg-transparent px-5 py-3 text-[12.5px] text-bone placeholder:text-bone/35 focus:border-bone/60 focus:outline-none"
-          />
-          <button type="submit" className={buttonStyles("light", "md", "shrink-0 px-6")}>
-            عضویت
-          </button>
-        </form>
-      </div>
-    </section>
   );
 }
 

@@ -12,6 +12,7 @@ import { useTheme } from "@/theme/ThemeProvider";
 import { useAuth } from "@/state/auth";
 import { useOps } from "@/state/ops";
 import { useAdmin } from "@/state/admin";
+import { useEscape, useScrollLock } from "@/hooks/useOverlay";
 import { UserRound } from "lucide-react";
 
 const NAV = [
@@ -353,6 +354,9 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
   const { themes, theme: activeTheme, setTheme } = useTheme();
   const { wishlist } = useCart();
   const { account } = useAuth();
+  const { settings } = useAdmin();
+  useEscape(open, onClose);
+  useScrollLock(open);
   return (
     <AnimatePresence>
       {open && (
@@ -530,8 +534,8 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
             </div>
             </nav>
             <div className="border-t border-black/[0.07] px-5 py-4 text-[10.5px] leading-relaxed text-ink-45">
-              <p>پاریس، خیابان سن‌آنوره، پلاک ۲۴</p>
-              <p className="mt-1" dir="ltr">client@velours.store</p>
+              <p>{settings.address}</p>
+              <p className="mt-1" dir="ltr">{settings.email}</p>
             </div>
           </motion.div>
         </div>
