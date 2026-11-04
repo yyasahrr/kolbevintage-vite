@@ -1045,14 +1045,84 @@ function Products() {
   const bulkFeature = () => { selected.forEach((id) => { if (!admin.featured.includes(id)) toggleFeatured(id); }); setSelected(new Set()); };
 
   const catalog = liveCatalog();
-  const list = catalog.filter((p) => {
+  const [sortKey, setSortKey] = useState<"name" | "category" | "price" | "stock">("name");
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [page, setPage] = useState(0);
+  const [bulkPct, setBulkPct] = useState(10);
+  const [bulkCat, setBulkCat] = useState("");
+
+  const needle = q.trim().toLowerCase();
+  const matches = (text: string) => !needle || text.toLowerCase().includes(needle);
+
+  /** search hits are marked, not just filtered (decision 39) */
+  const mark = (text: string) => {
+    if (!needle) return text;
+    const i = text.toLowerCase().indexOf(needle);
+    if (i < 0) return text;
+    return (
+      <>
+        {text.slice(0, i)}
+        <mark className="ad-mark">{text.slice(i, i + needle.length)}</mark>
+        {text.slice(i + needle.length)}
+      </>
+    );
+  };
+
+  const filtered = catalog.filter((p) => {
     if (cat !== "all") {
       const coll = COLLECTIONS.find((c) => c.id === cat);
       if (coll && !coll.garments.includes(p.garment)) return false;
     }
-    const s = q.trim();
-    return !s || `${p.name} ${p.category} ${p.lookName}`.includes(s);
+    return matches(`${p.name} ${p.category} ${p.lookName} ${p.id}`);
   });
+
+  const sorted = [...filtered].sort((a, b) => {
+    const pick = (p: CatalogProduct) =>
+      sortKey === "price" ? p.price : sortKey === "stock" ? totalStock(p) : sortKey === "category" ? p.category : p.name;
+    const av = pick(a);
+    const bv = pick(b);
+    if (typeof av === "number" && typeof bv === "number") return (av - bv) * sortDir;
+    return String(av).localeCompare(String(bv), "fa") * sortDir;
+  });
+
+  const PER_PAGE = 50;
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PER_PAGE));
+  const safePage = Math.min(page, pageCount - 1);
+  const rows = sorted.slice(safePage * PER_PAGE, safePage * PER_PAGE + PER_PAGE);
+
+  const sortBy = (key: "name" | "category" | "price" | "stock") => {
+    if (key === sortKey) setSortDir((d) => (d === 1 ? -1 : 1));
+    else {
+      setSortKey(key);
+      setSortDir(1);
+    }
+    setPage(0);
+  };
+
+  const sortMark = (key: "name" | "category" | "price" | "stock") =>
+    sortKey === key ? (sortDir === 1 ? " ↑" : " ↓") : "";
+
+  /** bulk writes go through the same store as the form, per product kind */
+  const applyToProduct = (id: string, change: { price?: number; category?: string }) => {
+    const isCustom = !!getAdmin().customProducts.find((c) => c.id === id);
+    if (isCustom) updateCustomProduct(id, change);
+    else saveProductEdit(id, change);
+  };
+
+  const bulkPrice = () => {
+    selected.forEach((id) => {
+      const pr = liveGetProduct(id);
+      if (!pr) return;
+      applyToProduct(id, { price: Math.max(0, Math.round((pr.price * (100 + bulkPct)) / 100)) });
+    });
+    setSelected(new Set());
+  };
+
+  const bulkCategory = () => {
+    if (!bulkCat) return;
+    selected.forEach((id) => applyToProduct(id, { category: bulkCat }));
+    setSelected(new Set());
+  };
 
   return (
     <>
@@ -1082,57 +1152,120 @@ function Products() {
             <button type="button" className="ad-btn is-sm" onClick={() => bulkHide(false)}><Eye width={12} height={12} /> نمایش</button>
             <button type="button" className="ad-btn is-sm" onClick={() => bulkHide(true)}><EyeOff width={12} height={12} /> مخفی</button>
             <button type="button" className="ad-btn is-sm" onClick={bulkFeature}><Star width={12} height={12} /> ویژه</button>
+            <span className="ad-bulk-group">
+              <label className="ad-hint" htmlFor="bulk-pct">قیمت</label>
+              <input
+                id="bulk-pct"
+                className="ad-input is-tiny"
+                type="number"
+                value={bulkPct}
+                onChange={(e) => setBulkPct(Number(e.target.value) || 0)}
+                aria-label="درصد تغییر قیمت گروهی"
+              />
+              <button type="button" className="ad-btn is-sm" onClick={bulkPrice}>٪ اعمال</button>
+            </span>
+            <span className="ad-bulk-group">
+              <select className="ad-input is-compact" value={bulkCat} onChange={(e) => setBulkCat(e.target.value)} aria-label="دستهٔ گروهی">
+                <option value="">دسته…</option>
+                {getOps().categories.filter((c) => c.active).map((c) => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+              <button type="button" className="ad-btn is-sm" disabled={!bulkCat} onClick={bulkCategory}>انتقال</button>
+            </span>
             <button type="button" className="ad-btn is-sm is-danger" onClick={() => { selected.forEach((id) => { const cp = admin.customProducts.find((c) => c.id === id); if (cp) removeCustomProduct(id); }); setSelected(new Set()); }}><Trash2 width={12} height={12} /> حذف دست‌سازها</button>
             <button type="button" className="ad-btn is-sm" onClick={() => setSelected(new Set())}>لغو انتخاب</button>
           </div>
         </div>
       )}
-      <div className="ad-products">
-        {list.map((p) => {
-          const stock = totalStock(p);
-          const isCustom = !!admin.customProducts.find((c) => c.id === p.id);
-          const hidden = admin.hidden.includes(p.id) || (isCustom && !admin.customProducts.find((c) => c.id === p.id)?.active);
-          const featured = admin.featured.includes(p.id) || admin.customProducts.find((c) => c.id === p.id)?.featured;
-          return (
-            <article key={p.id} className={cn("ad-product", hidden && "is-hidden")}>
-              <input type="checkbox" className="ad-checkbox" checked={selected.has(p.id)} onChange={() => toggleSel(p.id)} aria-label={`انتخاب ${p.name}`} />
-              <ProductThumb product={p} className="w-[60px]" />
-              <div className="ad-product-main">
-                <p className="ad-product-cat">{p.category}{isCustom ? " · دست‌ساز" : ""}</p>
-                <h4>{p.name}</h4>
-                <p className="ad-product-meta">
-                  {formatPrice(p.price)} · {fa(p.colors.length)} رنگ · {fa(p.sizes.length)} سایز
-                  {(admin.complements[p.id]?.length ?? 0) > 0 && <> · {fa(admin.complements[p.id].length)} مکمل</>}
-                  {isCustom ? "" : admin.productEdits[p.id] ? " · ویرایش‌شده" : ""}
-                </p>
-                <div className="ad-stock-bar"><span style={{ width: `${Math.min(100, (stock / 60) * 100)}%` }} className={stock === 0 ? "is-out" : stock <= 12 ? "is-low" : ""} /></div>
-                <p className={cn("ad-stock-label", stock === 0 && "is-out", stock > 0 && stock <= 12 && "is-low")}>
-                  {stock === 0 ? "ناموجود" : `${fa(stock)} عدد در انبار`}
-                </p>
-              </div>
-              <div className="ad-product-actions">
-                <button type="button" className="ad-icon" title="ویرایش محصول" aria-label={`ویرایش ${p.name}`}
-                  onClick={() => setEditing(p.id)}>
-                  <FileText width={14} height={14} />
-                </button>
-                <button type="button" className="ad-icon" title="موجودی واریانت‌ها" aria-label={`موجودی ${p.name}`} onClick={() => setStockFor(p.id)}>
-                  <Boxes width={14} height={14} />
-                </button>
-                <button type="button" className={cn("ad-icon", featured && "is-on")} title="نشان ویژه" aria-label={`ویژه ${p.name}`} aria-pressed={!!featured} onClick={() => toggleFeatured(p.id)}>
-                  <Star width={14} height={14} />
-                </button>
-                <button type="button" className={cn("ad-icon", hidden && "is-danger")} title={hidden ? "نمایش در فروشگاه" : "مخفی‌کردن"} aria-label={`${hidden ? "نمایش" : "مخفی‌کردن"} ${p.name}`} aria-pressed={!!hidden} onClick={() => toggleHidden(p.id)}>
-                  {hidden ? <EyeOff width={14} height={14} /> : <Eye width={14} height={14} />}
-                </button>
-                <Link to={`/product/${p.id}`} className="ad-icon" title="دیدن در فروشگاه" aria-label={`دیدن ${p.name}`}>
-                  <Store width={14} height={14} />
-                </Link>
-              </div>
-            </article>
-          );
-        })}
-        {list.length === 0 && <Empty text="محصولی با این فیلتر پیدا نشد." />}
+      <div className="ad-table-wrap">
+        <table className="ad-table ad-products-table">
+          <thead>
+            <tr>
+              <th aria-label="انتخاب" />
+              <th><button type="button" className="ad-sort" onClick={() => sortBy("name")}>محصول{sortMark("name")}</button></th>
+              <th><button type="button" className="ad-sort" onClick={() => sortBy("category")}>دسته{sortMark("category")}</button></th>
+              <th>تنوع</th>
+              <th><button type="button" className="ad-sort" onClick={() => sortBy("price")}>قیمت{sortMark("price")}</button></th>
+              <th><button type="button" className="ad-sort" onClick={() => sortBy("stock")}>موجودی{sortMark("stock")}</button></th>
+              <th>وضعیت</th>
+              <th aria-label="عملیات" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p) => {
+              const stock = totalStock(p);
+              const isCustom = !!admin.customProducts.find((c) => c.id === p.id);
+              const hiddenRow =
+                admin.hidden.includes(p.id) ||
+                (isCustom && !admin.customProducts.find((c) => c.id === p.id)?.active);
+              const featuredRow =
+                admin.featured.includes(p.id) || admin.customProducts.find((c) => c.id === p.id)?.featured;
+              return (
+                <tr key={p.id} className={cn(hiddenRow && "is-off")}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      className="ad-checkbox"
+                      checked={selected.has(p.id)}
+                      onChange={() => toggleSel(p.id)}
+                      aria-label={`انتخاب ${p.name}`}
+                    />
+                  </td>
+                  <td>
+                    <div className="ad-prod-cell">
+                      <ProductThumb product={p} className="w-[38px]" />
+                      <span>
+                        <b>{mark(p.name)}</b>
+                        <small>{isCustom ? "دست‌ساز" : p.lookName}</small>
+                      </span>
+                    </div>
+                  </td>
+                  <td>{mark(p.category)}</td>
+                  <td className="ad-num">{fa(p.colors.length)} × {fa(p.sizes.length)}</td>
+                  <td className="ad-money">{formatPrice(p.price)}</td>
+                  <td className="ad-num">
+                    <span className={cn(stock === 0 && "text-ember", stock > 0 && stock <= 12 && "text-amber-700")}>
+                      {stock === 0 ? "ناموجود" : fa(stock)}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={cn("ad-chip", !hiddenRow && "is-on")}>{hiddenRow ? "پیش‌نویس" : "منتشرشده"}</span>
+                  </td>
+                  <td>
+                    <div className="ad-product-actions">
+                      <button type="button" className="ad-icon" title="ویرایش محصول" aria-label={`ویرایش ${p.name}`} onClick={() => setEditing(p.id)}>
+                        <FileText width={14} height={14} />
+                      </button>
+                      <button type="button" className="ad-icon" title="موجودی واریانت‌ها" aria-label={`موجودی ${p.name}`} onClick={() => setStockFor(p.id)}>
+                        <Boxes width={14} height={14} />
+                      </button>
+                      <button type="button" className={cn("ad-icon", featuredRow && "is-on")} title="نشان ویژه" aria-label={`ویژه ${p.name}`} aria-pressed={!!featuredRow} onClick={() => toggleFeatured(p.id)}>
+                        <Star width={14} height={14} />
+                      </button>
+                      <button type="button" className={cn("ad-icon", hiddenRow && "is-danger")} title={hiddenRow ? "نمایش در فروشگاه" : "مخفی‌کردن"} aria-label={`${hiddenRow ? "نمایش" : "مخفی‌کردن"} ${p.name}`} aria-pressed={!!hiddenRow} onClick={() => toggleHidden(p.id)}>
+                        {hiddenRow ? <EyeOff width={14} height={14} /> : <Eye width={14} height={14} />}
+                      </button>
+                      <Link to={`/product/${p.id}`} className="ad-icon" title="دیدن در فروشگاه" aria-label={`دیدن ${p.name}`}>
+                        <Store width={14} height={14} />
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {sorted.length === 0 && <Empty text="محصولی با این فیلتر پیدا نشد." />}
       </div>
+
+      {sorted.length > PER_PAGE && (
+        <div className="ad-pager" role="navigation" aria-label="صفحه‌بندی محصولات">
+          <button type="button" className="ad-btn is-sm" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>قبلی</button>
+          <span>صفحهٔ {fa(safePage + 1)} از {fa(pageCount)} · {fa(sorted.length)} محصول</span>
+          <button type="button" className="ad-btn is-sm" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>بعدی</button>
+        </div>
+      )}
 
       {editing && (
         <ProductForm
@@ -1193,6 +1326,66 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
   const [compQuery, setCompQuery] = useState("");
   const [customSize, setCustomSize] = useState("");
   const [err, setErr] = useState("");
+  const [tabPane, setTabPane] = useState<"info" | "media" | "variants" | "price" | "complements">("info");
+  /** a local draft survives a closed tab; it is never uploaded (decision 50) */
+  const draftKey = `kv_product_draft_${product?.id ?? "new"}`;
+  const [draftNotice, setDraftNotice] = useState(false);
+
+  const draftOfForm = () => ({ name, category, garment, price, compareAt, description, colors, sizes, images, picked, stock });
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (raw) setDraftNotice(true);
+    } catch {
+      /* private mode */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  // keep the local draft current; clearing happens on a real save
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(draftKey, JSON.stringify(draftOfForm()));
+      } catch {
+        /* quota / private mode */
+      }
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey, name, category, garment, price, compareAt, description, colors, sizes, images, picked, stock]);
+
+  const restoreDraft = () => {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw) return setDraftNotice(false);
+      const d = JSON.parse(raw);
+      if (typeof d.name === "string") setName(d.name);
+      if (typeof d.category === "string") setCategory(d.category);
+      if (typeof d.garment === "string") setGarment(d.garment);
+      if (typeof d.price === "number") setPrice(d.price);
+      if (typeof d.compareAt === "number") setCompareAt(d.compareAt);
+      if (typeof d.description === "string") setDescription(d.description);
+      if (Array.isArray(d.colors)) setColors(d.colors);
+      if (Array.isArray(d.sizes)) setSizes(d.sizes);
+      if (Array.isArray(d.images)) setImages(d.images);
+      if (Array.isArray(d.picked)) setPicked(d.picked);
+      if (d.stock && typeof d.stock === "object") setStock(d.stock);
+    } catch {
+      /* corrupt draft — ignore */
+    }
+    setDraftNotice(false);
+  };
+
+  const discardDraft = () => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {
+      /* ignore */
+    }
+    setDraftNotice(false);
+  };
 
   const catSizeSet = sizeSetOf(ops.categories.find((c) => c.name === category)?.sizeSetId ?? ops.categories[0]?.sizeSetId ?? "");
   const poolSizes = catSizeSet?.sizes ?? ["XS", "S", "M", "L", "XL", "یک سایز"];
@@ -1239,7 +1432,8 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
     if (gone) setImages((list) => list.map((img) => (img.colorId === gone.id ? { ...img, colorId: "*" } : img)));
   };
 
-  const save = () => {
+  /** `mode` decides visibility: a draft stays off the storefront, a publish goes live */
+  const save = (mode: "draft" | "publish") => {
     if (!name.trim()) { setErr("نام محصول را بنویس."); return; }
     if (!colors.length || !sizes.length) { setErr("حداقل یک رنگ و یک سایز لازم است."); return; }
     const id = product?.id ?? `cp-${uid()}`;
@@ -1274,6 +1468,19 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
     }
     setProductImages(id, images);
     setComplements(id, picked);
+
+    // visibility: a draft is hidden from the storefront, publishing shows it
+    const isHidden = getAdmin().hidden.includes(id);
+    if (mode === "draft" && !isHidden) toggleHidden(id);
+    if (mode === "publish" && isHidden) toggleHidden(id);
+    const savedCustom = getAdmin().customProducts.find((c) => c.id === id);
+    if (savedCustom && savedCustom.active !== (mode === "publish")) updateCustomProduct(id, { active: mode === "publish" });
+
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {
+      /* ignore */
+    }
     onClose();
   };
 
@@ -1288,147 +1495,234 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
           <button type="button" className="ad-icon" aria-label="بستن" onClick={onClose}><X width={16} height={16} /></button>
         </header>
 
-        <div className="ad-modal-body ad-form-grid">
-          <div className="ad-form-col">
-            <label className="ad-field">نام محصول<input className="ad-input" value={name} onChange={(e) => setName(e.target.value)} /></label>
-            <div className="ad-two">
-              <label className="ad-field">دسته
-                <select className="ad-select" value={category} onChange={(e) => { setCategory(e.target.value); setSizes([]); }}>
-                  {ops.categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-                </select>
-              </label>
-              <label className="ad-field">نوع قطعه
-                <select className="ad-select" value={garment} onChange={(e) => setGarment(e.target.value as GarmentKind)}>
-                  {Object.entries(GARMENT_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </label>
-            </div>
-            <div className="ad-two">
-              <label className="ad-field">قیمت (واحد پایه)<input className="ad-input" type="number" min={0} value={price} onChange={(e) => setPrice(Number(e.target.value) || 0)} /></label>
-              <label className="ad-field">قیمت قبل از تخفیف (اختیاری)<input className="ad-input" type="number" min={0} value={compareAt || ""} onChange={(e) => setCompareAt(Number(e.target.value) || 0)} /></label>
-            </div>
-            <label className="ad-field">توضیح کوتاه (اختیاری)
-              <textarea className="ad-input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
-            </label>
+        <div className="ad-modal-tabs" role="tablist" aria-label="بخش‌های فرم محصول">
+          {([
+            ["info", "اطلاعات"],
+            ["media", "گالری"],
+            ["variants", "رنگ و سایز"],
+            ["price", "قیمت و انتشار"],
+            ["complements", "مکمل‌ها"],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tabPane === id}
+              className={cn("ad-modal-tab", tabPane === id && "is-on")}
+              onClick={() => setTabPane(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
-            <p className="ad-field-label">رنگ‌ها</p>
-            {colors.map((c, i) => (
-              <div key={c.id} className="ad-color-row">
-                <input type="color" value={c.hex} aria-label={`رنگ ${i + 1}`} onChange={(e) => setColors(colors.map((x, n) => (n === i ? { ...x, hex: e.target.value } : x)))} />
-                <input className="ad-input" value={c.name} aria-label={`نام رنگ ${i + 1}`} onChange={(e) => setColors(colors.map((x, n) => (n === i ? { ...x, name: e.target.value } : x)))} />
-                <button type="button" className="ad-icon is-danger" aria-label="حذف رنگ" onClick={() => removeColor(i)}><Trash2 width={13} height={13} /></button>
+        <div className="ad-modal-body">
+          {draftNotice && (
+            <div className="ad-banner is-warn" role="status">
+              <span>پیش‌نویس ذخیره‌نشدهٔ قبلی این محصول پیدا شد.</span>
+              <button type="button" className="ad-btn is-sm" onClick={restoreDraft}>بازیابی پیش‌نویس</button>
+              <button type="button" className="ad-btn is-sm" onClick={discardDraft}>دور ریختن</button>
+            </div>
+          )}
+
+          {tabPane === "info" && (
+            <div className="ad-form-grid">
+              <div className="ad-form-col">
+                <label className="ad-field">نام محصول<input className="ad-input" value={name} onChange={(e) => setName(e.target.value)} /></label>
+                <div className="ad-two">
+                  <label className="ad-field">دسته
+                    <select className="ad-select" value={category} onChange={(e) => { setCategory(e.target.value); setSizes([]); }}>
+                      {ops.categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="ad-field">نوع قطعه
+                    <select className="ad-select" value={garment} onChange={(e) => setGarment(e.target.value as GarmentKind)}>
+                      {Object.entries(GARMENT_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <label className="ad-field">توضیح کوتاه (اختیاری)
+                  <textarea className="ad-input" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+                </label>
+                {err && <p className="ad-form-err">{err}</p>}
               </div>
-            ))}
-            <button type="button" className="ad-btn is-sm" onClick={() => setColors([...colors, { id: `c${uid()}`, name: "رنگ جدید", hex: "#8c4a2f" }])}><Plus width={13} height={13} /> رنگ</button>
-
-            <p className="ad-field-label">سایزها {catSizeSet && <span className="ad-hint">— مجموعهٔ «{catSizeSet.name}»</span>}</p>
-            <div className="ad-size-pool">
-              {poolSizes.map((label) => {
-                const has = sizes.some((x) => x.label === label);
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    className={cn("ad-chip", has && "is-on")}
-                    onClick={() => setSizes(has ? sizes.filter((x) => x.label !== label) : [...sizes, { id: "s-" + label, label }])}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="ad-size-pool" style={{ alignItems: "center" }}>
-              <input className="ad-input" value={customSize} onChange={(e) => setCustomSize(e.target.value)} placeholder="سایز دلخواه…" aria-label="سایز دلخواه" style={{ maxWidth: 140 }} />
-              <button
-                type="button"
-                className="ad-btn is-sm"
-                disabled={!customSize.trim()}
-                onClick={() => {
-                  const label = customSize.trim();
-                  if (!sizes.some((x) => x.label === label)) setSizes([...sizes, { id: "s-" + label, label }]);
-                  setCustomSize("");
-                }}
-              >
-                <Plus width={12} height={12} /> افزودن سایز
-              </button>
-            </div>
-
-            {err && <p className="ad-form-err">{err}</p>}
-          </div>
-
-          <div className="ad-form-col">
-            <p className="ad-field-label">پیش‌نمایش</p>
-            <div className="ad-form-preview">
-              <div className="ad-preview-thumb">
-                {coverPreview ? (
-                  <img src={resolveImg(coverPreview)} alt="" className="w-full rounded-[10px]" />
-                ) : (
-                  <ProductThumb product={previewProduct} className="w-full" />
-                )}
+              <div className="ad-form-col">
+                <p className="ad-field-label">پیش‌نمایش</p>
+                <div className="ad-form-preview">
+                  <div className="ad-preview-thumb">
+                    {coverPreview ? (
+                      <img src={resolveImg(coverPreview)} alt="" className="w-full rounded-[10px]" />
+                    ) : (
+                      <ProductThumb product={previewProduct} className="w-full" />
+                    )}
+                  </div>
+                </div>
+                <p className="ad-hint">نام، دسته و توضیح در کارت محصول و صفحهٔ محصول همین‌طور دیده می‌شود.</p>
               </div>
             </div>
+          )}
 
-            <p className="ad-field-label">گالری تصاویر</p>
-            <ProductMediaEditor images={images} colors={colors} onChange={setImages} />
+          {tabPane === "media" && (
+            <div className="ad-form-grid">
+              <div className="ad-form-col">
+                <p className="ad-field-label">گالری تصاویر</p>
+                <ProductMediaEditor images={images} colors={colors} onChange={setImages} />
+              </div>
+              <div className="ad-form-col">
+                <p className="ad-field-label">پیش‌نمایش</p>
+                <div className="ad-form-preview">
+                  <div className="ad-preview-thumb">
+                    {coverPreview ? (
+                      <img src={resolveImg(coverPreview)} alt="" className="w-full rounded-[10px]" />
+                    ) : (
+                      <ProductThumb product={previewProduct} className="w-full" />
+                    )}
+                  </div>
+                </div>
+                <p className="ad-hint">تصویر «اصلی» در کارت محصول و صفحهٔ محصول دیده می‌شود؛ بقیه در گالری.</p>
+              </div>
+            </div>
+          )}
 
-            <p className="ad-field-label" style={{ marginTop: 16 }}>کالاهای مکمل</p>
-            <div className="ad-complement-picked">
-              {picked.length === 0 && <span className="ad-hint">هنوز مکملی انتخاب نشده؛ از فهرست پایین اضافه کن.</span>}
-              {picked.map((id) => {
-                const p = catalogue.find((x) => x.id === id);
-                if (!p) return null;
-                return (
-                  <span key={id} className="ad-complement-chip">
-                    <ProductThumb product={p} className="w-[26px]" />
-                    <span>{p.name}</span>
-                    <button type="button" className="ad-complement-x" aria-label={`حذف ${p.name}`} onClick={() => setPicked(picked.filter((x) => x !== id))}>
-                      <X width={11} height={11} />
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-            <div className="ad-comp-search">
-              <Search width={13} height={13} />
-              <input className="ad-input" value={compQuery} onChange={(e) => setCompQuery(e.target.value)} placeholder="جست‌وجوی کالا برای مکمل…" aria-label="جست‌وجوی کالای مکمل" />
-            </div>
-            <div className="ad-complement-list">
-              {compCandidates.map((p) => {
-                const on = picked.includes(p.id);
-                return (
+          {tabPane === "variants" && (
+            <div className="ad-form-grid">
+              <div className="ad-form-col">
+                <p className="ad-field-label">رنگ‌ها</p>
+                {colors.map((c, i) => (
+                  <div key={c.id} className="ad-color-row">
+                    <input type="color" value={c.hex} aria-label={`رنگ ${i + 1}`} onChange={(e) => setColors(colors.map((x, n) => (n === i ? { ...x, hex: e.target.value } : x)))} />
+                    <input className="ad-input" value={c.name} aria-label={`نام رنگ ${i + 1}`} onChange={(e) => setColors(colors.map((x, n) => (n === i ? { ...x, name: e.target.value } : x)))} />
+                    <button type="button" className="ad-icon is-danger" aria-label="حذف رنگ" onClick={() => removeColor(i)}><Trash2 width={13} height={13} /></button>
+                  </div>
+                ))}
+                <button type="button" className="ad-btn is-sm" onClick={() => setColors([...colors, { id: `c${uid()}`, name: "رنگ جدید", hex: "#8c4a2f" }])}><Plus width={13} height={13} /> رنگ</button>
+
+                <p className="ad-field-label">سایزها {catSizeSet && <span className="ad-hint">— مجموعهٔ «{catSizeSet.name}»</span>}</p>
+                <div className="ad-size-pool">
+                  {poolSizes.map((label) => {
+                    const has = sizes.some((x) => x.label === label);
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        className={cn("ad-chip", has && "is-on")}
+                        onClick={() => setSizes(has ? sizes.filter((x) => x.label !== label) : [...sizes, { id: "s-" + label, label }])}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="ad-size-pool" style={{ alignItems: "center" }}>
+                  <input className="ad-input" value={customSize} onChange={(e) => setCustomSize(e.target.value)} placeholder="سایز دلخواه…" aria-label="سایز دلخواه" style={{ maxWidth: 140 }} />
                   <button
-                    key={p.id}
                     type="button"
-                    className={cn("ad-complement-pick", on && "is-on")}
-                    aria-pressed={on}
-                    onClick={() => setPicked(on ? picked.filter((x) => x !== p.id) : [...picked, p.id])}
+                    className="ad-btn is-sm"
+                    disabled={!customSize.trim()}
+                    onClick={() => {
+                      const label = customSize.trim();
+                      if (!sizes.some((x) => x.label === label)) setSizes([...sizes, { id: "s-" + label, label }]);
+                      setCustomSize("");
+                    }}
                   >
-                    <ProductThumb product={p} className="w-[34px]" />
-                    <span className="ad-complement-name">
-                      <b>{p.name}</b>
-                      <small>{GARMENT_LABEL[p.garment]} · {formatPrice(p.price)}</small>
-                    </span>
-                    {on ? <Check width={13} height={13} /> : <Plus width={13} height={13} />}
+                    <Plus width={12} height={12} /> افزودن سایز
                   </button>
-                );
-              })}
-              {compCandidates.length === 0 && <p className="ad-hint">کالایی با این جست‌وجو پیدا نشد.</p>}
-            </div>
-            <p className="ad-hint">قطعه‌هایی که با این کالا ست می‌شوند؛ مثلاً برای پیراهن نارنجی: شلوار مشکی، شلوار سرمه‌ای، ساعت و کفش چرمی. در صفحهٔ محصول زیر «تکمیل استایل» نمایش داده می‌شوند.</p>
-
-            <p className="ad-field-label">موجودی هر واریانت</p>
-            <div className="ad-stock-matrix">
-              {colors.map((c) => (
-                <div key={c.id} className="ad-stock-matrix-row">
-                  <span className="ad-stock-matrix-head"><i style={{ background: c.hex }} />{c.name}</span>
-                  {sizes.map((s) => (
-                    <input key={s.label} type="number" min={0} max={999} aria-label={`موجودی ${c.name} ${s.label}`} value={stock[`${c.id}:${s.id}`] ?? 0}
-                      onChange={(e) => setStock({ ...stock, [`${c.id}:${s.id}`]: Math.max(0, Number(e.target.value) || 0) })} />
+                </div>
+                {err && <p className="ad-form-err">{err}</p>}
+              </div>
+              <div className="ad-form-col">
+                <p className="ad-field-label">موجودی هر واریانت</p>
+                <div className="ad-stock-matrix">
+                  {colors.map((c) => (
+                    <div key={c.id} className="ad-stock-matrix-row">
+                      <span className="ad-stock-matrix-head"><i style={{ background: c.hex }} />{c.name}</span>
+                      {sizes.map((sz) => (
+                        <input key={sz.label} type="number" min={0} max={999} aria-label={`موجودی ${c.name} ${sz.label}`} value={stock[`${c.id}:${sz.id}`] ?? 0}
+                          onChange={(e) => setStock({ ...stock, [`${c.id}:${sz.id}`]: Math.max(0, Number(e.target.value) || 0) })} />
+                      ))}
+                    </div>
                   ))}
                 </div>
-              ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {tabPane === "price" && (
+            <div className="ad-form-grid">
+              <div className="ad-form-col">
+                <div className="ad-two">
+                  <label className="ad-field">قیمت (واحد پایه)<input className="ad-input" type="number" min={0} value={price} onChange={(e) => setPrice(Number(e.target.value) || 0)} /></label>
+                  <label className="ad-field">قیمت قبل از تخفیف (اختیاری)<input className="ad-input" type="number" min={0} value={compareAt || ""} onChange={(e) => setCompareAt(Number(e.target.value) || 0)} /></label>
+                </div>
+                <p className="ad-hint">
+                  {compareAt > price && price > 0
+                    ? `این قیمت ${fa(Math.round(((compareAt - price) / compareAt) * 100))}٪ زیر قیمت قبلی است.`
+                    : "اگر قیمت قبل را پر کنی، درصد تخفیف همین‌جا محاسبه و در کارت محصول نشان داده می‌شود."}
+                </p>
+                <p className="ad-hint">
+                  درصد سود به «قیمت خرید» نیاز دارد که هنوز در داده‌ها نیست؛ وقتی قیمت خرید ثبت شود، همین‌جا
+                  نمایش داده می‌شود. تا آن موقع عددی نشان نمی‌دهیم.
+                </p>
+                {err && <p className="ad-form-err">{err}</p>}
+              </div>
+              <div className="ad-form-col">
+                <p className="ad-field-label">وضعیت نمایش</p>
+                <p className="ad-hint">
+                  «ذخیرهٔ پیش‌نویس» محصول را در پنل نگه می‌دارد و از ویترین پنهان می‌کند؛
+                  «انتشار» آن را برای مشتری نمایش می‌دهد. وضعیت فعلی:{" "}
+                  <b>{product ? (admin.hidden.includes(product.id) ? "پیش‌نویس / پنهان" : "منتشرشده") : "محصول تازه"}</b>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {tabPane === "complements" && (
+            <div className="ad-form-col">
+              <p className="ad-complement-picked">
+                {picked.length === 0 && <span className="ad-hint">هنوز مکملی انتخاب نشده؛ از فهرست پایین اضافه کن.</span>}
+                {picked.map((id) => {
+                  const cp = catalogue.find((x) => x.id === id);
+                  if (!cp) return null;
+                  return (
+                    <span key={id} className="ad-complement-chip">
+                      <ProductThumb product={cp} className="w-[26px]" />
+                      <span>{cp.name}</span>
+                      <button type="button" className="ad-complement-x" aria-label={`حذف ${cp.name}`} onClick={() => setPicked(picked.filter((x) => x !== id))}>
+                        <X width={11} height={11} />
+                      </button>
+                    </span>
+                  );
+                })}
+              </p>
+              <div className="ad-comp-search">
+                <Search width={13} height={13} />
+                <input className="ad-input" value={compQuery} onChange={(e) => setCompQuery(e.target.value)} placeholder="جست‌وجوی کالا برای مکمل…" aria-label="جست‌وجوی کالای مکمل" />
+              </div>
+              <div className="ad-complement-list">
+                {compCandidates.map((cp) => {
+                  const on = picked.includes(cp.id);
+                  return (
+                    <button
+                      key={cp.id}
+                      type="button"
+                      className={cn("ad-complement-pick", on && "is-on")}
+                      aria-pressed={on}
+                      onClick={() => setPicked(on ? picked.filter((x) => x !== cp.id) : [...picked, cp.id])}
+                    >
+                      <ProductThumb product={cp} className="w-[34px]" />
+                      <span className="ad-complement-name">
+                        <b>{cp.name}</b>
+                        <small>{GARMENT_LABEL[cp.garment]} · {formatPrice(cp.price)}</small>
+                      </span>
+                      {on ? <Check width={13} height={13} /> : <Plus width={13} height={13} />}
+                    </button>
+                  );
+                })}
+                {compCandidates.length === 0 && <p className="ad-hint">کالایی با این جست‌وجو پیدا نشد.</p>}
+              </div>
+              <p className="ad-hint">این قطعه‌ها در صفحهٔ محصول، زیر عنوان «با اینا می‌تونی ست کنی»، به‌صورت تصویر بندانگشتی نمایش داده می‌شوند (حداکثر چهار مورد اول).</p>
+            </div>
+          )}
         </div>
 
         <footer className="ad-modal-foot">
@@ -1444,7 +1738,12 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
           )}
           <div className="ad-actions-spacer" />
           <button type="button" className="ad-btn" onClick={onClose}>انصراف</button>
-          <button type="button" className="ad-btn is-primary" onClick={save}><Save width={13} height={13} /> {product ? "ذخیرهٔ تغییرات" : "ایجاد محصول"}</button>
+          <button type="button" className="ad-btn" onClick={() => save("draft")}>
+            <FileText width={13} height={13} /> ذخیرهٔ پیش‌نویس
+          </button>
+          <button type="button" className="ad-btn is-primary" onClick={() => save("publish")}>
+            <Save width={13} height={13} /> {product ? "ذخیره و انتشار" : "ایجاد و انتشار"}
+          </button>
         </footer>
       </div>
     </div>
