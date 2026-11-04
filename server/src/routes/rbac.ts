@@ -14,6 +14,7 @@ import {
   listStaff,
   permissionsFor,
   requirePermission,
+  requireOwnerRole,
   roleForSubject,
   type Permission,
 } from "../http/rbac";
@@ -167,6 +168,7 @@ export async function rbacRoutes(app: FastifyInstance) {
       if (RESERVED_SUBJECTS.has(subject)) throw validation("این شناسهٔ ورود رزرو شده است.");
       const roles = await listRoles();
       if (!roles.some((r) => r.id === roleId)) throw validation("نقش انتخاب‌شده وجود ندارد.");
+      if (roleId === OWNER_ROLE) await requireOwnerRole(session);
       const dup = await query("select 1 from staff where subject = $1", [subject]);
       if (dup.rowCount) throw conflict("این شناسهٔ ورود قبلاً ثبت شده است.");
       const id = `staff-${randomUUID().slice(0, 8)}`;
@@ -194,6 +196,7 @@ export async function rbacRoutes(app: FastifyInstance) {
     Body: { name?: string; roleId?: string; active?: boolean; passcode?: string };
   }>("/api/admin/staff/:id", async (req) => {
     const session = await requirePermission(req, "staff:manage");
+    await requireOwnerRole(session);
     const { id } = req.params;
     const rows = await listStaff();
     const current = rows.find((s) => s.id === id);

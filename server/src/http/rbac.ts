@@ -167,6 +167,14 @@ export const permissionsFor = async (subject: string): Promise<Permission[]> => 
  * Session + permission in one call. Unknown staff, deactivated staff and a
  * missing role all end in 403 — this is fail-closed by construction.
  */
+/** owner-only actions: staff lifecycle and granting the owner role itself */
+export async function requireOwnerRole(session: Session) {
+  const role = await roleForSubject(session.subject);
+  if (role?.roleId !== OWNER_ROLE) {
+    throw forbidden("این کار فقط از مالک فروشگاه پذیرفته می‌شود.");
+  }
+}
+
 export async function requirePermission(req: FastifyRequest, permission: Permission): Promise<Session> {
   const session = await readSession(req);
   if (session?.kind !== "admin") {

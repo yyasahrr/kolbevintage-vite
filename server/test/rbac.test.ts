@@ -263,7 +263,8 @@ test("the last active owner cannot be deactivated, even by a delegated staff man
   const staffList = await client.get("/api/admin/staff");
   assert.equal(staffList.status, 200);
   const ownerRow = staffList.body.staff.find((s: any) => s.subject === "admin");
+  // a delegated staff manager cannot touch people at all — owner only (decision 90)
   const res = await client.patch(`/api/admin/staff/${ownerRow.id}`, { active: false });
-  assert.equal(res.status, 409, JSON.stringify(res.body));
+  assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.match(res.body.error, /مالک/);
 });
