@@ -16,6 +16,7 @@ import {
   type Shortage,
 } from "@/lib/commerce";
 import { formatPrice } from "@/data/looks";
+import { toLatinDigits } from "@/utils/date";
 
 import { PageIntro, buttonStyles } from "@/components/ui";
 import { cn } from "@/utils/cn";
@@ -159,11 +160,12 @@ export function CheckoutPage() {
     const form = new FormData(e.currentTarget);
     const address = {
       receiver: `${form.get("given") ?? ""} ${form.get("family") ?? ""}`.trim(),
-      phone: String(form.get("tel") ?? ""),
+      // Persian keyboards type ۰۹۱۲… — normalise before validation
+      phone: toLatinDigits(String(form.get("tel") ?? "")),
       province: String(form.get("province") ?? ""),
       city: String(form.get("city") ?? ""),
       street: String(form.get("street") ?? ""),
-      postal: String(form.get("postal") ?? ""),
+      postal: toLatinDigits(String(form.get("postal") ?? "")),
       note: String(form.get("note") ?? ""),
     };
 

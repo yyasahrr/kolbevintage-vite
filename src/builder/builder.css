@@ -593,6 +593,7 @@ select.eb-in { appearance: none; background-image: url("data:image/svg+xml;utf8,
 .eb-rep-head button.eb-rep-title { flex: 1; text-align: start; background: transparent; border: 0; color: #e5e7eb; cursor: pointer; font-size: 12px; padding: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eb-rep-body { padding: 4px 10px 12px; display: flex; flex-direction: column; gap: 12px; border-top: 1px solid #262a30; }
 .eb-wys { border: 1px solid #3a3d44; border-radius: 8px; background: #14161a; overflow: hidden; }
+.eb-wys:focus-within { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25); }
 .eb-wys-bar { display: flex; gap: 2px; padding: 4px; border-bottom: 1px solid #2a2d34; flex-wrap: wrap; }
 .eb-wys-bar button { width: 28px; height: 26px; border: 0; background: transparent; color: #cbd5e1; border-radius: 5px; cursor: pointer; font-weight: 700; font-size: 12px; }
 .eb-wys-bar button:hover { background: #262a30; }

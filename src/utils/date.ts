@@ -76,3 +76,19 @@ export function daysLeftLabel(value: string | number | Date): string {
   if (days <= 0) return "امروز آخرین روز";
   return `${days.toLocaleString("fa-IR")} روز مانده`;
 }
+
+/* ------------------------------------------------------------------ */
+/* numerals                                                            */
+/* ------------------------------------------------------------------ */
+
+const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
+
+/** «۰۹۱۲…» typed on a Persian keyboard becomes «0912…» before it is validated */
+export function toLatinDigits(value: string): string {
+  return value.replace(/[۰-۹٠-٩]/g, (d) => {
+    const fa = FA_DIGITS.indexOf(d);
+    if (fa >= 0) return String(fa);
+    return String(AR_DIGITS.indexOf(d));
+  });
+}

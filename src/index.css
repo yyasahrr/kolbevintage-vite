@@ -25,6 +25,11 @@
     scroll-behavior: smooth;
   }
 
+  html {
+    /* anchors land below the sticky header instead of behind it */
+    scroll-padding-top: 96px;
+  }
+
   body {
     margin: 0;
     overflow-x: hidden;
