@@ -232,6 +232,9 @@ create table if not exists coupons (
 -- additive: percent coupons need a hard ceiling (no 100% giveaway)
 alter table coupons add column if not exists max_discount numeric(12, 2);
 
+-- additive: a percent campaign can carry its own ceiling too (decision 33)
+alter table price_rules add column if not exists max_discount numeric(12, 2);
+
 create table if not exists checkout_sessions (
   id text primary key,
   cart_id text,

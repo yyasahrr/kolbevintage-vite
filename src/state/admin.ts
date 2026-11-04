@@ -22,7 +22,11 @@ export interface StoreSettings {
   returnDays: number;
   passcode: string;
   maintenance: boolean;
+  /** store-wide "low stock" line; 0/undefined = the built-in default (decision 32) */
+  lowStockThreshold?: number;
 }
+
+export const LOW_STOCK_DEFAULT = 12;
 
 export type OrderStatus = "pending" | "processing" | "shipped" | "done" | "cancelled" | "exception";
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
@@ -76,6 +80,10 @@ export interface Coupon {
   kind: "percent" | "fixed";
   value: number;
   minSpend: number;
+  /** hard ceiling in Toman for a percent code; 0/undefined = no cap */
+  maxDiscount?: number;
+  /** how many times the code may be used in total; undefined = unlimited */
+  usageLimit?: number;
   active: boolean;
   expires: string;
   uses: number;
@@ -110,6 +118,8 @@ export interface CustomProduct {
   active: boolean;
   featured: boolean;
   createdAt: number;
+  /** this product's own low-stock line, overriding the store-wide one (decision 32) */
+  lowStockThreshold?: number;
 }
 
 /**
@@ -130,6 +140,8 @@ export interface ProductEdit {
   sizes?: SizeOption[];
   /** stock snapshot for the variants shown in the form */
   stock?: StockMap;
+  /** this product's own low-stock line, overriding the store-wide one (decision 32) */
+  lowStockThreshold?: number;
 }
 
 export const GARMENT_LABEL: Record<string, string> = {
@@ -172,6 +184,8 @@ export interface Campaign {
   kind: "percent" | "fixed" | "freeship";
   value: number;
   minSpend: number;
+  /** hard ceiling in Toman for a percent campaign; 0/undefined = no cap (decision 33) */
+  maxDiscount?: number;
   scope: Scope;
   scopeId?: string;
   code?: string;
@@ -541,6 +555,21 @@ export const resetProductEdit = (id: string) => {
 };
 export const productEditOf = (id: string) => cache.productEdits[id];
 
+/* ---------------- low stock line (decision 32) ---------------- */
+export const lowStockLine = (settings: StoreSettings = cache.settings) =>
+  settings.lowStockThreshold && settings.lowStockThreshold > 0 ? settings.lowStockThreshold : LOW_STOCK_DEFAULT;
+
+/** a product can carry its own line; otherwise the store-wide one applies */
+export const lowStockLineOf = (productId: string) => {
+  const own =
+    cache.productEdits[productId]?.lowStockThreshold ??
+    cache.customProducts.find((p) => p.id === productId)?.lowStockThreshold;
+  return own && own > 0 ? own : lowStockLine();
+};
+
+export const isLowStock = (productId: string, total: number) => total > 0 && total <= lowStockLineOf(productId);
+export const isOutOfStock = (total: number) => total <= 0;
+
 /* ---------------- complementary products ---------------- */
 export const setComplements = (productId: string, ids: string[]) =>
   patch({ complements: { ...cache.complements, [productId]: ids } });
@@ -630,6 +659,24 @@ export const bumpCampaignUse = (id: string) =>
 export const saveRule = (r: DiscountRule) =>
   patch({ rules: cache.rules.some((x) => x.id === r.id) ? cache.rules.map((x) => (x.id === r.id ? r : x)) : [r, ...cache.rules] });
 export const removeRule = (id: string) => patch({ rules: cache.rules.filter((r) => r.id !== id) });
+
+/* A readable code an owner can say out loud: two syllables + a 4-char tail.
+   Generated locally, checked against existing codes so a new code is never a duplicate. */
+const CODE_SYLLABLES = ["BAR", "NO", "SA", "TAK", "PAR", "GOL", "SIM", "AB", "AT", "MAH", "NOO", "ZAR"];
+export function generateCouponCode(existing: string[] = cache.coupons.map((c) => c.code.toUpperCase())): string {
+  const taken = new Set(existing.map((c) => c.toUpperCase()));
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const head = CODE_SYLLABLES[Math.floor(Math.random() * CODE_SYLLABLES.length)];
+    const tail = CODE_SYLLABLES[Math.floor(Math.random() * CODE_SYLLABLES.length)];
+    const digits = String(Math.floor(10 + Math.random() * 90));
+    const code = `${head}${tail}${digits}`;
+    if (!taken.has(code)) return code;
+  }
+  return `KV${Date.now().toString().slice(-6)}`;
+}
+
+export const saveCoupons = (list: Coupon[]) =>
+  patch({ coupons: [...list, ...cache.coupons.filter((c) => !list.some((x) => x.id === c.id))] });
 
 export const saveCoupon = (c: Coupon) =>
   patch({ coupons: cache.coupons.some((x) => x.id === c.id) ? cache.coupons.map((x) => (x.id === c.id ? c : x)) : [c, ...cache.coupons] });

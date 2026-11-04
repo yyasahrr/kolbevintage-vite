@@ -75,6 +75,7 @@ import {
 } from "@/state/ops";
 import {
   useAdmin,
+  isLowStock,
   setStockUnified,
   restock,
   saveCustomLook,
@@ -1442,7 +1443,7 @@ export function InventoryPanel() {
         <div className="ad-kpi ad-kpi-static"><b>{fa(catalog.length)}</b><span className="ad-kpi-label">کالا</span></div>
         <div className="ad-kpi ad-kpi-static"><b>{fa(catalog.reduce((n, p) => n + totalStock(p), 0))}</b><span className="ad-kpi-label">واحد در انبار</span></div>
         <div className="ad-kpi ad-kpi-static"><b>{fa(catalog.filter((p) => totalStock(p) === 0).length)}</b><span className="ad-kpi-label">ناموجود</span></div>
-        <div className="ad-kpi ad-kpi-static"><b>{fa(catalog.filter((p) => { const s = totalStock(p); return s > 0 && s <= 12; }).length)}</b><span className="ad-kpi-label">کم‌موجود</span></div>
+        <div className="ad-kpi ad-kpi-static"><b>{fa(catalog.filter((p) => isLowStock(p.id, totalStock(p))).length)}</b><span className="ad-kpi-label">کم‌موجود</span></div>
       </div>
 
       <div className="ad-toolbar">

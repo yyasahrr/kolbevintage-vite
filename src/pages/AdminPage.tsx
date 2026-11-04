@@ -20,6 +20,7 @@ import {
   Lock,
   LogOut,
   Megaphone,
+  Sparkles,
   Package,
   Palette,
   Plus,
@@ -57,7 +58,7 @@ import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
 import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
-import { useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
+import { type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
 import { resolveImg } from "@/builder/stock";
@@ -791,7 +792,7 @@ function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
   const revenue = admin.orders.filter((o) => o.status !== "cancelled").reduce((n, o) => n + o.total, 0);
   const customers = new Set(admin.orders.map((o) => o.email).filter(Boolean)).size;
   const stockValue = catalog.reduce((n, p) => n + totalStock(p) * p.price, 0);
-  const lowCount = catalog.filter((p) => { const s = totalStock(p); return s > 0 && s <= 12; }).length;
+  const lowCount = catalog.filter((p) => isLowStock(p.id, totalStock(p))).length;
   const outCount = catalog.filter((p) => totalStock(p) === 0).length;
   const campaignsOn = admin.campaigns.filter((c) => c.active).length;
 
@@ -1593,9 +1594,13 @@ function Products() {
                   <td className="ad-num">{fa(p.colors.length)} × {fa(p.sizes.length)}</td>
                   <td className="ad-money">{formatPrice(p.price)}</td>
                   <td className="ad-num">
-                    <span className={cn(stock === 0 && "text-ember", stock > 0 && stock <= 12 && "text-amber-700")}>
+                    <span className={cn(stock === 0 && "text-ember", stock > 0 && stock <= lowStockLineOf(p.id) && "text-amber-700")}>
                       {stock === 0 ? "ناموجود" : fa(stock)}
                     </span>
+                    {stock > 0 && stock <= lowStockLineOf(p.id) && (
+                      // the line this row is judged against, so an override is never a mystery
+                      <small className="ad-hint" style={{ display: "block" }}>کم‌موجود · خط {fa(lowStockLineOf(p.id))}</small>
+                    )}
                   </td>
                   <td>
                     <span className={cn("ad-chip", !hiddenRow && "is-on")}>{hiddenRow ? "پیش‌نویس" : "منتشرشده"}</span>
@@ -1689,6 +1694,9 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
   const [colors, setColors] = useState(product?.colors ?? [{ id: "c1", name: "مشکی", hex: "#16130f" }]);
   const [sizes, setSizes] = useState(product?.sizes ?? [{ id: "one-size", label: "یک سایز" }]);
   const [stock, setStock] = useState<Record<string, number>>(() => stockMapOf(product));
+  const [lowStock, setLowStock] = useState<number>(
+    () => admin.productEdits[product?.id ?? ""]?.lowStockThreshold ?? custom?.lowStockThreshold ?? 0,
+  );
   const [images, setImages] = useState<ProductImage[]>(() => (product ? [...productImagesOf(product.id)] : []));
   const [picked, setPicked] = useState<string[]>(() => (product ? [...complementsOf(product.id)] : []));
   const [compQuery, setCompQuery] = useState("");
@@ -1818,6 +1826,7 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
       stock: product && !custom
         ? { ...stock }
         : Object.fromEntries(Object.entries(stock).filter(([, v]) => v > 0)),
+      lowStockThreshold: lowStock > 0 ? lowStock : undefined,
     };
     if (custom) {
       updateCustomProduct(custom.id, payload);
@@ -2031,6 +2040,13 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
                   درصد سود به «قیمت خرید» نیاز دارد که هنوز در داده‌ها نیست؛ وقتی قیمت خرید ثبت شود، همین‌جا
                   نمایش داده می‌شود. تا آن موقع عددی نشان نمی‌دهیم.
                 </p>
+                <label className="ad-field">
+                  آستانهٔ «کم‌موجود» این محصول (۰ = همان آستانهٔ فروشگاه)
+                  <input className="ad-input" type="number" min={0} value={lowStock || 0} onChange={(e) => setLowStock(Number(e.target.value) || 0)} />
+                  <small className="ad-hint">
+                    آستانهٔ فروشگاه {fa(lowStockLine())} است؛ اگر این محصول شرایط خاصی دارد، عدد خودش را بگذار.
+                  </small>
+                </label>
                 {err && <p className="ad-form-err">{err}</p>}
               </div>
               <div className="ad-form-col">
@@ -2369,7 +2385,7 @@ function Campaigns() {
   const [tab, setTab] = useState<"campaigns" | "rules" | "codes" | "preview">("campaigns");
   const [campDraft, setCampDraft] = useState<Campaign | null>(null);
   const [ruleDraft, setRuleDraft] = useState<DiscountRule | null>(null);
-  const [codeDraft, setCodeDraft] = useState<{ id: string; code: string; kind: "percent" | "fixed"; value: number; minSpend: number; active: boolean; expires: string; uses: number } | null>(null);
+  const [codeDraft, setCodeDraft] = useState<Coupon | null>(null);
 
   return (
     <>
@@ -2399,7 +2415,8 @@ function Campaigns() {
                 <b>{c.name}</b>
                 <small>
                   {c.kind === "percent" ? `${fa(c.value)}٪` : c.kind === "fixed" ? `${fa(c.value)} تومان` : "ارسال رایگان"}
-                  {c.minSpend > 0 && ` · حداقل ${fa(c.minSpend)} تومان`}
+                  {c.minSpend > 0 && ` · حداقل سبد ${fa(c.minSpend)} تومان`}
+                  {!!c.maxDiscount && ` · سقف ${fa(c.maxDiscount)} تومان`}
                   {` · ${SCOPE_LABEL[c.scope]}`}
                   {/* how many products this campaign actually touches (decision 43) */}
                   {` · ${fa(liveCatalog().filter((p) => (c.scope === "category" ? p.category === c.scopeId : c.scope === "look" ? p.lookId === c.scopeId : true)).length)} محصول مشمول`}
@@ -2463,8 +2480,10 @@ function Campaigns() {
                 <small>
                   {c.kind === "percent" ? `${fa(c.value)}٪` : `${fa(c.value)} تومان`}
                   {c.minSpend > 0 && ` · حداقل ${fa(c.minSpend)}`}
+                  {!!c.maxDiscount && ` · سقف ${fa(c.maxDiscount)}`}
+                  {c.usageLimit != null && c.usageLimit > 0 && ` · ${fa(c.uses)} از ${fa(c.usageLimit)}`}
                   {c.expires && ` · تا ${c.expires}`}
-                  {` · ${fa(c.uses)} بار`}
+                  {c.usageLimit == null && ` · ${fa(c.uses)} بار`}
                 </small>
               </div>
               <div className="ad-product-actions">
@@ -2553,6 +2572,13 @@ function CampaignModal({ initial, onClose }: { initial: Campaign; onClose: () =>
             <label className="ad-field">مقدار<input className="ad-input" type="number" min={0} value={c.value} onChange={(e) => setC({ ...c, value: Number(e.target.value) || 0 })} /></label>
             <label className="ad-field">حداقل خرید<input className="ad-input" type="number" min={0} value={c.minSpend} onChange={(e) => setC({ ...c, minSpend: Number(e.target.value) || 0 })} /></label>
           </div>
+          {c.kind === "percent" && (
+            <label className="ad-field">
+              سقف تخفیف هر قلم (تومان) — ۰ یعنی بی‌سقف
+              <input className="ad-input" type="number" min={0} value={c.maxDiscount ?? 0} onChange={(e) => setC({ ...c, maxDiscount: Number(e.target.value) || 0 })} />
+              <small className="ad-hint">مثلاً «۲۰٪ با سقف ۳۰۰٬۰۰۰ تومان»: روی سبد بزرگ بیشتر از این عدد کم نمی‌شود.</small>
+            </label>
+          )}
           <div className="ad-two">
             <label className="ad-field">دامنه
               <select className="ad-select" value={c.scope} onChange={(e) => setC({ ...c, scope: e.target.value as Scope })}>
@@ -2667,9 +2693,27 @@ function RuleModal({ initial, onClose }: { initial: DiscountRule; onClose: () =>
   );
 }
 
-function CodeModal({ initial, onClose }: { initial: { id: string; code: string; kind: "percent" | "fixed"; value: number; minSpend: number; active: boolean; expires: string; uses: number }; onClose: () => void }) {
+function CodeModal({ initial, onClose }: { initial: Coupon; onClose: () => void }) {
   const [c, setC] = useState(initial);
+  const [bulk, setBulk] = useState(0);
   const isExisting = !!getAdmin().coupons.find((x) => x.id === c.id);
+  const clean = (code: string) => code.trim().toUpperCase();
+  const save = () => {
+    const code = clean(c.code);
+    saveCoupon({ ...c, code });
+    if (bulk > 1) {
+      // hand-written base code + N-1 short siblings, all with the same rules
+      const extra: Coupon[] = [];
+      const taken = getAdmin().coupons.map((x) => x.code.toUpperCase()).concat([code]);
+      for (let i = 1; i < bulk; i += 1) {
+        const sibling = generateCouponCode(taken);
+        taken.push(sibling);
+        extra.push({ ...c, id: `c${uid()}-${i}`, code: sibling, uses: 0 });
+      }
+      saveCoupons(extra);
+    }
+    onClose();
+  };
   return (
     <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="ad-modal is-sm" role="dialog" aria-modal="true" aria-label="کد تخفیف">
@@ -2678,7 +2722,16 @@ function CodeModal({ initial, onClose }: { initial: { id: string; code: string; 
           <button type="button" className="ad-icon" aria-label="بستن" onClick={onClose}><X width={16} height={16} /></button>
         </header>
         <div className="ad-modal-body">
-          <label className="ad-field">کد<input className="ad-input" dir="ltr" value={c.code} onChange={(e) => setC({ ...c, code: e.target.value.toUpperCase() })} placeholder="SAVE10" /></label>
+          <label className="ad-field">
+            کد
+            <div className="ad-inline" style={{ gap: 8 }}>
+              <input className="ad-input" dir="ltr" value={c.code} onChange={(e) => setC({ ...c, code: e.target.value.toUpperCase() })} placeholder="SAVE10" />
+              <button type="button" className="ad-btn is-sm" onClick={() => setC({ ...c, code: generateCouponCode() })} disabled={isExisting}>
+                <Sparkles width={13} height={13} /> ساخت خودکار
+              </button>
+            </div>
+            <small className="ad-hint">می‌توانی خودت بنویسی یا بسپاری به دکمهٔ «ساخت خودکار» — تکراری ساخته نمی‌شود.</small>
+          </label>
           <div className="ad-two">
             <label className="ad-field">نوع
               <select className="ad-select" value={c.kind} onChange={(e) => setC({ ...c, kind: e.target.value as "percent" | "fixed" })}>
@@ -2691,12 +2744,33 @@ function CodeModal({ initial, onClose }: { initial: { id: string; code: string; 
             <label className="ad-field">حداقل خرید<input className="ad-input" type="number" min={0} value={c.minSpend} onChange={(e) => setC({ ...c, minSpend: Number(e.target.value) || 0 })} /></label>
             <label className="ad-field">انقضا (اختیاری)<input className="ad-input" type="date" dir="ltr" value={c.expires} onChange={(e) => setC({ ...c, expires: e.target.value })} /></label>
           </div>
+          <div className="ad-two">
+            <label className="ad-field">
+              سقف تخفیف (تومان) — ۰ یعنی بی‌سقف
+              <input className="ad-input" type="number" min={0} value={c.maxDiscount ?? 0} onChange={(e) => setC({ ...c, maxDiscount: Number(e.target.value) || 0 })} />
+            </label>
+            <label className="ad-field">
+              سقف تعداد استفاده (خالی = نامحدود)
+              <input className="ad-input" type="number" min={0} value={c.usageLimit ?? ""} onChange={(e) => setC({ ...c, usageLimit: e.target.value === "" ? undefined : Number(e.target.value) || 0 })} />
+            </label>
+          </div>
+          {!isExisting && (
+            <label className="ad-field">
+              تعداد کد در این نوبت
+              <input className="ad-input" type="number" min={1} max={50} value={bulk || 1} onChange={(e) => setBulk(Math.min(50, Math.max(1, Number(e.target.value) || 1)))} />
+              <small className="ad-hint">
+                {(bulk || 1) > 1
+                  ? `کد نوشته‌شده + ${fa((bulk || 1) - 1)} کد خودکار با همین قوانین ساخته می‌شود (برای پخش بین مشتری‌ها).`
+                  : "بیشتر از ۱ بگذاری، همان تعداد کد با همین قوانین ساخته می‌شود."}
+              </small>
+            </label>
+          )}
           <label className="ad-check"><input type="checkbox" checked={c.active} onChange={(e) => setC({ ...c, active: e.target.checked })} /> فعال باشد</label>
         </div>
         <footer className="ad-modal-foot">
           <div className="ad-actions-spacer" />
           <button type="button" className="ad-btn" onClick={onClose}>انصراف</button>
-          <button type="button" className="ad-btn is-primary" disabled={!c.code.trim()} onClick={() => { saveCoupon({ ...c, code: c.code.trim().toUpperCase() }); onClose(); }}><Save width={13} height={13} /> ذخیره</button>
+          <button type="button" className="ad-btn is-primary" disabled={!clean(c.code)} onClick={save}><Save width={13} height={13} /> ذخیره</button>
         </footer>
       </div>
     </div>
@@ -3073,6 +3147,19 @@ function StoreSettings({ onBack }: { onBack: () => void }) {
               <span className="ad-hint">قیمت‌های ذخیره‌شده در این عدد ضرب می‌شوند تا مبلغ تومانی نمایش داده شود.</span>
             </label>
           </div>
+          <label className="ad-field">آستانهٔ «کم‌موجود» (تعداد کل هر محصول)
+            <input
+              className="ad-input"
+              type="number"
+              min={0}
+              value={draft.lowStockThreshold ?? LOW_STOCK_DEFAULT}
+              onChange={(e) => setD({ ...draft, lowStockThreshold: Number(e.target.value) || 0 })}
+            />
+            <span className="ad-hint">
+              هر محصولی که جمع موجودی‌اش از این عدد کمتر یا مساوی باشد در فهرست‌ها «کم‌موجود» علامت می‌خورد.
+              هر محصول می‌تواند برای خودش عدد دیگری داشته باشد (در فرم محصول، تب «قیمت و انتشار»).
+            </span>
+          </label>
           <label className="ad-check"><input type="checkbox" checked={draft.maintenance} onChange={(e) => setD({ ...draft, maintenance: e.target.checked })} /> حالت تعمیرات (نشان در پنل؛ سایت باز می‌ماند)</label>
         </Card>
       </div>

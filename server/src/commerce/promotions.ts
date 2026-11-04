@@ -38,6 +38,7 @@ interface RuleRow {
   scope: string;
   scopeId: string | null;
   minSubtotal: number;
+  maxDiscount: number | null;
   priority: number;
   stackable: boolean;
   startsAt: Date | null;
@@ -60,6 +61,7 @@ export async function syncPromotions(admin: Doc) {
       scope: String(campaign.scope ?? "all"),
       scopeId: campaign.scopeId ? String(campaign.scopeId) : null,
       minSubtotal: num(campaign.minSpend),
+      maxDiscount: campaign.maxDiscount == null || num(campaign.maxDiscount) <= 0 ? null : num(campaign.maxDiscount),
       priority: num(campaign.priority),
       stackable: !!campaign.stackable,
       startsAt: dayStart(campaign.start),
@@ -82,6 +84,7 @@ export async function syncPromotions(admin: Doc) {
       scope: String(rule.scope ?? "all"),
       scopeId: rule.scopeId ? String(rule.scopeId) : null,
       minSubtotal: 0,
+      maxDiscount: null,
       priority: num(rule.priority),
       stackable: !!rule.stackable,
       startsAt: dayStart(rule.from),
@@ -102,17 +105,18 @@ export async function syncPromotions(admin: Doc) {
     const ids = [...rules.keys()];
     for (const rule of rules.values()) {
       await client.query(
-        `insert into price_rules (id, name, kind, value, scope, scope_id, min_subtotal, priority, stackable,
+        `insert into price_rules (id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable,
                                   starts_at, ends_at, active, created_at, updated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,coalesce($13, now()), now())
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,coalesce($14, now()), now())
          on conflict (id) do update set
            name = excluded.name, kind = excluded.kind, value = excluded.value, scope = excluded.scope,
-           scope_id = excluded.scope_id, min_subtotal = excluded.min_subtotal, priority = excluded.priority,
+           scope_id = excluded.scope_id, min_subtotal = excluded.min_subtotal,
+           max_discount = excluded.max_discount, priority = excluded.priority,
            stackable = excluded.stackable, starts_at = excluded.starts_at, ends_at = excluded.ends_at,
            active = excluded.active, updated_at = now()`,
         [
           rule.id, rule.name, rule.kind, rule.value, rule.scope, rule.scopeId, rule.minSubtotal,
-          rule.priority, rule.stackable, rule.startsAt, rule.endsAt, rule.active, rule.createdAt,
+          rule.maxDiscount, rule.priority, rule.stackable, rule.startsAt, rule.endsAt, rule.active, rule.createdAt,
         ],
       );
     }
@@ -120,11 +124,12 @@ export async function syncPromotions(admin: Doc) {
 
     for (const [code, coupon] of coupons) {
       await client.query(
-        `insert into coupons (code, kind, value, min_subtotal, combinable, usage_limit, used_count,
+        `insert into coupons (code, kind, value, min_subtotal, max_discount, combinable, usage_limit, used_count,
                               starts_at, ends_at, active, updated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
          on conflict (code) do update set
            kind = excluded.kind, value = excluded.value, min_subtotal = excluded.min_subtotal,
+           max_discount = excluded.max_discount,
            combinable = excluded.combinable, usage_limit = excluded.usage_limit,
            used_count = excluded.used_count, starts_at = excluded.starts_at, ends_at = excluded.ends_at,
            active = excluded.active, updated_at = now()`,
@@ -133,6 +138,7 @@ export async function syncPromotions(admin: Doc) {
           coupon.kind === "fixed" ? "amount" : "percent",
           num(coupon.value),
           num(coupon.minSpend),
+          coupon.maxDiscount == null || num(coupon.maxDiscount) <= 0 ? null : num(coupon.maxDiscount),
           !!coupon.combinable,
           coupon.usageLimit == null ? null : num(coupon.usageLimit),
           num(coupon.uses),

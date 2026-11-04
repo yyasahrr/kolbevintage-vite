@@ -371,6 +371,22 @@ test("a coupon is refused when an active campaign is already applied", async () 
   assert.equal(quote.body.code, "coupon_not_combinable");
 });
 
+test("a campaign ceiling caps the percent it advertises", async () => {
+  const variantId = await setStock(SKU, 3);
+  await query(
+    `insert into price_rules (id, name, kind, value, scope, max_discount, priority, starts_at, ends_at, active)
+     values ('capped', 'کمپین سقف‌دار', 'percent', 50, 'all', 30, 20, now() - interval '1 day', now() + interval '1 day', true)
+     on conflict (id) do update set value = 50, max_discount = 30, priority = 20, active = true`,
+  );
+  const client = makeClient();
+  const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
+  assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
+  const quote = checkout.body.checkout.quote;
+  // 50% of one unit is far more than 30, so the ceiling is what the customer gets
+  assert.equal(quote.campaignDiscount, 30);
+  assert.equal(quote.lines[0].discountAmount, 30);
+});
+
 /* ---------------------------------------------------------------------
    Coupon capacity, coupon ceiling, audit trail, legacy order write path.
    --------------------------------------------------------------------- */
@@ -1335,4 +1351,41 @@ test("an installment refund the provider cannot reverse is parked for a human", 
   assert.equal(line.rows[0].refunded_quantity, 0, "a parked refund must not close the line");
 
   await admin.put("/api/commerce/admin/settings", { bnpl4Enabled: false, bnpl4ProviderReady: false });
+});
+
+test("the panel's campaign ceiling and coupon limits reach the pricing tables", async () => {
+  const { syncPromotions } = await import("../src/commerce/promotions");
+  const couponSnapshot = (await query("select * from coupons")).rows;
+
+  await syncPromotions({
+    campaigns: [
+      { id: "sync-cap", name: "کمپین سقف‌دار", kind: "percent", value: 20, minSpend: 100, maxDiscount: 5000, active: true, start: "2026-01-01", end: "2026-12-31" },
+      { id: "sync-plain", name: "کمپین بی‌سقف", kind: "percent", value: 5, active: true },
+    ],
+    discountRules: [],
+    coupons: [{ code: "CAPX", kind: "percent", value: 10, maxDiscount: 700, usageLimit: 5, active: true }],
+  });
+
+  const capped = await query<{ max_discount: string; min_subtotal: string }>(
+    "select max_discount, min_subtotal from price_rules where id = 'sync-cap'",
+  );
+  assert.equal(Number(capped.rows[0].max_discount), 5000);
+  assert.equal(Number(capped.rows[0].min_subtotal), 100);
+  const plain = await query("select max_discount from price_rules where id = 'sync-plain'");
+  assert.equal(plain.rows[0].max_discount, null, "no ceiling means no ceiling, not zero");
+
+  const coupon = await query<{ max_discount: string; usage_limit: number }>(
+    "select max_discount, usage_limit from coupons where code = 'CAPX'",
+  );
+  assert.equal(Number(coupon.rows[0].max_discount), 700);
+  assert.equal(coupon.rows[0].usage_limit, 5);
+
+  // the sync mirrors the document, so put the seeded codes back for anything that follows
+  await query("delete from coupons");
+  for (const row of couponSnapshot) {
+    const cols = Object.keys(row);
+    const values = cols.map((_, i) => `$${i + 1}`);
+    await query(`insert into coupons (${cols.join(", ")}) values (${values.join(", ")})`, cols.map((c) => row[c]));
+  }
+  await query("delete from price_rules");
 });

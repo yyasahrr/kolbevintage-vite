@@ -74,6 +74,7 @@ interface RuleRow {
   scope: string;
   scope_id: string | null;
   min_subtotal: string | number;
+  max_discount: string | null;
   priority: number;
   stackable: boolean;
   active: boolean;
@@ -125,7 +126,7 @@ export async function buildQuote(params: {
   const now = params.now ?? new Date();
 
   const rulesRes = await query<RuleRow>(
-    `select id, name, kind, value, scope, scope_id, min_subtotal, priority, stackable, active, updated_at
+    `select id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable, active, updated_at
        from price_rules
       where active
         and (starts_at is null or starts_at <= now())
@@ -146,6 +147,9 @@ export async function buildQuote(params: {
       const value = Number(rule.value);
       if (rule.kind === "percent") amount = round2((line.unitPrice * line.quantity * value) / 100);
       else if (rule.kind === "amount") amount = round2(Math.min(line.unitPrice * line.quantity, value));
+      // the campaign ceiling is a hard cap the panel sets (decision 33)
+      const cap = rule.max_discount === null ? null : Number(rule.max_discount);
+      if (cap !== null && cap > 0) amount = round2(Math.min(amount, cap));
       amount = round2(Math.min(amount, line.unitPrice * line.quantity));
     }
     if (rule && amount > 0) {
