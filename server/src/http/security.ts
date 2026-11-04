@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { config } from "../config";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 /* =====================================================================
@@ -125,7 +126,10 @@ export function registerSecurity(app: FastifyInstance) {
   app.addHook("onSend", async (req: FastifyRequest, reply: FastifyReply, payload) => {
     reply.header("x-content-type-options", "nosniff");
     reply.header("referrer-policy", "no-referrer");
-    reply.header("x-frame-options", "DENY");
+    // Clickjacking protection stays on for real deployments. The development and
+    // preview environment renders the storefront inside a frame on another origin,
+    // so a hard DENY there would break the preview instead of protecting it.
+    if (config.isProd) reply.header("x-frame-options", "DENY");
     reply.header("cross-origin-resource-policy", "same-site");
     const path = req.url.split("?")[0];
     if (path.startsWith("/api/auth") || path.startsWith("/api/admin") || path.startsWith("/api/commerce/cashback")) {

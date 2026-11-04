@@ -39,7 +39,19 @@ export default defineConfig({
       "/uploads": { target: "http://127.0.0.1:4000", changeOrigin: false },
     },
   },
-  preview: { host: "0.0.0.0", port: 4173, strictPort: true, allowedHosts: true },
+  // `npm run preview` serves the built app and the API from one Fastify process
+  // on :4000. `npm run preview:static` stays available and only serves dist/,
+  // so it needs the same API proxy as the dev server to be usable on its own.
+  preview: {
+    host: "0.0.0.0",
+    port: 4173,
+    strictPort: true,
+    allowedHosts: true,
+    proxy: {
+      "/api": { target: "http://127.0.0.1:4000", changeOrigin: false },
+      "/uploads": { target: "http://127.0.0.1:4000", changeOrigin: false },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),

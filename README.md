@@ -39,8 +39,14 @@ npm run dev:web     # only the frontend (port 5173)
 npm run seed        # regenerate server/seed/state.json from the demo data
 npm run typecheck   # frontend + backend TypeScript
 npm run build       # production SPA build into dist/
+npm run preview     # build + serve the app AND the API from one process (port 4000)
+npm run preview:static  # only dist/ on port 4173 (needs an API on 4000)
 npm run test:commerce  # integration tests for the commerce core (real PostgreSQL)
 ```
+
+`npm run preview` is the quickest way to see the real thing: Fastify serves
+`dist/` with SPA fallback and the API on the same origin, so `/api` calls work
+without any proxy. Deployment/preview details live in `docs/serving-fa.md`.
 
 ### Admin panel
 
