@@ -1270,3 +1270,12 @@ select.eb-in { appearance: none; background-image: url("data:image/svg+xml;utf8,
   border-color: rgba(47, 111, 78, 0.35);
   background: rgba(47, 111, 78, 0.08);
 }
+
+/* wide tables scroll inside their own box instead of the page */
+.ebd-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 14px;
+  max-width: 100%;
+}
+.ebd-table-wrap > .ebd-table { min-width: 520px; }

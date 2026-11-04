@@ -67,7 +67,7 @@ export function ProductCard({ product, className }: Props) {
           aria-label={wished ? `حذف ${product.name} از علاقه‌مندی‌ها` : `افزودن ${product.name} به علاقه‌مندی‌ها`}
           aria-pressed={wished}
           className={cn(
-            "absolute top-2 left-2 flex h-8 w-8 items-center justify-center rounded-full border backdrop-blur transition-all duration-250",
+            "tap absolute top-2 left-2 flex h-8 w-8 items-center justify-center rounded-full border backdrop-blur transition-all duration-250",
             wished
               ? "border-ember/30 bg-white text-ember"
               : "border-white/50 bg-white/75 text-ink-70 hover:bg-white hover:text-ink",

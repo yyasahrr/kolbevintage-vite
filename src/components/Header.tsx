@@ -58,7 +58,7 @@ export function Header() {
             onClick={() => setMenuOpen(true)}
             aria-label="باز کردن منو"
             aria-expanded={menuOpen}
-            className="-mr-1 flex h-9 w-9 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink xl:hidden"
+            className="tap -mr-1 flex h-9 w-9 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink xl:hidden"
           >
             <Menu className="h-[18px] w-[18px]" />
           </button>
@@ -175,14 +175,14 @@ export function Header() {
             <ThemeSwitcher />
             <button type="button" onClick={() => setSearchOpen(true)}
               aria-label="جست‌وجو در فروشگاه"
-              className="hidden h-9 w-9 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink sm:flex"
+              className="tap hidden h-9 w-9 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink sm:flex"
             >
               <Search className="h-[17px] w-[17px]" />
             </button>
             <Link
               to="/wishlist"
               aria-label={`علاقه‌مندی‌ها، ${wishlist.length} قطعه`}
-              className="relative hidden h-9 w-9 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink sm:flex"
+              className="tap relative hidden h-9 w-9 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink sm:flex"
             >
               <Heart className="h-[17px] w-[17px]" />
               {wishlist.length > 0 && (
@@ -381,7 +381,7 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
                 type="button"
                 onClick={onClose}
                 aria-label="بستن منو"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-ink-70 hover:bg-ink hover:text-bone"
+                className="tap flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-ink-70 hover:bg-ink hover:text-bone"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -531,7 +531,7 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
             </nav>
             <div className="border-t border-black/[0.07] px-5 py-4 text-[10.5px] leading-relaxed text-ink-45">
               <p>پاریس، خیابان سن‌آنوره، پلاک ۲۴</p>
-              <p className="mt-1">client@velours.store</p>
+              <p className="mt-1" dir="ltr">client@velours.store</p>
             </div>
           </motion.div>
         </div>

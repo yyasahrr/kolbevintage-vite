@@ -254,10 +254,10 @@ export function CheckoutPage() {
               <PackageCheck width={26} height={26} />
             </span>
             <h2 className="mt-4 font-display text-[24px] font-medium text-ink">ممنون که با ولور همراه شدی.</h2>
-            <dl className="mt-4 grid grid-cols-3 gap-2 text-[12px]">
+            <dl className="mt-4 grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-3">
               <div className="rounded-xl bg-[#f4efe7] p-3">
                 <dt className="text-ink-45">شمارهٔ سفارش</dt>
-                <dd className="mt-1 font-semibold text-ink" dir="ltr">{order.id}</dd>
+                <dd className="mt-1 break-all font-semibold text-ink" dir="ltr">{order.id}</dd>
               </div>
               <div className="rounded-xl bg-[#f4efe7] p-3">
                 <dt className="text-ink-45">اقلام</dt>

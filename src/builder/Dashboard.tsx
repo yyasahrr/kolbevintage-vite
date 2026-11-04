@@ -355,6 +355,7 @@ function Submissions() {
         <button type="button" className="ebd-btn is-sm" onClick={csv}><Download width={12} height={12} /> خروجی CSV</button>
         <button type="button" className="ebd-btn is-sm is-danger" onClick={() => window.confirm("همهٔ پیام‌ها پاک شود؟") && clearSubmissions()}><Trash2 width={12} height={12} /> پاک کردن همه</button>
       </div>
+      <div className="ebd-table-wrap">
       <table className="ebd-table">
         <thead>
           <tr><th>فرم</th><th>صفحه</th><th>زمان</th><th>اطلاعات</th></tr>
@@ -374,6 +375,7 @@ function Submissions() {
           ))}
         </tbody>
       </table>
+      </div>
     </>
   );
 }

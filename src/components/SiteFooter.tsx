@@ -43,14 +43,17 @@ export function SiteFooter() {
               <span dir="ltr">+33 1 84 80 24 24</span>
             </p>
             <p className="flex items-center gap-2">
-              <Mail className="h-3.5 w-3.5 text-ink-45" /> client@velours.store
+              <Mail className="h-3.5 w-3.5 text-ink-45" />
+              <span dir="ltr">client@velours.store</span>
             </p>
           </div>
           <div className="mt-4 flex items-center gap-2">
             <a
-              href="#newsletter"
+              href="https://instagram.com"
+              target="_blank"
+              rel="noreferrer noopener"
               aria-label="اینستاگرام ولور"
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-black/12 text-ink-70 transition-colors hover:border-ink hover:text-ink"
+              className="tap flex h-8 w-8 items-center justify-center rounded-full border border-black/12 text-ink-70 transition-colors hover:border-ink hover:text-ink"
             >
               <AtSign className="h-3.5 w-3.5" />
             </a>

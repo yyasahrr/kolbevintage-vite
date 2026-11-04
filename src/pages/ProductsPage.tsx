@@ -21,6 +21,7 @@ import {
   buttonStyles,
 } from "@/components/ui";
 import { cn } from "@/utils/cn";
+import { useEscape, useScrollLock } from "@/hooks/useOverlay";
 import { useOps } from "@/state/ops";
 import { useAdmin } from "@/state/admin";
 import { resolveImg } from "@/builder/stock";
@@ -31,6 +32,8 @@ export function ProductsPage() {
   useAdmin();
   const [params, setParams] = useSearchParams();
   const [filtersOpen, setFiltersOpen] = useState(false);
+  useEscape(filtersOpen, () => setFiltersOpen(false));
+  useScrollLock(filtersOpen);
   const { categories } = useOps();
 
   const collection = COLLECTIONS.find((c) => c.id === params.get("collection"))?.id ?? "all";
@@ -306,7 +309,7 @@ export function ProductsPage() {
                   type="button"
                   onClick={() => setFiltersOpen(false)}
                   aria-label="بستن فیلترها"
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-black/10"
+                  className="tap flex h-9 w-9 items-center justify-center rounded-full border border-black/10"
                 >
                   <X className="h-4 w-4" />
                 </button>

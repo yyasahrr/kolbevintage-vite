@@ -56,6 +56,15 @@
   }
 }
 
+/* Touch targets: icon-only controls are 36px on desktop where a cursor is
+   precise, but must reach 44px on touch screens (WCAG 2.5.5). */
+@utility tap {
+  @media (max-width: 640px) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
 @utility no-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;

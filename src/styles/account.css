@@ -1461,6 +1461,12 @@
   color: #16130f;
   white-space: nowrap;
 }
+/* tablet and up already show the desktop buy box, so the bar would be noise */
+@media (min-width: 768px) {
+  .product-sticky {
+    display: none;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .product-sticky { transition: opacity 0.01s; }
 }

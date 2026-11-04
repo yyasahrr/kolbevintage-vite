@@ -244,7 +244,11 @@ export function AdminPage() {
 
   if (!unlocked) return <Gate onUnlock={() => setUnlocked(true)} />;
 
-  const group = (Object.keys(GROUP_CHILDREN) as Tab[]).find((g) => GROUP_CHILDREN[g]!.includes(tab)) ?? null;
+  // a grouped area is active when the group itself or one of its screens is selected
+  const groupIds = Object.keys(GROUP_CHILDREN) as Tab[];
+  const group = groupIds.includes(tab)
+    ? tab
+    : (groupIds.find((g) => GROUP_CHILDREN[g]!.includes(tab)) ?? null);
 
   const badges: Partial<Record<Tab, number>> = {
     orders: admin.orders.filter((o) => o.status === "pending").length,
