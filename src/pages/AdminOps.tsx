@@ -91,6 +91,9 @@ import { useAuth } from "@/state/auth";
 
 const fa = (n: number) => n.toLocaleString("fa-IR");
 
+/** a look is a styled outfit, not a catalogue dump (owner decision 60) */
+const MAX_LOOK_PRODUCTS = 6;
+
 function PanelHead({ title, sub, action }: { title: string; sub?: string; action?: React.ReactNode }) {
   return (
     <header className="ad-head">
@@ -589,7 +592,10 @@ export function LooksPanel() {
                       <Search width={13} height={13} />
                       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="جست‌وجوی محصول…" aria-label="جست‌وجوی محصول برای استایل" />
                     </div>
-                    <div className="ad-look-pick-list">
+                    <p className="ad-hint" data-look-limit>
+            {ids.length.toLocaleString("fa-IR")} از {MAX_LOOK_PRODUCTS.toLocaleString("fa-IR")} قطعه انتخاب شده.
+          </p>
+          <div className="ad-look-pick-list">
                       {catalog
                         .filter((p) => !q.trim() || p.name.includes(q.trim()))
                         .slice(0, 30)
@@ -753,7 +759,13 @@ function LookComposer({ initial, onDone }: { initial?: CustomLook; onDone: () =>
                     key={p.id}
                     type="button"
                     className={cn("ad-look-pick", on && "is-on")}
-                    onClick={() => setIds((prev) => (on ? prev.filter((x) => x !== p.id) : [...prev, p.id]))}
+                    aria-disabled={!on && ids.length >= MAX_LOOK_PRODUCTS}
+                    title={!on && ids.length >= MAX_LOOK_PRODUCTS ? `هر استایل حداکثر ${MAX_LOOK_PRODUCTS} قطعه دارد` : undefined}
+                    onClick={() =>
+                      setIds((prev) =>
+                        on ? prev.filter((x) => x !== p.id) : prev.length >= MAX_LOOK_PRODUCTS ? prev : [...prev, p.id],
+                      )
+                    }
                   >
                     <ProductThumb product={p} className="w-[38px]" />
                     <span>{p.name}</span>
