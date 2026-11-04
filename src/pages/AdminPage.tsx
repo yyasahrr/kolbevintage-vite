@@ -90,6 +90,7 @@ type Tab =
   | "inventory"
   | "customers"
   | "campaigns"
+  | "reports"
   | "messages"
   | "reviews"
   | "integrations"
@@ -137,6 +138,7 @@ const TABS: NavItem[] = [
       { id: "commerce", label: "پرداخت و مالی" },
       { id: "returns", label: "مرجوعی‌ها" },
       { id: "tryon", label: "کش‌بک" },
+      { id: "reports", label: "گزارش‌ها" },
     ],
   },
   {
@@ -479,6 +481,7 @@ export function AdminPage() {
                 { id: "commerce", label: "پرداخت و مالی", node: <CommercePanel /> },
                 { id: "returns", label: "مرجوعی‌ها", node: <ReturnsPanel /> },
                 { id: "tryon", label: "کش‌بک", node: <TryOnPanel /> },
+                { id: "reports", label: "گزارش‌ها", node: <Reports /> },
               ]}
               value={tab}
               onChange={setTab}
@@ -877,6 +880,140 @@ function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
 const REASON_LABEL: Record<StockMove["reason"], string> = { sale: "فروش", restock: "شارژ", edit: "ویرایش", create: "ایجاد" };
 
 /* =====================================================================
+   reports — every number here is computed from real orders
+   ===================================================================== */
+
+function Reports() {
+  const admin = useAdmin();
+
+  const orders = admin.orders.filter((o) => o.status !== "cancelled");
+  const total = orders.reduce((n, o) => n + o.total, 0);
+  const basket = orders.length ? Math.round(total / orders.length) : 0;
+
+  /** the last 14 days, oldest first — days with no order are honestly zero */
+  const days = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (13 - i));
+    const next = d.getTime() + 86400000;
+    const sum = orders.filter((o) => o.at >= d.getTime() && o.at < next).reduce((n, o) => n + o.total, 0);
+    return { label: d.toLocaleDateString("fa-IR", { day: "numeric", month: "short" }), sum };
+  });
+  const peak = Math.max(1, ...days.map((d) => d.sum));
+
+  const byProduct = new Map<string, { name: string; qty: number; revenue: number }>();
+  for (const o of orders) {
+    for (const l of o.lines) {
+      const cur = byProduct.get(l.productId) ?? { name: l.name, qty: 0, revenue: 0 };
+      cur.qty += l.qty;
+      cur.revenue += l.qty * l.price;
+      byProduct.set(l.productId, cur);
+    }
+  }
+  const topProducts = [...byProduct.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+
+  const byCustomer = new Map<string, { name: string; orders: number; total: number }>();
+  for (const o of orders) {
+    const key = o.email || o.customer;
+    const cur = byCustomer.get(key) ?? { name: o.customer, orders: 0, total: 0 };
+    cur.orders += 1;
+    cur.total += o.total;
+    byCustomer.set(key, cur);
+  }
+  const topCustomers = [...byCustomer.values()].sort((a, b) => b.total - a.total).slice(0, 8);
+
+  const kpis = [
+    { label: "فروش کل (بدون لغوشده)", value: formatPrice(total) },
+    { label: "تعداد سفارش", value: fa(orders.length) },
+    { label: "میانگین سبد", value: formatPrice(basket) },
+    { label: "قطعهٔ فروش‌رفته", value: fa(orders.reduce((n, o) => n + o.lines.reduce((m, l) => m + l.qty, 0), 0)) },
+  ];
+
+  return (
+    <div className="ad-panel-adm">
+      <header className="ad-head">
+        <div>
+          <h2>گزارش‌ها</h2>
+          <p>همهٔ اعداد از سفارش‌های ثبت‌شدهٔ همین سامانه محاسبه می‌شوند؛ هیچ عدد نمایشی یا نمونه‌ای اینجا نیست.</p>
+        </div>
+      </header>
+
+      {orders.length === 0 ? (
+        <Empty text="هنوز سفارشی ثبت نشده، پس گزارشی هم وجود ندارد." />
+      ) : (
+        <>
+          <div className="ad-kpis">
+            {kpis.map((k) => (
+              <div key={k.label} className="ad-kpi ad-kpi-static">
+                <b>{k.value}</b>
+                <span className="ad-kpi-label">{k.label}</span>
+              </div>
+            ))}
+          </div>
+
+          <section className="ad-card">
+            <header className="ad-card-head"><h3>فروش ۱۴ روز گذشته</h3></header>
+            <div className="ad-card-body">
+              <div className="ad-report-bars" role="img" aria-label="نمودار فروش روزانهٔ ۱۴ روز گذشته">
+                {days.map((d) => (
+                  <div key={d.label} className="ad-report-bar">
+                    <span className="ad-report-fill" style={{ height: `${Math.max(2, (d.sum / peak) * 100)}%` }} />
+                    <small>{d.label}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <div className="ad-order-grid">
+            <section className="ad-card">
+              <header className="ad-card-head"><h3>پرفروش‌ترین قطعه‌ها</h3></header>
+              <div className="ad-table-wrap">
+                <table className="ad-table">
+                  <thead><tr><th>قطعه</th><th>تعداد</th><th>درآمد</th></tr></thead>
+                  <tbody>
+                    {topProducts.map((p) => (
+                      <tr key={p.name}>
+                        <td>{p.name}</td>
+                        <td className="ad-num">{fa(p.qty)}</td>
+                        <td className="ad-money">{formatPrice(p.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="ad-card">
+              <header className="ad-card-head"><h3>مشتریان پرمصرف</h3></header>
+              <div className="ad-table-wrap">
+                <table className="ad-table">
+                  <thead><tr><th>مشتری</th><th>سفارش</th><th>ارزش</th></tr></thead>
+                  <tbody>
+                    {topCustomers.map((c) => (
+                      <tr key={c.name}>
+                        <td>{c.name}</td>
+                        <td className="ad-num">{fa(c.orders)}</td>
+                        <td className="ad-money">{formatPrice(c.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <p className="ad-hint">
+            «سبد رهاشده» هنوز در این صفحه نیست: اطلاعات سبدها سمت سرور است و endpoint مدیریتی‌اش
+            ساخته نشده. تا آن موقع هیچ عددی برایش نشان نمی‌دهیم.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* =====================================================================
    one order, at its own address
    ===================================================================== */
 
@@ -917,6 +1054,12 @@ function OrderPage({ orderId }: { orderId: string }) {
           </p>
         </div>
         <div className="ad-head-actions">
+          <button type="button" className="ad-btn is-sm" onClick={() => printInvoices([order])}>
+            <FileText width={13} height={13} /> فاکتور A4
+          </button>
+          <button type="button" className="ad-btn is-sm" onClick={() => printLabels([order])}>
+            <Truck width={13} height={13} /> لیبل
+          </button>
           <select
             className="ad-select"
             value={order.status}
@@ -1040,7 +1183,38 @@ function Orders() {
   const [filter, setFilter] = useState<OrderStatus | "all">("all");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const togglePick = (id: string) => setPicked((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const list = admin.orders.filter((o) => filter === "all" || o.status === filter);
+
+  /* saved views: a named filter the owner can come back to (decision 16) */
+  const [query, setQuery] = useState("");
+  const [views, setViews] = useState<{ name: string; filter: OrderStatus | "all"; query: string }[]>(() => {
+    try {
+      const raw = localStorage.getItem("kv_order_views");
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const persistViews = (next: { name: string; filter: OrderStatus | "all"; query: string }[]) => {
+    setViews(next);
+    try {
+      localStorage.setItem("kv_order_views", JSON.stringify(next));
+    } catch {
+      /* private mode */
+    }
+  };
+  const saveView = () => {
+    const name = window.prompt("نام این نما؟", filter === "all" ? "همه" : ORDER_STATUS_LABEL[filter]);
+    if (!name?.trim()) return;
+    persistViews([...views.filter((v) => v.name !== name.trim()), { name: name.trim(), filter, query }]);
+  };
+
+  const needle = query.trim();
+  const list = admin.orders.filter(
+    (o) =>
+      (filter === "all" || o.status === filter) &&
+      (!needle || `${o.id} ${o.customer} ${o.phone} ${o.email} ${o.city}`.includes(needle)),
+  );
 
   const csv = () =>
     download(
@@ -1070,12 +1244,41 @@ function Orders() {
             <button type="button" className="ad-btn is-sm" onClick={() => { picked.forEach((id) => setOrderStatus(id, "processing")); setPicked(new Set()); }}>آماده‌سازی</button>
             <button type="button" className="ad-btn is-sm" onClick={() => { picked.forEach((id) => setOrderStatus(id, "shipped")); setPicked(new Set()); }}>ارسال</button>
             <button type="button" className="ad-btn is-sm" onClick={() => { picked.forEach((id) => setOrderStatus(id, "done")); setPicked(new Set()); }}>تحویل</button>
-            <button type="button" className="ad-btn is-sm" onClick={() => download("shipping-labels.txt", pickedOrdersLabel(admin.orders.filter((o) => picked.has(o.id))), "text/plain")}>چاپ لیبل</button>
-            <button type="button" className="ad-btn is-sm" onClick={() => download("invoices.txt", pickedOrdersInvoice(admin.orders.filter((o) => picked.has(o.id))), "text/plain")}>چاپ فاکتور</button>
+            <button type="button" className="ad-btn is-sm" onClick={() => printLabels(admin.orders.filter((o) => picked.has(o.id)))}>چاپ لیبل</button>
+            <button type="button" className="ad-btn is-sm" onClick={() => printInvoices(admin.orders.filter((o) => picked.has(o.id)))}>فاکتور A4</button>
             <button type="button" className="ad-btn is-sm" onClick={() => setPicked(new Set())}>لغو</button>
           </div>
         </div>
       )}
+      <div className="ad-toolbar">
+        <input
+          className="ad-input"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="شناسه، نام، موبایل یا شهر…"
+          aria-label="جست‌وجوی سفارش"
+        />
+        <select
+          className="ad-input is-compact"
+          value=""
+          aria-label="نمای ذخیره‌شده"
+          onChange={(e) => {
+            const v = views.find((x) => x.name === e.target.value);
+            if (v) {
+              setFilter(v.filter);
+              setQuery(v.query);
+            }
+          }}
+        >
+          <option value="">نمای ذخیره‌شده…</option>
+          {views.map((v) => (
+            <option key={v.name} value={v.name}>{v.name}</option>
+          ))}
+        </select>
+        <button type="button" className="ad-btn is-sm" onClick={saveView}>
+          <Plus width={12} height={12} /> ذخیرهٔ نمای فعلی
+        </button>
+      </div>
       <div className="ad-filters">
         {(["all", "pending", "processing", "shipped", "done", "cancelled", "exception"] as const).map((f) => (
           <button key={f} type="button" className={cn("ad-chip", filter === f && "is-on")} onClick={() => setFilter(f)}>
@@ -2021,7 +2224,43 @@ function Customers() {
 
   return (
     <>
-      <PageHead title="مشتریان (CRM)" sub="مشتریان از سفارش‌ها ساخته می‌شوند؛ برچسب و یادداشت شخصی بزن." />
+      <PageHead
+        title="مشتریان (CRM)"
+        sub="مشتریان از سفارش‌ها ساخته می‌شوند؛ برچسب و یادداشت شخصی بزن."
+        actions={
+          <button
+            type="button"
+            className="ad-btn is-sm"
+            disabled={rows.length === 0}
+            onClick={() => {
+              // full export: identity, purchase history and the internal note (decision 79)
+              const header = ["نام", "ایمیل", "موبایل", "شهر", "تعداد سفارش", "ارزش خرید", "آخرین خرید", "کمپین‌ها", "برچسب‌ها", "یادداشت"];
+              const body = rows.map((r) => {
+                const meta = admin.customers[r.email || r.name] ?? { tags: [], note: "" };
+                return [
+                  r.name,
+                  r.email,
+                  r.phone,
+                  r.city,
+                  fa(r.orders),
+                  r.total,
+                  r.last ? new Date(r.last).toLocaleDateString("fa-IR") : "",
+                  r.campaigns.join(" / "),
+                  (meta.tags ?? []).join(" / "),
+                  meta.note ?? "",
+                ];
+              });
+              download(
+                "customers.csv",
+                "\uFEFF" + [header, ...body].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n"),
+                "text/csv",
+              );
+            }}
+          >
+            <DIcon width={13} height={13} /> خروجی CSV
+          </button>
+        }
+      />
       <div className="ad-kpis">
         {segments.map((s) => (
           <div key={s.label} className="ad-kpi ad-kpi-static"><b>{s.value}</b><span className="ad-kpi-label">{s.label}</span></div>
@@ -2162,6 +2401,8 @@ function Campaigns() {
                   {c.kind === "percent" ? `${fa(c.value)}٪` : c.kind === "fixed" ? `${fa(c.value)} تومان` : "ارسال رایگان"}
                   {c.minSpend > 0 && ` · حداقل ${fa(c.minSpend)} تومان`}
                   {` · ${SCOPE_LABEL[c.scope]}`}
+                  {/* how many products this campaign actually touches (decision 43) */}
+                  {` · ${fa(liveCatalog().filter((p) => (c.scope === "category" ? p.category === c.scopeId : c.scope === "look" ? p.lookId === c.scopeId : true)).length)} محصول مشمول`}
                   {c.code && ` · کد ${c.code}`}
                   {` · ${fa(c.uses)} بار`}
                 </small>
@@ -2887,16 +3128,116 @@ function Empty({ text }: { text: string }) {
   return <p className="ad-empty">{text}</p>;
 }
 
-/* print helpers (browser text files — real labels/invoices would be PDFs server-side) */
-function pickedOrdersLabel(orders: ReturnType<typeof useAdmin>["orders"]) {
-  return orders
-    .map((o) => ["ولور — برچسب بستهٔ ارسالی", "گیرنده: " + o.customer, "تلفن: " + o.phone, "نشانی: " + o.address + "، " + o.city, "سفارش: " + o.id, "تعداد اقلام: " + o.lines.reduce((n, l) => n + l.qty, 0), "—".repeat(30)].join("\n"))
-    .join("\n\n");
+/* =====================================================================
+   printing — a real A4 invoice and a real shipping label
+
+   No PDF library: the browser's own print dialog produces the PDF, so the
+   Persian type, the RTL layout and the fonts are exactly what the shop uses.
+   ===================================================================== */
+
+function printDocument(title: string, page: "A4" | "A5", body: string) {
+  const win = window.open("", "_blank", "width=920,height=1040");
+  if (!win) return false;
+  win.document.write(`<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>${title}</title>
+    <style>
+      @page { size: ${page}; margin: 12mm; }
+      *{ box-sizing:border-box }
+      body{ margin:0; background:#fff; color:#16130f; font-family:"Vazirmatn",Tahoma,system-ui,sans-serif; font-size:12px; line-height:1.9 }
+      .sheet{ padding:6mm 0 }
+      .row{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px }
+      .brand{ font-size:20px; letter-spacing:.28em; font-weight:600 }
+      .muted{ color:#6b6255 }
+      h1{ font-size:15px; margin:0 0 4px }
+      table{ width:100%; border-collapse:collapse; margin-top:14px }
+      th,td{ padding:8px 6px; border-block-end:1px solid #e2dbcf; text-align:start; font-size:12px }
+      th{ background:#f5f0e7; font-weight:600 }
+      .num{ font-variant-numeric:tabular-nums }
+      .totals{ margin-top:14px; display:grid; gap:5px; width:min(320px,100%); margin-inline-start:auto }
+      .totals div{ display:flex; justify-content:space-between }
+      .totals .grand{ font-weight:700; font-size:13.5px; border-block-start:1px solid #16130f; padding-block-start:6px }
+      .box{ border:1px solid #cfc6b7; border-radius:8px; padding:10px 12px; margin-top:10px }
+      .label-sheet{ border:2px dashed #16130f; border-radius:10px; padding:12mm 10mm; min-height:120mm }
+      .label-line{ font-size:13px; margin:6px 0 }
+      footer{ margin-top:18px; font-size:10.5px; color:#6b6255; border-block-start:1px dashed #cfc6b7; padding-block-start:8px }
+    </style></head><body>${body}
+    <script>window.addEventListener("load",function(){setTimeout(function(){window.print()},150)})</script>
+    </body></html>`);
+  win.document.close();
+  return true;
 }
-function pickedOrdersInvoice(orders: ReturnType<typeof useAdmin>["orders"]) {
-  return orders
-    .map((o) =>
-      ["فاکتور ولور", "شماره: " + o.id, "مشتری: " + o.customer, "تاریخ: " + new Date(o.at).toLocaleString("fa-IR"), "", ...o.lines.map((l) => l.name + " × " + l.qty + " = " + l.price * l.qty), "جمع: " + o.subtotal, "تخفیف: " + o.discountTotal, "ارسال: " + o.shippingCost, "مبلغ نهایی: " + o.total, "—".repeat(30)].join("\n"),
-    )
-    .join("\n\n");
+
+const shopIdentity = () => {
+  const admin = getAdmin();
+  return {
+    name: admin.settings?.name || "ولور",
+    tagline: admin.settings?.tagline || "",
+    phone: (getOps().brand as { phone?: string } | undefined)?.phone ?? "",
+  };
+};
+
+/** one A4 invoice per order, ready to print or save as PDF */
+function printInvoices(orders: ReturnType<typeof useAdmin>["orders"]) {
+  const shop = shopIdentity();
+  const sheets = orders
+    .map((o) => {
+      const lines = o.lines
+        .map(
+          (l) =>
+            `<tr><td>${l.name}</td><td>${l.color} · ${l.size}</td><td class="num">${fa(l.qty)}</td><td class="num">${formatPrice(l.price)}</td><td class="num">${formatPrice(l.price * l.qty)}</td></tr>`,
+        )
+        .join("");
+      return `<section class="sheet" style="page-break-after:always">
+        <div class="row">
+          <div>
+            <div class="brand">${shop.name}</div>
+            <div class="muted">${shop.tagline}</div>
+          </div>
+          <div class="muted">
+            <div>شمارهٔ فاکتور: <b class="num" dir="ltr">${o.id}</b></div>
+            <div>تاریخ: ${new Date(o.at).toLocaleDateString("fa-IR")}</div>
+            <div>وضعیت: ${ORDER_STATUS_LABEL[o.status]}</div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="label-line"><b>${o.customer}</b> · ${o.phone}</div>
+          <div class="label-line muted">${o.city} — ${o.address}</div>
+        </div>
+        <table>
+          <thead><tr><th>قطعه</th><th>رنگ / سایز</th><th>تعداد</th><th>قیمت واحد</th><th>جمع</th></tr></thead>
+          <tbody>${lines}</tbody>
+        </table>
+        <div class="totals">
+          <div><span>جمع اقلام</span><b class="num">${formatPrice(o.subtotal)}</b></div>
+          ${o.discountTotal > 0 ? `<div><span>تخفیف</span><b class="num">− ${formatPrice(o.discountTotal)}</b></div>` : ""}
+          <div><span>ارسال</span><b class="num">${o.shippingCost === 0 ? "رایگان" : formatPrice(o.shippingCost)}</b></div>
+          <div class="grand"><span>مبلغ نهایی</span><b class="num">${formatPrice(o.total)}</b></div>
+        </div>
+        <footer>${shop.name}${shop.phone ? ` · ${shop.phone}` : ""} — این فاکتور بر پایهٔ سفارش ثبت‌شده در سامانه صادر شده است.</footer>
+      </section>`;
+    })
+    .join("");
+  return printDocument(`فاکتور ${orders.length === 1 ? orders[0].id : ""}`, "A4", sheets);
+}
+
+/** A5 shipping label — one per parcel, receiver-facing */
+function printLabels(orders: ReturnType<typeof useAdmin>["orders"]) {
+  const shop = shopIdentity();
+  const sheets = orders
+    .map((o) => {
+      const items = o.lines.reduce((n, l) => n + l.qty, 0);
+      return `<section class="label-sheet" style="page-break-after:always">
+        <div class="row">
+          <div class="brand" style="font-size:14px">${shop.name}</div>
+          <div class="muted">سفارش <b class="num" dir="ltr">${o.id}</b></div>
+        </div>
+        <div class="label-line" style="margin-top:10mm"><span class="muted">گیرنده:</span> <b>${o.customer}</b></div>
+        <div class="label-line"><span class="muted">تلفن:</span> <b class="num" dir="ltr">${o.phone}</b></div>
+        <div class="label-line"><span class="muted">نشانی:</span> ${o.city} — ${o.address}</div>
+        <div class="label-line"><span class="muted">تعداد اقلام:</span> ${fa(items)}</div>
+        <div class="label-line"><span class="muted">نوع ارسال:</span> ${o.shipping === "express" ? "پیشتاز" : "پست"}</div>
+        ${o.tracking ? `<div class="label-line"><span class="muted">کد رهگیری:</span> <b class="num" dir="ltr">${o.tracking}</b></div>` : ""}
+      </section>`;
+    })
+    .join("");
+  return printDocument("لیبل ارسال", "A5", sheets);
 }

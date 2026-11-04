@@ -3025,3 +3025,22 @@
 .ad-notes li span{ font-size:12.5px; line-height:1.8 }
 .ad-notes li small{ font-size:10.5px; opacity:.6 }
 .ad-note-add{ display:grid; gap:8px; margin-block-start:12px }
+
+/* ---------- reports ---------- */
+.ad-report-bars{
+  display:flex; align-items:flex-end; gap:6px;
+  height:150px; padding-block-start:8px;
+}
+.ad-report-bar{
+  flex:1; min-width:0; display:flex; flex-direction:column; justify-content:flex-end;
+  align-items:center; gap:5px; height:100%;
+}
+.ad-report-fill{
+  width:100%; max-width:26px; border-radius:5px 5px 2px 2px;
+  background:linear-gradient(180deg,#2b2620,#4a4137);
+  min-height:2px;
+}
+.ad-report-bar small{
+  font-size:9px; color:#6b6255; white-space:nowrap;
+  transform:rotate(-45deg); transform-origin:center;
+}
