@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Check, KeyRound, Mail, MessageSquare, ShieldCheck, Smartphone } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { useAuth } from "@/state/auth";
@@ -13,7 +13,12 @@ export function AuthPage() {
   const nav = useNavigate();
   const { requestOtp, verifyOtp, loginWithPassword, register } = useAuth();
   const ops = useOps();
-  const [mode, setMode] = useState<Mode>("otp");
+  // the header links straight into a mode (ثبت‌نام / ورود) instead of a generic page
+  const [params] = useSearchParams();
+  const initialMode = params.get("mode");
+  const [mode, setMode] = useState<Mode>(
+    initialMode === "register" || initialMode === "password" || initialMode === "otp" ? initialMode : "otp",
+  );
   const [channel, setChannel] = useState<"sms" | "email">("sms");
   const [email, setEmail] = useState("ava@example.com");
   const [phone, setPhone] = useState("09120000000");

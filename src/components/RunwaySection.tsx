@@ -66,6 +66,12 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
   const selectModel = useCallback(
     (index: number) => {
       restoreFocus.current = document.activeElement as HTMLElement;
+      // on phones the details sheet covers the runway, so tapping a model only
+      // switches it — the sheet opens from «خرید این استایل» when the shopper is ready
+      if (!isDesktop) {
+        setActiveIndex(index);
+        return;
+      }
       if (index === activeIndex) {
         setPanelOpen((v) => !v);
       } else {
@@ -73,7 +79,7 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
         setPanelOpen(true);
       }
     },
-    [activeIndex],
+    [activeIndex, isDesktop],
   );
 
   /** rail navigation: move the runway without forcing the panel open */
@@ -174,9 +180,9 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
 
         <div className="flex items-center gap-2">
           <p className="hidden text-right text-[10px] leading-relaxed tracking-[0.14em] text-ink-45 uppercase sm:block">
-            روی هر مدل بزن
+            مدل را انتخاب کن
             <br />
-            تا استایل باز شود
+            بعد «خرید این استایل»
           </p>
           <SceneSettingsPopover
             open={settingsOpen}
@@ -209,11 +215,9 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
           <RunwayControls
             looks={LOOKS}
             activeIndex={activeIndex}
-            mode={settings.mode}
             panelOpen={panelOpen}
             onStep={step}
             onSelect={goTo}
-            onMode={(mode) => setSettings((s) => ({ ...s, mode }))}
             onShop={() => (panelOpen ? closePanel() : setPanelOpen(true))}
           />
         </div>
