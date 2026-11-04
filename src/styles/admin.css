@@ -2954,3 +2954,6 @@
 }
 .ad-palette-foot span{ display:inline-flex; align-items:center; gap:4px }
 .ad-palette-foot .ad-kbd{ border-color:#d9d2c6; background:#f2ede3; color:#4a4337 }
+
+/* tabular figures for counted columns (items, quantities, balances) */
+.ad-num{ font-variant-numeric: tabular-nums }

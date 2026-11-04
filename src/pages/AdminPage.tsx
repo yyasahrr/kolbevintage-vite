@@ -937,7 +937,19 @@ function Orders() {
         <div className="ad-table-wrap">
           <table className="ad-table">
             <thead>
-              <tr><th>شناسه</th><th>مشتری</th><th>زمان</th><th>تخفیف</th><th>کل</th><th>وضعیت</th><th /></tr>
+              <tr>
+                <th aria-label="انتخاب" />
+                <th>شناسه</th>
+                <th>مشتری</th>
+                <th>اقلام</th>
+                <th>زمان</th>
+                <th>ارسال</th>
+                <th>پرداخت</th>
+                <th>تخفیف</th>
+                <th>کل</th>
+                <th>وضعیت</th>
+                <th />
+              </tr>
             </thead>
             <tbody>
               {list.map((o) => (
@@ -958,7 +970,10 @@ function OrderRow({ o, open, onToggle, picked, onPick }: { o: AdminState["orders
         <td><input type="checkbox" className="ad-checkbox" checked={picked} onChange={(e) => { e.stopPropagation(); onPick(); }} aria-label={`انتخاب سفارش ${o.id}`} /></td>
         <td dir="ltr">{o.id}</td>
         <td>{o.customer}<small>{o.city}</small></td>
+        <td className="ad-num">{fa(o.lines.reduce((n, l) => n + l.qty, 0))}</td>
         <td>{timeAgo(o.at)}</td>
+        <td>{o.shipping === "express" ? "پیشتاز" : "پست"}</td>
+        <td className="latin-track" dir="ltr">{o.gateway ?? "—"}</td>
         <td>{o.discountTotal > 0 ? `− ${formatPrice(o.discountTotal)}` : "—"}</td>
         <td className="ad-money">{formatPrice(o.total)}</td>
         <td>
@@ -976,7 +991,7 @@ function OrderRow({ o, open, onToggle, picked, onPick }: { o: AdminState["orders
       </tr>
       {open && (
         <tr className="ad-detail-row">
-          <td colSpan={7}>
+          <td colSpan={11}>
             <div className="ad-detail">
               <div className="ad-detail-col">
                 <h4>اقلام</h4>
