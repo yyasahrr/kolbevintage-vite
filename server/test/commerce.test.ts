@@ -234,7 +234,10 @@ beforeEach(async () => {
     `delete from refunds; delete from fulfillment_events; delete from order_lines; delete from orders;
      delete from payment_attempts; delete from checkout_sessions; delete from cart_lines; delete from carts;
      delete from stock_reservations; delete from inventory_movements; delete from inventory_adjustments;
-     delete from outbox_events; delete from price_rules where id like 'test-%';
+     delete from outbox_events;
+     -- every test starts from a known shelf: seeded campaigns must not leak into
+     -- coupon tests (on a fresh CI database they do, on a long-lived one they don't)
+     delete from price_rules;
      update product_variants set on_hand = last_catalog_qty, quarantined = 0;
      update coupons set used_count = 0;`,
   );
