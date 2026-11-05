@@ -520,3 +520,13 @@ create table if not exists page_views (
 );
 create index if not exists page_views_at_idx on page_views (at desc);
 create index if not exists page_views_session_idx on page_views (session);
+
+-- Newsletter sign-ups from the storefront widget (decision 75, batch 2).
+-- One row per address; nothing else is stored, and the panel can read and
+-- export them. A duplicate sign-up is not an error for the shopper.
+create table if not exists newsletter_subscribers (
+  email text primary key,
+  source text,
+  created_at timestamptz not null default now()
+);
+create index if not exists newsletter_created_idx on newsletter_subscribers (created_at desc);

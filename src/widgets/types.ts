@@ -37,7 +37,10 @@ export interface WidgetOption {
   key: string;
   label: string;
   type: OptionType;
+  /** fixed choices from the code (a look id, a colour) */
   choices?: { value: string; label: string }[];
+  /** or choices the store owns: the panel fills these from the live documents */
+  choicesSource?: "categories" | "looks";
   default: string | number | boolean;
   hint?: string;
 }

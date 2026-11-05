@@ -272,6 +272,8 @@ export interface OpsState {
    * empty on a fresh shop: nothing appears until the owner installs a widget.
    */
   widgets: WidgetInstance[];
+  /** questions the owner wrote for the FAQ widget (decision 75, batch 2) */
+  faqs: { id: string; q: string; a: string }[];
   /** lookId → product ids explicitly placed in that look (admin editor) */
   lookProducts: Record<string, string[]>;
   /** lookId → uploaded look image override */
@@ -359,6 +361,10 @@ export const moveWidget = (id: string, direction: -1 | 1) => {
 };
 
 export const setWidgets = (list: WidgetInstance[]) => patchOps({ widgets: list });
+
+export const saveFaq = (faq: { id: string; q: string; a: string }) =>
+  patchOps({ faqs: cache.faqs.some((f) => f.id === faq.id) ? cache.faqs.map((f) => (f.id === faq.id ? faq : f)) : [...cache.faqs, faq] });
+export const removeFaq = (id: string) => patchOps({ faqs: cache.faqs.filter((f) => f.id !== id) });
 
 /** move one block up/down; used by the drag handle and the keyboard buttons */
 export const moveHomeSection = (id: string, direction: -1 | 1) => {
@@ -505,6 +511,7 @@ const DEFAULT: OpsState = {
     },
   ],
   widgets: [],
+  faqs: [],
   lookProducts: {},
   lookImages: {},
 };

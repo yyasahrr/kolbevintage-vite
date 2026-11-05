@@ -18,6 +18,7 @@ import { backupRoutes } from "./routes/backup";
 import { analyticsRoutes } from "./routes/analytics";
 import { smsRoutes } from "./routes/sms";
 import { maintenanceRoutes } from "./routes/maintenance";
+import { publicRoutes } from "./routes/public";
 import { startBackupScheduler } from "./backup";
 import { recordServerError } from "./errors";
 import { seedRbac } from "./http/rbac";
@@ -115,6 +116,7 @@ export async function buildServer() {
   await app.register(analyticsRoutes);
   await app.register(smsRoutes);
   await app.register(maintenanceRoutes);
+  await app.register(publicRoutes);
 
   if (config.serveStatic && fs.existsSync(path.join(config.distDir, "index.html"))) {
     await app.register(fastifyStatic, {

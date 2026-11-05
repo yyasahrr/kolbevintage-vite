@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Check, Eye, EyeOff, LayoutGrid, Plus, Search, Trash2 } from "lucide-react";
-import { addWidget, moveWidget, removeWidget, toggleWidget, updateWidget, useOps } from "@/state/ops";
+import { addWidget, moveWidget, removeFaq, removeWidget, saveFaq, toggleWidget, updateWidget, useOps } from "@/state/ops";
+import { LOOKS } from "@/data/looks";
 import { WIDGETS, widgetDef } from "@/widgets/registry";
 import { ZONE_LABEL, type WidgetInstance, type WidgetZone } from "@/widgets/types";
 
@@ -50,6 +51,16 @@ const STARTER: { kind: string; zone: WidgetZone }[] = [
 
 function InstalledRow({ instance }: { instance: WidgetInstance }) {
   const def = widgetDef(instance.kind);
+  const ops = useOps();
+  // options whose choices live in the shop's own documents (categories, looks)
+  const choicesFor = (source?: "categories" | "looks", fixed?: { value: string; label: string }[]) => {
+    if (fixed?.length) return fixed;
+    if (source === "categories") {
+      return ops.categories.filter((c) => c.active).map((c) => ({ value: c.slug, label: c.name }));
+    }
+    if (source === "looks") return LOOKS.map((l) => ({ value: l.id, label: l.name }));
+    return [];
+  };
   const [open, setOpen] = useState(false);
   if (!def) return null;
   const setOption = (key: string, value: string | number | boolean) =>
@@ -136,7 +147,7 @@ function InstalledRow({ instance }: { instance: WidgetInstance }) {
                   value={String(instance.options[option.key] ?? option.default)}
                   onChange={(e) => setOption(option.key, e.target.value)}
                 >
-                  {(option.choices ?? []).map((choice) => (
+                  {choicesFor(option.choicesSource, option.choices).map((choice) => (
                     <option key={choice.value} value={choice.value}>
                       {choice.label}
                     </option>
@@ -161,6 +172,25 @@ function InstalledRow({ instance }: { instance: WidgetInstance }) {
 export function WidgetsPanel() {
   const ops = useOps();
   const installed = ops.widgets ?? [];
+  const faqs = ops.faqs ?? [];
+  const [newsletter, setNewsletter] = useState<{ total: number; recent: { email: string; created_at: string }[] } | null>(null);
+  const [newsletterError, setNewsletterError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const { api } = await import("@/lib/api");
+        const res = await api.get<{ total: number; recent: { email: string; created_at: string }[] }>("/api/admin/newsletter");
+        if (alive) setNewsletter(res);
+      } catch {
+        if (alive) setNewsletterError("فهرست مشترکان خوانده نشد؛ دسترسی «مشتریان» یا اتصال سرور را بررسی کن.");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<string>("همه");
   const [zone, setZone] = useState<WidgetZone>("home-middle");
@@ -284,6 +314,54 @@ export function WidgetsPanel() {
               );
             })}
           </div>
+        )}
+      </Card>
+
+      <Card title="پرسش‌های متداول (برای ویجت «پرسش‌های متداول»)" action={<span className="ad-hint">{faqs.length.toLocaleString("fa-IR")} پرسش</span>}>
+        {faqs.length === 0 && <p className="ad-hint" style={{ margin: 0 }}>هنوز پرسشی نوشته نشده؛ ویجت تا آن موقع در فروشگاه دیده نمی‌شود.</p>}
+        {faqs.map((faq) => (
+          <div key={faq.id} className="ad-widget-row">
+            <label className="ad-field">
+              پرسش
+              <input className="ad-input" value={faq.q} onChange={(e) => saveFaq({ ...faq, q: e.target.value })} />
+            </label>
+            <label className="ad-field" style={{ marginTop: 8 }}>
+              پاسخ
+              <textarea className="ad-input" rows={2} value={faq.a} onChange={(e) => saveFaq({ ...faq, a: e.target.value })} />
+            </label>
+            <div className="ad-actions" style={{ marginTop: 8 }}>
+              <button type="button" className="ad-btn is-sm is-danger" onClick={() => removeFaq(faq.id)}>
+                <Trash2 width={13} height={13} /> حذف پرسش
+              </button>
+            </div>
+          </div>
+        ))}
+        <div className="ad-actions" style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            className="ad-btn is-sm"
+            onClick={() => saveFaq({ id: `faq-${Date.now().toString(36)}`, q: "", a: "" })}
+          >
+            <Plus width={13} height={13} /> پرسش تازه
+          </button>
+        </div>
+      </Card>
+
+      <Card title="مشترکان خبرنامه" action={<span className="ad-hint">{newsletter ? `${newsletter.total.toLocaleString("fa-IR")} نفر` : "—"}</span>}>
+        {newsletterError && <p className="ad-hint is-warn">{newsletterError}</p>}
+        {!newsletter && !newsletterError && <p className="ad-hint" style={{ margin: 0 }}>در حال خواندن…</p>}
+        {newsletter && newsletter.total === 0 && (
+          <p className="ad-hint" style={{ margin: 0 }}>هنوز کسی عضو نشده. ویجت «خبرنامه» هر ثبت را واقعاً در سرور ذخیره می‌کند.</p>
+        )}
+        {newsletter && newsletter.recent.length > 0 && (
+          <ul className="ad-mini-list">
+            {newsletter.recent.map((row) => (
+              <li key={row.email}>
+                <span dir="ltr">{row.email}</span>
+                <b>{new Date(row.created_at).toLocaleDateString("fa-IR")}</b>
+              </li>
+            ))}
+          </ul>
         )}
       </Card>
 
