@@ -43,6 +43,7 @@ for (const [hash, screen, selector] of ROUTES) {
 
   const reasons = [];
   if (!node) reasons.push(`nothing matched ${selector}`);
+  if (!document.querySelector(".ad-main h2, .ad-main h1")) reasons.push("no page-level heading");
   if (text.length < 40) reasons.push(`the screen painted ${text.length} characters`);
   if (screen && painted !== screen) reasons.push(`asked for "${screen}", painted "${painted}"`);
 

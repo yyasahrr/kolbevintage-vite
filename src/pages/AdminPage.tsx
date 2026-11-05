@@ -4735,7 +4735,15 @@ function JournalEditor() {
   };
 
   return (
-    <Card title="ویرایشگر بلوکی ژورنال" icon={<BookOpen width={14} height={14} />}>
+    <>
+      {/* every other screen opens with an h2; this one opened with the card's h3 */}
+      <div className="ad-head">
+        <div>
+          <h2>ژورنال</h2>
+          <p>مقاله را بلوک‌به‌بلوک بچین: متن، تصویر، نقل‌قول و فاصله. نسخهٔ ذخیره‌شده جای نسخهٔ اصلی را در فروشگاه می‌گیرد.</p>
+        </div>
+      </div>
+      <Card title="ویرایشگر بلوکی ژورنال" icon={<BookOpen width={14} height={14} />}>
       <DraftBanner draft={localDraft} what="این مقاله" />
       <label className="ad-field">
         مقاله
@@ -4837,7 +4845,8 @@ function JournalEditor() {
         {dirty && <span className="ad-hint">تغییر ذخیره‌نشده داری.</span>}
         {notice && <span className="ad-hint">{notice}</span>}
       </div>
-    </Card>
+      </Card>
+    </>
   );
 }
 
