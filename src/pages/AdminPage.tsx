@@ -26,6 +26,8 @@ import {
   Palette,
   Plus,
   RotateCcw,
+  ArrowUp,
+  ArrowDown,
   Save,
   Search,
   Send,
@@ -60,6 +62,7 @@ import { useTheme } from "@/theme/ThemeProvider";
 import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
+import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
 import { type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
@@ -3237,6 +3240,78 @@ function useNotify() {
 
 const KIND_PERSIA: Record<string, string> = { page: "صفحه", landing: "لندینگ", header: "هدر", footer: "فوتر", section: "بخش", popup: "پاپ‌آپ" };
 
+
+/* =====================================================================
+   home page block order (decision 67) — drag, hide, reset.
+   The storefront reads the same list, so this is not a mock-up.
+   ===================================================================== */
+
+function HomeOrderPanel() {
+  const ops = useOps();
+  const list = ops.homeSections?.length ? ops.homeSections : defaultHomeSections();
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+
+  const commit = (next: { id: string; label: string; active: boolean }[]) => setHomeSections(next);
+
+  const drop = (targetId: string) => {
+    if (!dragging || dragging === targetId) return;
+    const from = list.findIndex((s) => s.id === dragging);
+    const to = list.findIndex((s) => s.id === targetId);
+    if (from < 0 || to < 0) return;
+    const next = [...list];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    commit(next);
+    setDragging(null);
+    setOver(null);
+  };
+
+  return (
+    <Card title="ترتیب بخش‌های صفحهٔ اصلی" icon={<Layers width={14} height={14} />}>
+      <p className="ad-hint" style={{ marginTop: 0 }}>
+        با گرفتن دستهٔ هر ردیف بکش و بینداز (یا با دکمه‌های بالا/پایین جابه‌جا کن). هر بخش را می‌توانی موقتاً پنهان کنی؛
+        ویترین همین ترتیب را نشان می‌دهد.
+      </p>
+      <ul className="ad-order-list">
+        {list.map((section, index) => (
+          <li
+            key={section.id}
+            className={cn("ad-order-row", !section.active && "is-off", over === section.id && "is-over")}
+            draggable
+            onDragStart={() => setDragging(section.id)}
+            onDragEnd={() => { setDragging(null); setOver(null); }}
+            onDragOver={(e) => { e.preventDefault(); setOver(section.id); }}
+            onDrop={(e) => { e.preventDefault(); drop(section.id); }}
+          >
+            <span className="ad-order-grip" aria-hidden>⋮⋮</span>
+            <span className="ad-order-index">{fa(index + 1)}</span>
+            <span className="ad-order-label">{section.label}</span>
+            <label className="ad-rbac-toggle">
+              <input
+                type="checkbox"
+                checked={section.active}
+                onChange={() => toggleHomeSection(section.id)}
+                aria-label={`نمایش ${section.label}`}
+              />
+              <span>{section.active ? "نمایش" : "پنهان"}</span>
+            </label>
+            <div className="ad-product-actions">
+              <button type="button" className="ad-icon" disabled={index === 0} aria-label={`${section.label} بالاتر`} title="بالا" onClick={() => moveHomeSection(section.id, -1)}><ArrowUp width={14} height={14} /></button>
+              <button type="button" className="ad-icon" disabled={index === list.length - 1} aria-label={`${section.label} پایین‌تر`} title="پایین" onClick={() => moveHomeSection(section.id, 1)}><ArrowDown width={14} height={14} /></button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="ad-actions">
+        <button type="button" className="ad-btn is-sm" onClick={() => commit(defaultHomeSections())}>
+          <RotateCcw width={13} height={13} /> ترتیب پیش‌فرض
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 function Content() {
   const docs = useDocs();
   return (
@@ -3250,6 +3325,7 @@ function Content() {
           </Link>
         }
       />
+      <HomeOrderPanel />
       {docs.length === 0 ? (
         <Empty text="هنوز چیزی نساخته‌ای. از صفحه‌ساز یک صفحه، هدر، فوتر یا پاپ‌آپ بساز." />
       ) : (

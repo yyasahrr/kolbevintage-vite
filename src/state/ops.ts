@@ -194,6 +194,8 @@ export interface OpsState {
   siteTheme: ThemeId;
   categories: CategoryDef[];
   sizeSets: SizeSet[];
+  /** drag order of the storefront home page blocks (decision 67) */
+  homeSections: HomeSection[];
   /** productId → ordered gallery, each image with its own colour + role */
   productImages: ProductImageMap;
   /** kept for backwards compatibility with older saved data */
@@ -239,6 +241,47 @@ const CATEGORIES: CategoryDef[] = [
   { id: "bags", name: "کیف و اکسسوری", slug: "bags", garments: ["bag", "accessory"], thumbnail: "stock:look1", sizeSetId: "one", active: true, order: 6 },
 ];
 
+/* ---------------- home page section order (decision 67) ---------------- */
+
+export interface HomeSection {
+  id: string;
+  label: string;
+  active: boolean;
+}
+
+/** the order a fresh shop starts with; the panel can reorder or hide each block */
+export const HOME_DEFAULT_ORDER = ["hero", "collections", "newArrivals", "runway", "atelier", "looks", "journal"];
+
+const HOME_SECTION_NAMES: Record<string, string> = {
+  hero: "هدر تصویری و نوار متحرک",
+  collections: "دسته‌بندی‌ها",
+  newArrivals: "تازه رسیده‌ها",
+  runway: "نوار رانوی",
+  atelier: "آتلیه و ساخت",
+  looks: "استایل‌ها",
+  journal: "ژورنال",
+};
+
+export const defaultHomeSections = (): HomeSection[] =>
+  HOME_DEFAULT_ORDER.map((id) => ({ id, label: HOME_SECTION_NAMES[id] ?? id, active: true }));
+
+export const setHomeSections = (list: HomeSection[]) => patchOps({ homeSections: list });
+
+/** move one block up/down; used by the drag handle and the keyboard buttons */
+export const moveHomeSection = (id: string, direction: -1 | 1) => {
+  const list = cache.homeSections?.length ? [...cache.homeSections] : defaultHomeSections();
+  const index = list.findIndex((s) => s.id === id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= list.length) return;
+  [list[index], list[target]] = [list[target], list[index]];
+  patchOps({ homeSections: list });
+};
+
+export const toggleHomeSection = (id: string) => {
+  const list = cache.homeSections?.length ? [...cache.homeSections] : defaultHomeSections();
+  patchOps({ homeSections: list.map((s) => (s.id === id ? { ...s, active: !s.active } : s)) });
+};
+
 const DEFAULT: OpsState = {
   siteTheme: DEFAULT_THEME,
   brand: {
@@ -254,6 +297,7 @@ const DEFAULT: OpsState = {
   },
   categories: CATEGORIES,
   sizeSets: SIZE_SETS,
+  homeSections: defaultHomeSections(),
   productImages: {},
   colorMedia: {},
   hoverMedia: {},

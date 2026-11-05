@@ -3083,3 +3083,16 @@
 /* ---------- temporary access (decision 89) ---------- */
 .ad-rbac-expiry{ display:flex; align-items:center; gap:6px; flex-wrap:wrap }
 .ad-rbac-expiry .ad-chip{ font-size:10px }
+
+/* ---------- home section order (decision 67) ---------- */
+.ad-order-list{ list-style:none; margin:0 0 10px; padding:0; display:grid; gap:6px }
+.ad-order-row{
+  display:flex; align-items:center; gap:10px;
+  padding:9px 11px; border-radius:10px; background:var(--surface-2, rgba(0,0,0,.035));
+  border:1px solid transparent; cursor:grab;
+}
+.ad-order-row.is-off{ opacity:.5 }
+.ad-order-row.is-over{ border-color:#c98a2b; background:rgba(201,138,43,.08) }
+.ad-order-grip{ color:#9b9184; letter-spacing:-2px; font-size:12px; user-select:none }
+.ad-order-index{ font-size:11px; color:#8b8175; font-variant-numeric:tabular-nums; min-width:14px }
+.ad-order-label{ flex:1; font-size:12.5px }
