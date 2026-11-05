@@ -211,6 +211,13 @@ export async function catalogRoutes(app: FastifyInstance) {
          (select count(*)::int from orders) as orders,
          (select count(*)::int from customers) as customers`,
     );
-    return { ok: true, db: "postgres", ...counts.rows[0], time: new Date().toISOString() };
+    return {
+      ok: true,
+      db: "postgres",
+      ...counts.rows[0],
+      // when the panel lives on its own host the browser is told where to go (decision 86)
+      adminUrl: process.env.ADMIN_BASE_URL ?? null,
+      time: new Date().toISOString(),
+    };
   });
 }

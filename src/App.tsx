@@ -76,6 +76,33 @@ function ViewTracker() {
   return null;
 }
 
+/**
+ * The panel can live on its own host (decision 86). When the server reports
+ * ADMIN_BASE_URL and a visitor opens a panel route on the shop's host, the
+ * browser is sent there instead of rendering the panel twice.
+ */
+function AdminHostGuard() {
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const { api } = await import("@/lib/api");
+        const health = await api.get<{ adminUrl?: string | null }>("/api/health");
+        if (!alive || !health.adminUrl) return;
+        const target = new URL(health.adminUrl);
+        const isPanelRoute = /#\/(admin|builder)/.test(window.location.hash);
+        if (isPanelRoute && window.location.host !== target.host) {
+          window.location.replace(`${target.origin}${target.pathname === "/" ? "" : target.pathname}/${window.location.hash}`);
+        }
+      } catch {
+        /* offline: the panel stays where it is */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+  return null;
+}
+
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
@@ -128,6 +155,7 @@ export default function App() {
         <CartProvider>
           <ScrollToTop />
           <BrandMeta />
+          <AdminHostGuard />
           <Routes>
             <Route path="/builder/*" element={<AdminOnly><BuilderApp /></AdminOnly>} />
             <Route path="/admin/*" element={<AdminPage />} />

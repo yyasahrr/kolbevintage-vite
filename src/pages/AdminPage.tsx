@@ -20,6 +20,8 @@ import {
   Lock,
   LogOut,
   Megaphone,
+  Moon,
+  Sun,
   MessageSquare,
   Sparkles,
   Bell,
@@ -315,6 +317,21 @@ export function AdminPage() {
     }
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /* owner's panel palette; the shop's own theme is a different decision (5 vs 9) */
+  const [adTheme, setAdTheme] = useState<"light" | "dark">(() => {
+    try {
+      return localStorage.getItem("kv_admin_theme") === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("kv_admin_theme", adTheme);
+    } catch {
+      /* private mode */
+    }
+  }, [adTheme]);
 
   useEffect(() => {
     try {
@@ -389,7 +406,7 @@ export function AdminPage() {
   };
 
   return (
-    <div className="ad-app">
+    <div className="ad-app" data-ad-theme={adTheme}>
       <header className="ad-top">
         <button type="button" className="ad-burger" aria-label="منوی پنل" aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>
           <Layers width={17} height={17} />
@@ -429,6 +446,16 @@ export function AdminPage() {
           <Search width={14} height={14} />
           <span className="ad-top-btn-label">جست‌وجو</span>
           <kbd className="ad-kbd latin-track" dir="ltr">⌘K</kbd>
+        </button>
+        <button
+          type="button"
+          className="ad-btn is-sm"
+          onClick={() => setAdTheme(adTheme === "dark" ? "light" : "dark")}
+          aria-pressed={adTheme === "dark"}
+          aria-label={adTheme === "dark" ? "روشن کردن پنل" : "تیره کردن پنل"}
+          title={adTheme === "dark" ? "پنل روشن" : "پنل تیره"}
+        >
+          {adTheme === "dark" ? <Sun width={14} height={14} /> : <Moon width={14} height={14} />}
         </button>
         {session.me?.staff && (
           <span className="ad-role-pill" title={`نقش: ${session.me.staff.roleName}`}>
