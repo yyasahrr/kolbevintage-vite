@@ -46,6 +46,9 @@ export async function createPanelDom({ settle = 4500 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const React = await import("react");
   const { default: App } = await vite.ssrLoadModule("/src/App.tsx");
+  // main.tsx is not part of the module graph we mount, so the server hydration it triggers has to
+  // be done here — read-only on purpose: an audit must never push state into the database
+  const sync = await vite.ssrLoadModule("/src/state/sync.ts");
 
   return {
     /** mount the app at one route and wait for its data */
@@ -58,6 +61,7 @@ export async function createPanelDom({ settle = 4500 } = {}) {
       installGlobals(dom.window);
       const root = createRoot(dom.window.document.getElementById("root"));
       root.render(React.createElement(App));
+      void sync.hydrateFromServer();
       await new Promise((resolve) => setTimeout(resolve, settle));
       return {
         window: dom.window,

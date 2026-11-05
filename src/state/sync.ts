@@ -13,11 +13,14 @@ export type SyncState = "connecting" | "online" | "offline";
 
 interface SyncStatus {
   state: SyncState;
+  /** when this browser last pushed a change */
   lastSaved: number | null;
+  /** when this browser last read the server's state — the honest age of every number on screen */
+  lastLoaded: number | null;
   error: string | null;
 }
 
-let status: SyncStatus = { state: "connecting", lastSaved: null, error: null };
+let status: SyncStatus = { state: "connecting", lastSaved: null, lastLoaded: null, error: null };
 const listeners = new Set<() => void>();
 
 const emit = () => listeners.forEach((l) => l());
@@ -94,7 +97,7 @@ export async function hydrateFromServer(attempt = 0): Promise<boolean> {
     if (boot.ops && Object.keys(boot.ops).length) hydrateOps(boot.ops);
     markApiOnline(true);
     hydrated = true;
-    setStatus({ state: "online", error: null });
+    setStatus({ state: "online", lastLoaded: Date.now(), error: null });
     for (const queued of pending.keys()) void flush(queued);
     return true;
   } catch (error) {

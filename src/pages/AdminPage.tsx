@@ -964,7 +964,7 @@ function WorkQueue({ onGo }: { onGo: (t: Tab) => void }) {
     { id: "tickets", label: "تیکت باز", n: openTickets, to: "tickets" as Tab },
     { id: "reviews", label: "نظر در انتظار تأیید", n: pendingReviews, to: "reviews" as Tab },
     { id: "returns", label: "مرجوعی در انتظار تصمیم", n: pendingReturns, to: "returns" as Tab },
-    { id: "stock", label: "محصول کم‌موجود", n: lowStock, to: "inventory" as Tab },
+    { id: "stock", label: "محصول با رنگ/سایز رو به اتمام", n: lowStock, to: "inventory" as Tab },
   ].filter((i) => i.n > 0);
 
   return (
@@ -990,6 +990,7 @@ function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
   const admin = useAdmin();
   const docs = useDocs();
   const submissions = useSubmissions();
+  const sync = useSyncStatus();
   const catalog = liveCatalog();
   const revenue = admin.orders.filter((o) => o.status !== "cancelled").reduce((n, o) => n + o.total, 0);
   const customers = new Set(admin.orders.map((o) => o.email).filter(Boolean)).size;
@@ -1000,12 +1001,12 @@ function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
 
   const kpis: { icon: typeof Gauge; label: string; value: string; sub: string; to: Tab }[] = [
     { icon: ShoppingBag, label: "سفارش‌ها", value: fa(admin.orders.length), sub: `${fa(admin.orders.filter((o) => o.status === "pending").length)} در انتظار`, to: "orders" },
-    { icon: TrendingUp, label: "درآمد", value: formatPrice(revenue), sub: "بدون سفارش‌های لغوشده", to: "orders" },
+    { icon: TrendingUp, label: "درآمد", value: formatPrice(revenue), sub: "از ابتدا · بدون سفارش لغوشده", to: "orders" },
     { icon: Users, label: "مشتریان", value: fa(customers), sub: "بر اساس سفارش‌ها", to: "crm" },
     { icon: Warehouse, label: "ارزش انبار", value: formatPrice(stockValue), sub: `${fa(outCount)} ناموجود · ${fa(lowCount)} کم‌موجود`, to: "inventory" },
     { icon: Megaphone, label: "جشنواره فعال", value: fa(campaignsOn), sub: `${fa(admin.rules.filter((r) => r.active).length)} قانون تخفیف`, to: "campaigns" },
     { icon: Package, label: "محصولات", value: fa(catalog.length), sub: `${fa(admin.customProducts.length)} محصول دست‌ساز`, to: "products" },
-    { icon: Inbox, label: "پیام‌ها و محتوا", value: fa(submissions.length), sub: `${fa(docs.length)} صفحه/محتوا ساخته‌شده`, to: "messages" },
+    { icon: Inbox, label: "فرم‌ها و محتوا", value: fa(submissions.length), sub: `${fa(docs.length)} صفحهٔ ساخته‌شده`, to: "forms" },
   ];
 
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -1021,7 +1022,19 @@ function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
 
   return (
     <>
-      <PageHead title="داشبورد" sub="اول کارِ امروز، بعد اعداد فروشگاه." />
+      <PageHead
+        title="داشبورد"
+        sub="اول کارِ امروز، بعد اعداد فروشگاه."
+        actions={
+          <span className={cn("ad-hint", sync.state === "offline" && "text-ember")} role="status">
+            {sync.state === "offline"
+              ? "سرور در دسترس نیست — این اعداد از آخرین همگام‌سازی‌اند"
+              : sync.lastLoaded
+                ? `اعداد ${timeAgo(sync.lastLoaded)} از سرور خوانده شده‌اند`
+                : "در حال خواندن از سرور…"}
+          </span>
+        }
+      />
 
       <WorkQueue onGo={onGo} />
 
@@ -1043,9 +1056,17 @@ function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
           ) : (
             <div className="ad-chart">
               {days.map((d, i) => (
-                <div key={i} className="ad-bar-col">
+                /* a bar chart that only exists visually tells a screen reader nothing: each bar
+                   carries its own sentence, and the title gives a sighted reader the same number */
+                <div
+                  key={i}
+                  className="ad-bar-col"
+                  role="img"
+                  aria-label={`${d.label}: ${formatPrice(d.value)}`}
+                  title={`${d.label}: ${formatPrice(d.value)}`}
+                >
                   <span className="ad-bar" style={{ height: `${Math.max(3, (d.value / maxDay) * 100)}%` }} />
-                  <small>{d.label}</small>
+                  <small aria-hidden="true">{d.label}</small>
                 </div>
               ))}
             </div>
