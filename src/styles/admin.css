@@ -15,7 +15,6 @@
   --ad-muted: #7d7367;
   --ad-line: rgba(0, 0, 0, 0.08);
   --ad-line-strong: rgba(0, 0, 0, 0.14);
-  --ad-shadow: 0 18px 44px rgba(24, 20, 16, 0.14);
   position: fixed;
   inset: 0;
   z-index: 60;
@@ -3246,7 +3245,6 @@
   --ad-muted: #a99d8d;
   --ad-line: rgba(255, 255, 255, 0.12);
   --ad-line-strong: rgba(255, 255, 255, 0.2);
-  --ad-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
 }
 /* a few surfaces that carry their own glass instead of a token */

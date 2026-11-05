@@ -29,3 +29,13 @@ for (const [name, t] of Object.entries(themes)) {
   }
 }
 process.exitCode = failed ? 1 : 0;
+
+/* every token a rule uses must be declared, or the browser falls back to
+   nothing and a surface goes transparent in the dark theme */
+import { readFileSync } from "node:fs";
+const css = readFileSync("src/styles/admin.css", "utf8");
+const used = new Set([...css.matchAll(/var\((--ad-[a-z0-9-]+)/g)].map((m) => m[1]));
+const declared = new Set([...css.matchAll(/^\s*(--ad-[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
+const missing = [...used].filter((t) => !declared.has(t));
+console.log(`tokens: ${used.size} used, ${declared.size} declared${missing.length ? `, MISSING: ${missing.join(", ")}` : ", all defined"}`);
+if (missing.length) process.exitCode = 1;
