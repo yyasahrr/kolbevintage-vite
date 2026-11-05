@@ -228,9 +228,18 @@
   box-shadow: 20px 0 60px -20px rgba(0, 0, 0, 0.6);
   animation: adNavIn 0.28s cubic-bezier(0.22, 0.61, 0.24, 1);
 }
+/* the drawer sits on the inline-start edge, so "enter" means +x in RTL and -x in LTR.
+   A bare translateX(-24px) was always wrong on one side of the shop. */
+.ad-app {
+  --ad-enter-x: 24px;
+}
+:dir(ltr) .ad-app {
+  --ad-enter-x: -24px;
+}
 @keyframes adNavIn {
   from {
-    transform: translateX(-24px);
+    /* the transform is direction-aware (--ad-enter-x), not a hard-coded side */
+    transform: translateX(var(--ad-enter-x, 24px)); /* ui-audit:allow physical */
     opacity: 0.4;
   }
   to {
@@ -342,12 +351,12 @@
 }
 @media (min-width: 640px) {
   .ad-main {
-    padding: 18px 20px 50px;
+    padding: 18px 20px 48px;
   }
 }
 @media (min-width: 900px) {
   .ad-main {
-    padding: 22px 26px 60px;
+    padding: 22px 26px 64px;
   }
 }
 
@@ -1558,15 +1567,14 @@
 }
 .ad-theme-prev i em {
   position: absolute;
-  left: 6px;
-  right: 6px;
+  inset-inline: 6px;
   bottom: 6px;
   height: 13px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-style: normal;
-  font-size: 6px;
+  font-size: 8px;
   color: var(--ad-surface);
 }
 .ad-theme-prev u {
@@ -1807,7 +1815,7 @@
   gap: 10px;
   padding: 10px;
   border: 1px solid rgba(27, 24, 21, 0.1);
-  border-radius: 13px;
+  border-radius: 12px;
   background: var(--ad-surface);
   flex-wrap: wrap;
 }
@@ -1924,7 +1932,7 @@
 }
 .ad-media-badges em {
   font-style: normal;
-  font-size: 8.5px;
+  font-size: 9px;
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(27, 24, 21, 0.07);
@@ -2081,7 +2089,7 @@
 .ad-gallery-card {
   margin: 0;
   border: 1px solid rgba(27, 24, 21, 0.1);
-  border-radius: 13px;
+  border-radius: 12px;
   background: var(--ad-surface);
   overflow: hidden;
 }
@@ -2102,7 +2110,7 @@
   inset-inline-start: 6px;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 8.5px;
+  font-size: 9px;
   font-weight: 600;
   background: rgba(27, 24, 21, 0.68);
   color: var(--ad-surface);
@@ -2169,7 +2177,7 @@
   pointer-events: none;
 }
 .ad-gallery-hint {
-  font-size: 8.5px;
+  font-size: 9px;
   color: #9a9288;
   line-height: 1.6;
 }
@@ -2270,7 +2278,7 @@
   white-space: nowrap;
 }
 .ad-complement-name small {
-  font-size: 8.5px;
+  font-size: 9px;
   color: #8b8378;
 }
 .ad-complement-pick > svg {
@@ -2931,8 +2939,14 @@
   padding:12px 14px; border-block-end:1px solid #e6dfd3;
   color:#6b6255;
 }
+.ad-palette-input:focus-within{
+  box-shadow: inset 0 0 0 2px rgba(27, 24, 21, 0.35);
+  border-radius: 8px;
+}
 .ad-palette-input input{
-  flex:1; min-width:0; border:0; outline:0; background:transparent;
+  /* the ring lives on the wrapper (:focus-within) so the field itself can stay flat */
+  flex:1; min-width:0; border:0; outline:none; /* ui-audit:allow outlineNone */
+  background:transparent;
   font:inherit; font-size:13.5px; color:var(--ad-ink);
 }
 .ad-palette-close{

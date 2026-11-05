@@ -37,3 +37,8 @@ skills-lock.json
 
 # Logical backups written by the server
 server/.backups/
+
+# playwright: run artefacts, never the goldens themselves
+test-results/
+playwright-report/
+blob-report/
