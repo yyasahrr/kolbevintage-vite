@@ -50,3 +50,14 @@ here (not in a global config) so the rules travel with the code they govern.
   `scripts/search.py`); everything else is plain markdown.
 - Vendored copies are pinned to the commit they were cloned at; update deliberately, not by
   running a sync command in a hurry.
+
+## Skills this project added for itself
+
+| Skill | Where | Use |
+| --- | --- | --- |
+| `design-taste-frontend` (tasteskill 2.5) | `Leonxlnx/taste-skill` → `skills/taste-skill` | art direction, composition, escaping templated layout |
+| `ui-quality-gate` | this repo: `docs/quality-gate.md` → `.agents/skills/ui-quality-gate/` | audit / fix / redesign modes, wired to this project's gates |
+
+`ui-quality-gate` is not fetched from anywhere: it is the project's own procedure. Edit
+`docs/quality-gate.md` and copy it into `.agents/skills/ui-quality-gate/SKILL.md`
+(`npm run skills:install -- --check` reports it like the others).

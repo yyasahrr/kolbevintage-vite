@@ -34,10 +34,11 @@ const SKILLS = [
   { id: "web-quality-audit", repo: "addyosmani/web-quality-skills", dir: "skills/web-quality-audit" },
   { id: "userinterface-wiki", repo: "raphaelsalaja/userinterface-wiki", dir: "skills" },
   { id: "visual-regression-tester", repo: "patricio0312rev/skills", dir: "testing/visual-regression-tester" },
+  { id: "design-taste-frontend", repo: "Leonxlnx/taste-skill", dir: "skills/taste-skill" },
 ];
 
 /** skills this repository already carries; listed so `--check` reports the whole set */
-const LOCAL = ["impeccable", "ui-ux-pro-max", "emil-design-eng", "web-design-guidelines", "frontend-design", "design-md", "animate", "review-animations"];
+const LOCAL = ["impeccable", "ui-ux-pro-max", "emil-design-eng", "web-design-guidelines", "frontend-design", "design-md", "animate", "review-animations", "ui-quality-gate"];
 
 const check = args.has("--check");
 const force = args.has("--force");
@@ -76,9 +77,11 @@ for (const skill of SKILLS) {
 
 const onDisk = existsSync(TARGET) ? (await readdir(TARGET)).filter((id) => existsSync(path.join(TARGET, id, "SKILL.md"))) : [];
 
+const expected = [...LOCAL, ...SKILLS.map((s) => s.id)];
+const absent = expected.filter((id) => !onDisk.includes(id));
 console.log(
-  `\nskills: ${onDisk.length} on disk (${present} already present, ${installed} installed, ${failed} missing)` +
-    `\n  complete set expected: ${[...LOCAL, ...SKILLS.map((s) => s.id)].length} — see docs/skills.md` +
+  `\nskills: ${onDisk.length} on disk (${present} already present, ${installed} installed, ${failed} fetched)` +
+    `\n  listed in this file: ${expected.length}, missing from disk: ${absent.length ? absent.join(", ") : "none"} — see docs/skills.md` +
     (failed ? "\n  a network that blocks github.com will cause the misses above; the stylesheet and test gates do not need them." : "") +
     "\n",
 );
