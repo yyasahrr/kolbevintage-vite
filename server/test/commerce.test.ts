@@ -858,6 +858,27 @@ test("the cashback rate comes from the bracket that contains the basket", async 
   assert.equal(computeCashback(500, { ...settings, cashbackEnabled: false }).amount, 0);
 });
 
+test("the shipped default ladder is the owner's: ۱ million ⇒ ۳٪, ۲ million ⇒ ۵٪", async () => {
+  const { computeCashback } = await import("../src/commerce/cashback");
+  const { DEFAULT_COMMERCE_SETTINGS } = await import("../src/commerce/settings");
+  const settings = { ...DEFAULT_COMMERCE_SETTINGS, cashbackEnabled: true, cashbackMaxAmount: 10_000 };
+
+  /* prices are stored in 1,000-Toman units, so 1000 units is the one-million bracket */
+  assert.deepEqual(
+    settings.cashbackTiers.map((t) => [t.min, t.max, t.percent]),
+    [
+      [0, 1000, 1],
+      [1000, 2000, 3],
+      [2000, null, 5],
+    ],
+  );
+  assert.equal(computeCashback(999, settings).percent, 1);
+  assert.equal(computeCashback(1000, settings).percent, 3, "one million lands in the 3% bracket");
+  assert.equal(computeCashback(1500, settings).percent, 3);
+  assert.equal(computeCashback(2000, settings).percent, 5, "two million lands in the 5% bracket");
+  assert.equal(computeCashback(3000, settings).amount, 150);
+});
+
 test("a paid order credits exactly one cashback entry and a refund claws back its share", async () => {
   const variantId = await setStock(SKU, 3);
   const client = await customerClient();

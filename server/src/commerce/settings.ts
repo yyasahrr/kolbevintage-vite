@@ -114,10 +114,15 @@ export const DEFAULT_COMMERCE_SETTINGS: CommerceSettings = {
   cashbackEnabled: true,
   cashbackMode: "tier_rate",
   cashbackBase: "merchandise",
+  /**
+   * The owner's ladder (2026-11-05): bigger basket, bigger rate —
+   * ۱ میلیون تومان ⇒ ۳٪ and ۲ میلیون تومان ⇒ ۵٪. Prices are stored in units of
+   * 1,000 Toman, so 1000 units is the one-million bracket. The last row is open.
+   */
   cashbackTiers: [
-    { min: 0, max: 1000, percent: 5 },
-    { min: 1000, max: 3000, percent: 3 },
-    { min: 3000, max: null, percent: 1 },
+    { min: 0, max: 1000, percent: 1 },
+    { min: 1000, max: 2000, percent: 3 },
+    { min: 2000, max: null, percent: 5 },
   ],
   cashbackMaxAmount: 500,
   cashbackCreditTiming: "after_return_window",

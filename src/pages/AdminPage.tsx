@@ -82,6 +82,7 @@ import { useCart as useNotifyCart } from "@/state/cart";
 import type { AdminState, Campaign, DiscountRule, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
 import type { GarmentKind, ProductImage } from "@/types";
 import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, AnalyticsPanel, BackupPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
+import { CashbackPanel } from "./AdminCashback";
 import { CommercePanel } from "./AdminCommercePanel";
 import { StaffPanel } from "./AdminRbac";
 import { loadAdminMe, invalidateAdminMe, useAdminMe } from "@/state/session";
@@ -127,6 +128,7 @@ type Tab =
   | "backup"
   | "security"
   | "forms"
+  | "cashback"
   | "tryon"
   | "megamenu"
   | "content"
@@ -167,7 +169,8 @@ const TABS: NavItem[] = [
       { id: "campaigns", label: "تخفیف و کمپین" },
       { id: "commerce", label: "پرداخت و مالی" },
       { id: "returns", label: "مرجوعی‌ها" },
-      { id: "tryon", label: "کش‌بک" },
+      { id: "cashback", label: "کش‌بک" },
+      { id: "tryon", label: "پرو آنلاین" },
       { id: "reports", label: "گزارش‌ها" },
     ],
   },
@@ -587,7 +590,8 @@ export function AdminPage() {
                 { id: "campaigns", label: "تخفیف و کمپین", node: <Campaigns /> },
                 { id: "commerce", label: "پرداخت و مالی", node: <CommercePanel /> },
                 { id: "returns", label: "مرجوعی‌ها", node: <ReturnsPanel /> },
-                { id: "tryon", label: "کش‌بک", node: <TryOnPanel /> },
+                { id: "cashback", label: "کش‌بک", node: <CashbackPanel /> },
+                { id: "tryon", label: "پرو آنلاین", node: <TryOnPanel /> },
                 { id: "reports", label: "گزارش‌ها", node: <Reports /> },
               ]}
               value={tab}

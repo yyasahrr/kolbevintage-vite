@@ -4025,3 +4025,8 @@ textarea.ad-input {
   color: var(--ad-muted);
   font-size: 9.5px;
 }
+.ad-banner.is-ok {
+  border-color: rgba(47, 111, 78, 0.35);
+  background: rgba(47, 111, 78, 0.09);
+  color: #245840;
+}

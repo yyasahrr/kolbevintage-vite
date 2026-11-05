@@ -1956,7 +1956,7 @@ export function FormsPanel() {
 }
 
 /* =====================================================================
-   try-on packages & cashback
+   try-on packages (cashback has its own screen — see AdminCashback.tsx)
    ===================================================================== */
 
 export function TryOnPanel() {
@@ -1969,8 +1969,8 @@ export function TryOnPanel() {
   return (
     <>
       <PanelHead
-        title="پرو آنلاین و کش‌بک"
-        sub="بسته‌های پرو را تعریف کن، اعتبار به مشتری بده و نرخ کش‌بک هر خرید را تعیین کن."
+        title="پرو آنلاین"
+        sub="بسته‌های پرو را تعریف کن و اعتبار دستی به مشتری بده. کشبک قاعدهٔ خودش را دارد و در بخش «کشبک» تنظیم می‌شود."
         action={<button type="button" className="ad-btn is-sm is-primary" onClick={() => setDraft({ id: `tp-${Date.now().toString(36)}`, name: "", credits: 10, price: 100000 })}><Plus width={13} height={13} /> بستهٔ جدید</button>}
       />
       <Panel title="بسته‌های پرو آنلاین">
@@ -1999,16 +1999,15 @@ export function TryOnPanel() {
           </button>
           {auth.account && <p className="ad-hint" style={{ marginTop: 8 }}>اعتبار حساب فعلی: {fa(ops.tryonCredits[auth.account.email] ?? 0)} پرو</p>}
         </Panel>
-        <Panel title="نرخ کش‌بک">
-          <label className="ad-field">درصد کش‌بک هر خرید
-            <input className="ad-input" type="number" min={0} max={30} value={ops.cashbackRate} onChange={(e) => { const v = Number(e.target.value) || 0; import("@/state/ops").then((m) => m.setCashbackRate(v)); }} />
-          </label>
-          <p className="ad-hint">مشتری با هر خرید این درصد را در کیف پول حسابش می‌گیرد.</p>
-          <div className="ad-tags" style={{ marginTop: 8 }}>
-            {ops.cashbackTxns.slice(0, 8).map((t) => (
-              <em key={t.id}>{t.email} · {fa(t.amount)}</em>
-            ))}
-          </div>
+        <Panel title="کشبک">
+          <p className="ad-hint" style={{ marginTop: 0 }}>
+            کشبک یک نرخ ثابت نیست: پلکانی است و از مبلغ سبد مشتری تعیین می‌شود. جدول پله‌ها، سقف
+            پرداخت، دفتر کل و شبیه‌ساز همه در بخش <b>فروش ← کشبک</b> هستند تا عدد کشبک فقط یک جا
+            تعیین شود.
+          </p>
+          <p className="ad-hint">
+            اعتبار پرو و کشبک دو کیف پول متفاوت‌اند: پرو سرویس عکاسی است، کشبک پول خرید بعدی.
+          </p>
         </Panel>
       </div>
 
