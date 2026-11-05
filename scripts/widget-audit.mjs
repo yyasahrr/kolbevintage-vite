@@ -48,6 +48,21 @@ console.log(`per zone: ${Object.entries(byZone).map(([z, n]) => `${z} ${n}`).joi
 console.log(`per group: ${Object.entries(byGroup).map(([g, n]) => `${g} ${n}`).join(" · ")}`);
 console.log(`data-driven: ${widgets.filter((w) => w.needsData).length}`);
 
+/* the built bundle should carry every widget's name; a widget that never made
+   it into the build is a widget the storefront cannot show */
+try {
+  const bundle = readFileSync("dist/index.html", "utf8");
+  const missing = widgets.filter((w) => {
+    const def = src.slice(src.indexOf(`kind: "${w.kind}"`));
+    const name = def.match(/name: "([^"]+)"/)?.[1];
+    return name ? !bundle.includes(name) : false;
+  });
+  console.log(`bundle: ${widgets.length - missing.length}/${widgets.length} widget names found in dist/index.html`);
+  if (missing.length) findings.push(`not in the build: ${missing.map((w) => w.kind).join(", ")}`);
+} catch {
+  console.log("bundle: dist/index.html not built — skipped");
+}
+
 if (findings.length) {
   console.log(`\n${findings.length} problem(s):`);
   for (const f of findings) console.log("  · " + f);
