@@ -46,6 +46,7 @@ export function ProductPage() {
   // per-category measurements the owner maintains in the panel (decision 56)
   const opsForGuide = useOps();
   const categoryGuide = product ? opsForGuide.sizeGuides[product.category] : undefined;
+  const features = opsForGuide.features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
   const [tryonOpen, setTryonOpen] = useState(false);
   const priceRef = useRef<HTMLDivElement>(null);
   const [pastPrice, setPastPrice] = useState(false);
@@ -366,6 +367,7 @@ export function ProductPage() {
             </button>
           </div>
 
+          {features.tryon && (
           <button
             type="button"
             onClick={() => setTryonOpen(true)}
@@ -377,6 +379,7 @@ export function ProductPage() {
               {myCredits.toLocaleString("fa-IR")} اعتبار
             </span>
           </button>
+          )}
 
           <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-[#f3ede4] p-3">
             {[
@@ -449,6 +452,7 @@ export function ProductPage() {
 
 
       {/* ---------------- reviews (decisions 59 + 70) ---------------- */}
+      {features.reviews && (
       <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
         <SectionHeading
           eyebrow="تجربهٔ خریداران"
@@ -494,6 +498,7 @@ export function ProductPage() {
           <ReviewForm product={product.name} />
         </div>
       </section>
+      )}
 
       {/* ---------------- related ---------------- */}
       <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">

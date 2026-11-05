@@ -50,6 +50,7 @@ import {
   X,
   XCircle,
   Clock,
+  ToggleRight,
   Ruler,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
@@ -66,7 +67,7 @@ import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
 import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
-import { logSmsCampaign, removeSmsTemplate, saveSmsTemplate, setSeo, setSizeGuide } from "@/state/ops";
+import { logSmsCampaign, removeSmsTemplate, saveSmsTemplate, setFeature, setSeo, setSizeGuide } from "@/state/ops";
 import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
@@ -3969,6 +3970,43 @@ function SeoPanel() {
   );
 }
 
+
+/* ------------------------------------------------------------------ */
+/* feature switches — server-free, so a mistake is one click away      */
+/* (decision 62)                                                       */
+/* ------------------------------------------------------------------ */
+
+const FEATURE_LABEL: { key: "tryon" | "reviews" | "journal" | "wishlist"; label: string; off: string }[] = [
+  { key: "tryon", label: "پرو آنلاین", off: "دکمهٔ پرو از صفحهٔ محصول حذف می‌شود." },
+  { key: "reviews", label: "نظرهای مشتریان", off: "بخش نظر و فرم نوشتن نظر در صفحهٔ محصول پنهان می‌شود." },
+  { key: "journal", label: "ژورنال", off: "صفحهٔ ژورنال پیام «خاموش است» نشان می‌دهد." },
+  { key: "wishlist", label: "علاقه‌مندی‌ها", off: "صفحهٔ علاقه‌مندی‌ها بسته می‌شود." },
+];
+
+function FeatureSwitches() {
+  const ops = useOps();
+  const features = ops.features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
+  return (
+    <Card title="کلیدهای قابلیت" icon={<ToggleRight width={14} height={14} />}>
+      <p className="ad-hint" style={{ marginTop: 0 }}>
+        خاموش‌کردن، بخش را واقعاً از فروشگاه برمی‌دارد — بدون انتشار نسخهٔ تازه؛ اگر کسی آدرسش را
+        مستقیم باز کند پیام روشن می‌بیند، نه صفحهٔ خالی.
+      </p>
+      {FEATURE_LABEL.map((f) => (
+        <label key={f.key} className="ad-check" style={{ alignItems: "flex-start", gap: 8 }}>
+          <input type="checkbox" checked={features[f.key]} onChange={(e) => setFeature(f.key, e.target.checked)} />
+          <span>
+            <b>{f.label}</b>
+            <small className="ad-hint" style={{ display: "block" }}>
+              {features[f.key] ? "روشن است و در فروشگاه دیده می‌شود." : f.off}
+            </small>
+          </span>
+        </label>
+      ))}
+    </Card>
+  );
+}
+
 function Appearance() {
   const { theme, setTheme } = useTheme();
   return (
@@ -3994,6 +4032,7 @@ function Appearance() {
         <SizeGuidePanel />
         <SeoPanel />
       </div>
+      <FeatureSwitches />
     </>
   );
 }

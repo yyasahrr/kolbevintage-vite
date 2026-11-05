@@ -230,6 +230,12 @@ export interface OpsState {
   replyTemplates: ReplyTemplate[];
   /** per-category size guide the product page shows (decision 56) */
   sizeGuides: Record<string, { note: string; rows: { size: string; chest: string; waist: string; hips: string }[] }>;
+  /**
+   * store-level on/off switches, flipped from the panel without shipping a new
+   * build (decision 62). Off means the feature is really gone from the shop,
+   * not greyed out.
+   */
+  features: { tryon: boolean; reviews: boolean; journal: boolean; wishlist: boolean };
   /** first-run wizard: five steps, resumable, and it disappears once finished (decision 93) */
   setup: { done: boolean; step: number };
   /** signed-off launch checks; what the panel can measure is measured, the rest is the owner's word (decision 91) */
@@ -355,6 +361,7 @@ const DEFAULT: OpsState = {
     { id: "rt3", name: "پیگیری مرجوعی", body: "درخواست مرجوعی شما ثبت شد. پس از دریافت بسته و کنترل کیفیت، طی ۷۲ ساعت کاری تعیین وضعیت می‌شود." },
   ],
   sizeGuides: {},
+  features: { tryon: true, reviews: true, journal: true, wishlist: true },
   setup: { done: false, step: 0 },
   launchChecks: {},
   issues: [],
@@ -604,6 +611,9 @@ export const setTicketAssignee = (id: string, assignee: string) =>
 
 export const setSizeGuide = (categoryId: string, guide: OpsState["sizeGuides"][string]) =>
   patchOps({ sizeGuides: { ...cache.sizeGuides, [categoryId]: guide } });
+
+export const setFeature = (key: keyof OpsState["features"], on: boolean) =>
+  patchOps({ features: { ...cache.features, [key]: on } });
 
 export const setSetup = (patchSetup: Partial<OpsState["setup"]>) => patchOps({ setup: { ...cache.setup, ...patchSetup } });
 
