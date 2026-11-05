@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
-  BarChart3,
   Boxes,
   Bot,
   Check,
@@ -15,7 +14,6 @@ import {
   EyeOff,
   FileText,
   Gauge,
-  Inbox,
   Layers,
   LayoutTemplate,
   Lock,
@@ -44,7 +42,6 @@ import {
   Truck,
   TrendingUp,
   Users,
-  Warehouse,
   Wifi,
   ShieldCheck as ShieldIcon,
   ChevronsLeft,
@@ -53,12 +50,10 @@ import {
   X,
   XCircle,
   BookOpen,
-  Clock,
   ToggleRight,
   Ruler,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { weekdayName } from "@/utils/date";
 import { COLLECTIONS, liveCatalog, liveGetProduct, type CatalogProduct } from "@/data/catalog";
 import { LOOKS, formatPrice, stockOf } from "@/data/looks";
 import { POSTS, type ArticleBlock } from "@/data/journal";
@@ -79,7 +74,7 @@ import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
 import { resolveImg } from "@/builder/stock";
 import { useCart as useNotifyCart } from "@/state/cart";
-import type { AdminState, Campaign, DiscountRule, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
+import type { AdminState, Campaign, DiscountRule, OrderStatus, RuleType, Scope } from "@/state/admin";
 import type { GarmentKind, ProductImage } from "@/types";
 import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, AnalyticsPanel, BackupPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
 import { CashbackPanel } from "./AdminCashback";
@@ -88,9 +83,10 @@ import { StaffPanel } from "./AdminRbac";
 import { loadAdminMe, invalidateAdminMe, useAdminMe } from "@/state/session";
 import { DraftBanner, useLocalDraft } from "@/components/LocalDraft";
 import { WidgetsPanel } from "@/pages/AdminWidgets";
-import { ChangelogPanel, IssueButton, IssueInbox, LaunchBanner, LaunchChecklist, ManualPanel, PurgePanel, SetupWizard } from "@/pages/AdminLaunch";
+import { ChangelogPanel, IssueButton, IssueInbox, LaunchChecklist, ManualPanel, PurgePanel, SetupWizard } from "@/pages/AdminLaunch";
 import { can, permissionForScreen, firstAllowedScreen } from "@/admin/rbac";
 import "@/styles/admin.css";
+import { Dashboard as OverviewDashboard } from "@/admin/Dashboard";
 
 /* =====================================================================
    helpers
@@ -594,7 +590,7 @@ export function AdminPage() {
             />
           ) : (
             <>
-          {tab === "dashboard" && <Dashboard onGo={setTab} />}
+          {tab === "dashboard" && <OverviewDashboard onOrders={() => setTab("orders")} />}
           {group === "sales" && orderId && <OrderPage orderId={orderId} />}
           {group === "sales" && !orderId && (
             <GroupShell
@@ -933,180 +929,6 @@ function SyncBadge() {
 /* =====================================================================
    dashboard
    ===================================================================== */
-
-function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
-  return (
-    <div className="space-y-5">
-      <LaunchBanner />
-      <DashboardBody onGo={onGo} />
-    </div>
-  );
-}
-
-
-/** the day's actual work, first thing on the dashboard (decision 1) */
-function WorkQueue({ onGo }: { onGo: (t: Tab) => void }) {
-  const admin = useAdmin();
-  const ops = useOps();
-  const pendingOrders = admin.orders.filter((o) => o.status === "pending" || o.status === "processing").length;
-  const unpaid = admin.orders.filter((o) => o.status === "exception").length;
-  const openTickets = ops.tickets.filter((t) => t.status !== "closed").length;
-  const pendingReviews = admin.reviews.filter((r) => !r.approved).length;
-  const pendingReturns = ops.returns.filter((r) => r.status === "requested").length;
-  // "low" means some colour/size line is at or under its threshold, not zero stock
-  const lowStock = liveCatalog().filter((p) =>
-    p.sizes.some((sz) => {
-      const n = p.colors.reduce((sum, c) => sum + stockOf(p, c.id, sz.id), 0);
-      return n > 0 && n <= lowStockLineOf(p.id);
-    }),
-  ).length;
-
-  const items = [
-    { id: "orders", label: "سفارش در انتظار آماده‌سازی", n: pendingOrders, to: "orders" as Tab },
-    { id: "unpaid", label: "سفارش با وضعیت مالی استثنایی", n: unpaid, to: "orders" as Tab },
-    { id: "tickets", label: "تیکت باز", n: openTickets, to: "tickets" as Tab },
-    { id: "reviews", label: "نظر در انتظار تأیید", n: pendingReviews, to: "reviews" as Tab },
-    { id: "returns", label: "مرجوعی در انتظار تصمیم", n: pendingReturns, to: "returns" as Tab },
-    { id: "stock", label: "محصول با رنگ/سایز رو به اتمام", n: lowStock, to: "inventory" as Tab },
-  ].filter((i) => i.n > 0);
-
-  return (
-    <Card title="صف کار امروز" icon={<Clock width={14} height={14} />}>
-      {items.length === 0 ? (
-        <p className="ad-empty-tight">صف خالی است: نه سفارش باز، نه تیکت، نه نظر یا مرجوعی در انتظار.</p>
-      ) : (
-        <div className="ad-queue">
-          {items.map((i) => (
-            <button key={i.id} type="button" className="ad-queue-item" onClick={() => onGo(i.to)}>
-              <b>{fa(i.n)}</b>
-              <span>{i.label}</span>
-              <ArrowLeft width={12} height={12} />
-            </button>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
-  const admin = useAdmin();
-  const docs = useDocs();
-  const submissions = useSubmissions();
-  const sync = useSyncStatus();
-  const catalog = liveCatalog();
-  const revenue = admin.orders.filter((o) => o.status !== "cancelled").reduce((n, o) => n + o.total, 0);
-  const customers = new Set(admin.orders.map((o) => o.email).filter(Boolean)).size;
-  const stockValue = catalog.reduce((n, p) => n + totalStock(p) * p.price, 0);
-  const lowCount = catalog.filter((p) => isLowStock(p.id, totalStock(p))).length;
-  const outCount = catalog.filter((p) => totalStock(p) === 0).length;
-  const campaignsOn = admin.campaigns.filter((c) => c.active).length;
-
-  const kpis: { icon: typeof Gauge; label: string; value: string; sub: string; to: Tab }[] = [
-    { icon: ShoppingBag, label: "سفارش‌ها", value: fa(admin.orders.length), sub: `${fa(admin.orders.filter((o) => o.status === "pending").length)} در انتظار`, to: "orders" },
-    { icon: TrendingUp, label: "مبلغ سفارش‌ها", value: formatPrice(revenue), sub: "از ابتدا · بدون لغوشده؛ نه فروش وصول‌شده", to: "orders" },
-    { icon: Users, label: "مشتریان", value: fa(customers), sub: "بر اساس سفارش‌ها", to: "crm" },
-    { icon: Warehouse, label: "ارزش انبار", value: formatPrice(stockValue), sub: `${fa(outCount)} ناموجود · ${fa(lowCount)} کم‌موجود`, to: "inventory" },
-    { icon: Megaphone, label: "جشنواره فعال", value: fa(campaignsOn), sub: `${fa(admin.rules.filter((r) => r.active).length)} قانون تخفیف`, to: "campaigns" },
-    { icon: Package, label: "محصولات", value: fa(catalog.length), sub: `${fa(admin.customProducts.length)} محصول دست‌ساز`, to: "products" },
-    { icon: Inbox, label: "فرم‌ها و محتوا", value: fa(submissions.length), sub: `${fa(docs.length)} صفحهٔ ساخته‌شده`, to: "forms" },
-  ];
-
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - (6 - i));
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    const list = admin.orders.filter((o) => o.at >= start.getTime() && o.at < end.getTime());
-    return { label: weekdayName(start), value: list.reduce((n, o) => n + o.total, 0) };
-  });
-  const maxDay = Math.max(1, ...days.map((d) => d.value));
-
-  return (
-    <>
-      <PageHead
-        title="داشبورد"
-        sub="اول کارِ امروز، بعد اعداد فروشگاه."
-        actions={
-          <span className={cn("ad-hint", sync.state === "offline" && "text-ember")} role="status">
-            {sync.state === "offline"
-              ? "سرور در دسترس نیست — این اعداد از آخرین همگام‌سازی‌اند"
-              : sync.lastLoaded
-                ? `اعداد ${timeAgo(sync.lastLoaded)} از سرور خوانده شده‌اند`
-                : "در حال خواندن از سرور…"}
-          </span>
-        }
-      />
-
-      <div className="ad-kpis">
-        {kpis.map((k) => (
-          <button key={k.label} type="button" className="ad-kpi" onClick={() => onGo(k.to)}>
-            <span className="ad-kpi-ic"><k.icon width={16} height={16} /></span>
-            <b>{k.value}</b>
-            <span className="ad-kpi-label">{k.label}</span>
-            <small>{k.sub}</small>
-          </button>
-        ))}
-      </div>
-
-      <WorkQueue onGo={onGo} />
-
-      <div className="ad-grid-2">
-        <Card title="مبلغ سفارش‌های هفت روز اخیر (همه وضعیت‌ها)" icon={<BarChart3 width={14} height={14} />}>
-          {admin.orders.length === 0 ? (
-            <Empty text="هنوز سفارشی ثبت نشده. اولین سفارش واقعی با یک خرید از فروشگاه ساخته می‌شود." />
-          ) : (
-            <div className="ad-chart">
-              {days.map((d, i) => (
-                /* a bar chart that only exists visually tells a screen reader nothing: each bar
-                   carries its own sentence, and the title gives a sighted reader the same number */
-                <div
-                  key={i}
-                  className="ad-bar-col"
-                  role="img"
-                  aria-label={`${d.label}: ${formatPrice(d.value)}`}
-                  title={`${d.label}: ${formatPrice(d.value)}`}
-                >
-                  <span className="ad-bar" style={{ height: `${Math.max(3, (d.value / maxDay) * 100)}%` }} />
-                  <small aria-hidden="true">{d.label}</small>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-        <Card title="آخرین تحركات انبار" icon={<Boxes width={14} height={14} />}>
-          {admin.movements.length === 0 ? (
-            <Empty text="حرکتی ثبت نشده؛ با فروش یا شارژ انبار اینجا پر می‌شود." />
-          ) : (
-            <ul className="ad-mini-list">
-              {admin.movements.slice(0, 5).map((m) => (
-                <li key={m.id}>
-                  <b className={cn(m.delta < 0 && "text-ember")}>{m.delta > 0 ? `+${fa(m.delta)}` : fa(m.delta)}</b>
-                  <span className="min-w-0 flex-1 truncate">{m.name}</span>
-                  <em>{REASON_LABEL[m.reason]}</em>
-                  <small>{timeAgo(m.at)}</small>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      <Card title="میان‌برها" icon={<Plus width={14} height={14} />}>
-        <div className="ad-shortcuts">
-          <button type="button" className="ad-btn" onClick={() => onGo("products")}><Package width={13} height={13} /> افزودن محصول</button>
-          <button type="button" className="ad-btn" onClick={() => onGo("campaigns")}><Megaphone width={13} height={13} /> جشنوارهٔ جدید</button>
-          <button type="button" className="ad-btn" onClick={() => onGo("inventory")}><Warehouse width={13} height={13} /> شارژ انبار</button>
-          <Link to="/builder" className="ad-btn"><LayoutTemplate width={13} height={13} /> صفحه‌ساز</Link>
-          <Link to="/style-builder" className="ad-btn"><Layers width={13} height={13} /> استایل بیلدر</Link>
-        </div>
-      </Card>
-    </>
-  );
-}
-
-const REASON_LABEL: Record<StockMove["reason"], string> = { sale: "فروش", restock: "شارژ", edit: "ویرایش", create: "ایجاد" };
 
 /* =====================================================================
    reports — every number here is computed from real orders

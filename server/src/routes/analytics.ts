@@ -18,6 +18,36 @@ interface DailyRow {
 }
 
 export async function analyticsRoutes(app: FastifyInstance) {
+  /** Read-only order overview. No financial total is inferred from order status. */
+  app.get<{ Querystring: { days?: string } }>("/api/admin/dashboard", async (req, reply) => {
+    await requirePermission(req, "dashboard:view");
+    await requirePermission(req, "orders:view");
+    const days = Number(req.query.days ?? 30);
+    if (![7, 30, 90].includes(days)) return reply.code(400).send({ error: "invalid_range" });
+    // One boundary for every widget: rolling 24-hour periods, not browser-local calendar days.
+    const end = new Date();
+    const start = new Date(end.getTime() - days * 86400000);
+    const args = [start.toISOString(), end.toISOString()];
+    const where = "created_at >= $1::timestamptz and created_at < $2::timestamptz";
+    const [counts, statuses, recent, products] = await Promise.all([
+      query<{ total: number; settled: number; attention: number }>(
+        `select count(*)::int as total, count(*) filter (where payment_status = 'settled')::int as settled,
+         count(*) filter (where status in ('pending_payment','paid','preparing','exception','pending','processing'))::int as attention
+         from orders where ${where}`, args),
+      query<{ status: string | null; count: number }>(`select status, count(*)::int as count from orders where ${where} group by status order by count desc, status`, args),
+      query<{ id: string; created_at: Date; status: string | null; payment_status: string | null }>(
+        `select id, created_at, status, payment_status from orders where ${where} order by created_at desc, id desc limit 10`, args),
+      query<{ product_id: string; name: string; quantity: number }>(
+        `select l.product_id, min(l.name_snapshot) as name, sum(l.quantity)::int as quantity
+         from order_lines l join orders o on o.id = l.order_id
+         where o.created_at >= $1::timestamptz and o.created_at < $2::timestamptz
+           and o.payment_status = 'settled' and l.product_id is not null
+         group by l.product_id order by quantity desc, l.product_id limit 5`, args),
+    ]);
+    reply.header("Cache-Control", "no-store");
+    return { days, start: args[0], end: args[1], counts: counts.rows[0], statuses: statuses.rows, recent: recent.rows, products: products.rows };
+  });
+
   /** public, fire-and-forget beacon from the storefront */
   app.post<{ Body: { path?: string; session?: string; referrer?: string; device?: string } }>("/api/track", async (req, reply) => {
     const path = (req.body?.path ?? "").slice(0, 300);

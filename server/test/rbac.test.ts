@@ -406,3 +406,26 @@ test("a temporary grant stops working on its date and every sign-in is recorded"
   const ownerAgain = await owner.get("/api/admin/staff");
   assert.equal(ownerAgain.status, 401, "and so is the caller's own session");
 });
+
+test("dashboard aggregates the chosen interval and enforces both permissions", async () => {
+  const anonymous = makeClient();
+  assert.equal((await anonymous.get("/api/admin/dashboard?days=7")).status, 401);
+  const { client } = await staffWith(["dashboard:view"], "dashboard-only", "dashboard-only", "948312");
+  assert.equal((await client.get("/api/admin/dashboard?days=7")).status, 403);
+  const admin = owner();
+  await admin.login(OWNER_PASSCODE);
+  assert.equal((await admin.get("/api/admin/dashboard?days=8")).status, 400);
+  await query("insert into orders (id,created_at,status,payment_status,data) values ('dash-recent',now(),'paid','settled','{}'),('dash-old',now() - interval '20 days','exception','unpaid','{}')");
+  try {
+    const seven = await admin.get("/api/admin/dashboard?days=7");
+    const thirty = await admin.get("/api/admin/dashboard?days=30");
+    assert.equal(seven.status, 200);
+    assert.ok(seven.body.recent.some((r: { id: string }) => r.id === "dash-recent"));
+    assert.ok(!seven.body.recent.some((r: { id: string }) => r.id === "dash-old"));
+    assert.ok(thirty.body.recent.some((r: { id: string }) => r.id === "dash-old"));
+    assert.ok(thirty.body.counts.total > seven.body.counts.total);
+    assert.ok(!("customer" in seven.body.recent[0]));
+  } finally {
+    await query("delete from orders where id in ('dash-recent','dash-old')");
+  }
+});
