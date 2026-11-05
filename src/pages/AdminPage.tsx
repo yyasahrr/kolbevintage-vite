@@ -77,6 +77,7 @@ import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsP
 import { CommercePanel } from "./AdminCommercePanel";
 import { StaffPanel } from "./AdminRbac";
 import { loadAdminMe, invalidateAdminMe, useAdminMe } from "@/state/session";
+import { ChangelogPanel, IssueButton, IssueInbox, LaunchBanner, LaunchChecklist, ManualPanel, SetupWizard } from "@/pages/AdminLaunch";
 import { can, permissionForScreen, firstAllowedScreen } from "@/admin/rbac";
 import "@/styles/admin.css";
 
@@ -122,6 +123,10 @@ type Tab =
   | "commerce"
   | "settings"
   | "staff"
+  | "launch"
+  | "manual"
+  | "changelog"
+  | "issues"
   /* grouped areas — six sidebar entries, each one nests its screens */
   | "sales"
   | "stock"
@@ -199,6 +204,10 @@ const TABS: NavItem[] = [
       { id: "backup", label: "پشتیبان‌گیری" },
       { id: "settings", label: "تنظیمات" },
       { id: "staff", label: "کارکنان و نقش‌ها" },
+      { id: "launch", label: "چک‌لیست انتشار" },
+      { id: "manual", label: "راهنمای فارسی" },
+      { id: "changelog", label: "سابقهٔ تغییرات" },
+      { id: "issues", label: "گزارش مشکل" },
     ],
   },
 ];
@@ -558,6 +567,10 @@ export function AdminPage() {
                 { id: "health", label: "سلامت سیستم", node: <HealthPanel /> },
                 { id: "backup", label: "پشتیبان‌گیری", node: <BackupPanel /> },
                 { id: "settings", label: "تنظیمات", node: <StoreSettings onBack={() => navigate("/")} /> },
+                { id: "launch", label: "چک‌لیست انتشار", node: <LaunchChecklist /> },
+                { id: "manual", label: "راهنمای فارسی", node: <ManualPanel /> },
+                { id: "changelog", label: "سابقهٔ تغییرات", node: <ChangelogPanel /> },
+                { id: "issues", label: "گزارش مشکل", node: <IssueInbox /> },
                 { id: "staff", label: "کارکنان و نقش‌ها", node: <StaffPanel /> },
               ]}
               value={tab}
@@ -568,6 +581,10 @@ export function AdminPage() {
           )}
         </main>
       </div>
+
+      {/* first-run wizard and the always-there problem button (decisions 93 + 96) */}
+      <SetupWizard onJump={(target) => setTab(target as Tab)} />
+      <IssueButton page="/admin" />
 
       {paletteOpen && (
         <CommandPalette
@@ -800,6 +817,15 @@ function SyncBadge() {
    ===================================================================== */
 
 function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
+  return (
+    <div className="space-y-5">
+      <LaunchBanner />
+      <DashboardBody onGo={onGo} />
+    </div>
+  );
+}
+
+function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
   const admin = useAdmin();
   const docs = useDocs();
   const submissions = useSubmissions();

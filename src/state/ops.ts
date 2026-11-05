@@ -93,6 +93,17 @@ export interface SmsCampaign {
   status?: "prepared" | "sent";
 }
 
+export interface IssueReport {
+  id: string;
+  at: number;
+  /** where the owner was when they hit the problem */
+  page: string;
+  text: string;
+  /** what the browser said about itself — helps the developer reproduce */
+  context: { ua: string; width: number; url: string };
+  resolved?: boolean;
+}
+
 export interface ReplyTemplate {
   id: string;
   name: string;
@@ -219,6 +230,14 @@ export interface OpsState {
   replyTemplates: ReplyTemplate[];
   /** per-category size guide the product page shows (decision 56) */
   sizeGuides: Record<string, { note: string; rows: { size: string; chest: string; waist: string; hips: string }[] }>;
+  /** first-run wizard: five steps, resumable, and it disappears once finished (decision 93) */
+  setup: { done: boolean; step: number };
+  /** signed-off launch checks; what the panel can measure is measured, the rest is the owner's word (decision 91) */
+  launchChecks: Record<string, { at: number; by: string }>;
+  /** 'مشکل داشتم' reports, kept in the panel and copied/mailed to the developer (decisions 96 + 97) */
+  issues: IssueReport[];
+  /** where the developer wants the reports (set in settings) */
+  developerEmail: string;
   /** search preview + the editable 404 copy (decisions 64 + 66) */
   seo: { title: string; description: string; notFoundTitle: string; notFoundText: string };
   cashbackRate: number;
@@ -336,6 +355,10 @@ const DEFAULT: OpsState = {
     { id: "rt3", name: "پیگیری مرجوعی", body: "درخواست مرجوعی شما ثبت شد. پس از دریافت بسته و کنترل کیفیت، طی ۷۲ ساعت کاری تعیین وضعیت می‌شود." },
   ],
   sizeGuides: {},
+  setup: { done: false, step: 0 },
+  launchChecks: {},
+  issues: [],
+  developerEmail: "",
   seo: {
     title: "ولور | پوشاک آمادهٔ زنانه — تهران",
     description: "پالتو، بافت و کیف چرم دست‌دوز؛ ساخت محدود در آتلیهٔ تهران با ارسال سراسری و مرجوعی ۱۴ روزه.",
@@ -581,6 +604,21 @@ export const setTicketAssignee = (id: string, assignee: string) =>
 
 export const setSizeGuide = (categoryId: string, guide: OpsState["sizeGuides"][string]) =>
   patchOps({ sizeGuides: { ...cache.sizeGuides, [categoryId]: guide } });
+
+export const setSetup = (patchSetup: Partial<OpsState["setup"]>) => patchOps({ setup: { ...cache.setup, ...patchSetup } });
+
+export const signLaunchCheck = (id: string, by: string, ok = true) => {
+  const next = { ...cache.launchChecks };
+  if (ok) next[id] = { at: Date.now(), by };
+  else delete next[id];
+  return patchOps({ launchChecks: next });
+};
+
+export const addIssue = (issue: IssueReport) => patchOps({ issues: [issue, ...cache.issues].slice(0, 200) });
+export const resolveIssue = (id: string) =>
+  patchOps({ issues: cache.issues.map((i) => (i.id === id ? { ...i, resolved: !i.resolved } : i)) });
+export const removeIssue = (id: string) => patchOps({ issues: cache.issues.filter((i) => i.id !== id) });
+export const setDeveloperEmail = (developerEmail: string) => patchOps({ developerEmail });
 
 export const setSeo = (patchSeo: Partial<OpsState["seo"]>) => patchOps({ seo: { ...cache.seo, ...patchSeo } });
 

@@ -72,11 +72,26 @@ export const getDocs = () => docsStore.get();
 export const useDocs = () => useSyncExternalStore(docsStore.subscribe, docsStore.get, docsStore.get);
 export const getDoc = (id: string | undefined) => (id ? getDocs().find((d) => d.id === id) : undefined);
 
+/** how many earlier saves a document keeps (decision 74) */
+const MAX_VERSIONS = 12;
+
 export function saveDoc(doc: BDoc): boolean {
-  const next = { ...doc, updatedAt: Date.now() };
   const docs = getDocs();
-  const exists = docs.some((d) => d.id === doc.id);
+  const previous = docs.find((d) => d.id === doc.id);
+  const versions = previous
+    ? [{ at: previous.updatedAt, title: previous.title, content: previous.content }, ...(previous.versions ?? [])].slice(0, MAX_VERSIONS)
+    : doc.versions;
+  const next = { ...doc, updatedAt: Date.now(), versions };
+  const exists = Boolean(previous);
   return docsStore.set(exists ? docs.map((d) => (d.id === doc.id ? next : d)) : [next, ...docs]);
+}
+
+/** walk a document back to a stored snapshot; the current content is kept as a version too */
+export function restoreVersion(id: string, at: number): boolean {
+  const doc = getDoc(id);
+  const snap = doc?.versions?.find((v) => v.at === at);
+  if (!doc || !snap) return false;
+  return saveDoc({ ...doc, title: snap.title, content: snap.content });
 }
 
 export function removeDoc(id: string) {

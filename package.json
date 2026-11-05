@@ -17,7 +17,8 @@
     "test:commerce": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/commerce.test.ts",
     "test": "npm run test:commerce && npm run test:rbac",
     "test:rbac": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/rbac.test.ts",
-    "restore": "node --import tsx scripts/restore-backup.mjs"
+    "restore": "node --import tsx scripts/restore-backup.mjs",
+   "clear-demo": "node --import tsx scripts/clear-demo-data.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

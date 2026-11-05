@@ -6,6 +6,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  History,
   Inbox,
   LayoutPanelTop,
   LayoutTemplate,
@@ -30,6 +31,7 @@ import {
   importDoc,
   patchDoc,
   removeDoc,
+  restoreVersion,
   useDocs,
   useSubmissions,
 } from "./docs";
@@ -205,6 +207,8 @@ export function Dashboard() {
 function DocCard({ doc, onDelete }: { doc: BDoc; onDelete: () => void }) {
   const navigate = useNavigate();
   const { notify } = useCart();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const versions = doc.versions ?? [];
   const Icon = KIND_ICON[doc.kind];
   const tpl = doc.kind === "header" || doc.kind === "footer" || doc.kind === "popup";
   const pageLike = doc.kind === "page" || doc.kind === "landing";
@@ -270,6 +274,41 @@ function DocCard({ doc, onDelete }: { doc: BDoc; onDelete: () => void }) {
           <button type="button" className="ebd-btn is-sm" aria-label="خروجی JSON" title="خروجی JSON" onClick={() => { download(`${doc.slug}.json`, exportDoc(doc)); navigate("/builder"); }}><Download width={12} height={12} /></button>
           <button type="button" className="ebd-btn is-sm is-danger" aria-label="حذف" title="حذف" onClick={onDelete}><Trash2 width={12} height={12} /></button>
         </div>
+
+        {/* rollback: the previous saves of this document (decision 74) */}
+        <button
+          type="button"
+          className="ebd-btn is-sm"
+          onClick={() => setHistoryOpen((v) => !v)}
+          aria-expanded={historyOpen}
+          style={{ alignSelf: "flex-start" }}
+        >
+          <History width={12} height={12} /> نسخه‌های قبلی ({versions.length.toLocaleString("fa-IR")})
+        </button>
+        {historyOpen && (
+          <div className="ebd-versions" role="region" aria-label="نسخه‌های قبلی">
+            {versions.length === 0 ? (
+              <p style={{ fontSize: 11.5, color: "#7d7367" }}>هنوز نسخهٔ قبلی نیست؛ هر بار «ذخیره» یکی نگه می‌دارد.</p>
+            ) : (
+              versions.map((v) => (
+                <div key={v.at} className="ebd-version">
+                  <span>{timeAgo(v.at)}</span>
+                  <span style={{ fontSize: 11, color: "#7d7367" }}>{v.title} · {v.content.length} بلوک سطح اول</span>
+                  <button
+                    type="button"
+                    className="ebd-btn is-sm"
+                    onClick={() => {
+                      if (!window.confirm(`محتوا به نسخهٔ ${new Date(v.at).toLocaleString("fa-IR")} برگردد؟ محتوای فعلی هم به‌عنوان نسخه نگه داشته می‌شود.`)) return;
+                      if (restoreVersion(doc.id, v.at)) notify("به نسخهٔ قبلی برگشت", v.title);
+                    }}
+                  >
+                    بازگردانی
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
     </article>
   );

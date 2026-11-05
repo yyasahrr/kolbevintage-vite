@@ -1280,3 +1280,7 @@ select.eb-in { appearance: none; background-image: url("data:image/svg+xml;utf8,
   max-width: 100%;
 }
 .ebd-table-wrap > .ebd-table { min-width: 520px; }
+
+/* version history / rollback (decision 74) */
+.ebd-versions { display: grid; gap: 6px; padding: 8px; border: 1px dashed #ddd3c5; border-radius: 10px; background: #fdfbf7; }
+.ebd-version { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; color: #4b443c; }

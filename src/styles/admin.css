@@ -3124,3 +3124,63 @@
 .ad-seo-preview b { font-size: 12.5px; color: #1a3fb8; font-weight: 500; }
 .ad-seo-preview p { margin: 0; font-size: 11px; line-height: 1.8; color: #4b4b4b; }
 .ad-ticket-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 8px; margin-block-end: 10px; }
+
+/* ------------------------------------------------------------------ */
+/* launch: wizard, checklist, changelog, manual, issue reports         */
+/* ------------------------------------------------------------------ */
+
+.ad-wizard-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(28, 24, 20, 0.42); padding: 16px; }
+.ad-wizard { width: min(680px, 100%); background: var(--color-bone, #f7f3ec); border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.28); padding: 20px; display: grid; gap: 14px; }
+.ad-wizard header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.ad-wizard h2 { margin: 2px 0 4px; font-size: 17px; }
+.ad-wizard header p { margin: 0; font-size: 12px; line-height: 1.9; color: var(--color-ink-45, #7d7367); max-width: 46ch; }
+.ad-eyebrow { font-size: 10.5px; letter-spacing: 0.04em; color: var(--color-ink-45, #7d7367); margin: 0; }
+.ad-wizard-steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.ad-wizard-steps li { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 5px 9px; border-radius: 999px; border: 1px solid rgba(0, 0, 0, 0.1); color: var(--color-ink-45, #7d7367); }
+.ad-wizard-steps li.is-on { border-color: var(--color-ink, #211d19); color: var(--color-ink, #211d19); }
+.ad-wizard-steps li.is-done { background: rgba(0, 0, 0, 0.05); color: var(--color-ink, #211d19); }
+.ad-wizard-steps li span { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; border-radius: 50%; background: rgba(0, 0, 0, 0.07); font-size: 10px; }
+.ad-wizard footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid rgba(0, 0, 0, 0.07); padding-top: 12px; }
+
+.ad-launch-banner { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px dashed rgba(0, 0, 0, 0.16); background: rgba(255, 255, 255, 0.55); font-size: 11.5px; color: var(--color-ink-45, #7d7367); }
+.ad-launch-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ad-launch-item { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(0, 0, 0, 0.08); background: #fff; }
+.ad-launch-item.is-ok { border-color: rgba(60, 125, 74, 0.35); }
+.ad-launch-item.is-fail { border-color: rgba(180, 85, 45, 0.35); }
+.ad-launch-icon { display: inline-flex; padding-top: 2px; color: var(--color-ink-45, #7d7367); }
+.ad-launch-item.is-ok .ad-launch-icon { color: #3c7d4a; }
+.ad-launch-item.is-fail .ad-launch-icon { color: #b4552d; }
+.ad-launch-item b { font-size: 12.5px; }
+.ad-launch-item p { margin: 3px 0; font-size: 11.5px; line-height: 1.9; color: var(--color-ink-45, #7d7367); }
+.ad-launch-item small { font-size: 10.5px; color: var(--color-ink-45, #7d7367); }
+
+.ad-changelog { display: grid; gap: 12px; }
+.ad-changelog-item { border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 14px; background: #fff; padding: 14px 16px; }
+.ad-changelog-item header { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ad-changelog-item header b { font-size: 13px; }
+.ad-changelog-item header span { font-size: 12px; color: var(--color-ink-45, #7d7367); }
+.ad-changelog-item header small { margin-inline-start: auto; font-size: 10.5px; color: var(--color-ink-45, #7d7367); }
+.ad-changelog-item ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 5px; }
+.ad-changelog-item li { display: flex; gap: 6px; font-size: 11.5px; line-height: 1.9; }
+.ad-changelog-item li svg { margin-top: 4px; flex: none; color: #3c7d4a; }
+.ad-changelog-open { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(180, 85, 45, 0.07); }
+.ad-changelog-open b { font-size: 11px; color: #8a4325; }
+.ad-changelog-open ul { margin: 4px 0 0; padding-inline-start: 16px; list-style: disc; }
+.ad-changelog-open li { display: list-item; font-size: 11px; color: #8a4325; }
+
+.ad-search-row { display: flex; align-items: center; gap: 8px; margin-block-end: 10px; }
+.ad-manual { display: grid; gap: 8px; }
+.ad-manual-item { border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 12px; background: #fff; overflow: hidden; }
+.ad-manual-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; background: none; border: 0; text-align: start; cursor: pointer; font: inherit; }
+.ad-manual-head b { font-size: 12.5px; }
+.ad-manual-head small { margin-inline-start: auto; font-size: 10.5px; color: var(--color-ink-45, #7d7367); }
+.ad-manual-body { padding: 0 14px 12px; }
+.ad-manual-body ol { margin: 0; padding-inline-start: 18px; display: grid; gap: 5px; font-size: 11.5px; line-height: 1.95; }
+
+.ad-issue-fab { position: fixed; inset-block-end: 18px; inset-inline-start: 18px; z-index: 70; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(0, 0, 0, 0.12); background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(6px); font: inherit; font-size: 11.5px; color: var(--color-ink, #211d19); cursor: pointer; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+.ad-issue-fab:hover { border-color: rgba(0, 0, 0, 0.28); }
+.ad-issue-dialog { width: min(560px, 100%); background: var(--color-bone, #f7f3ec); border-radius: 16px; padding: 18px; display: grid; gap: 12px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3); }
+.ad-issue-dialog header { display: flex; align-items: center; justify-content: space-between; }
+.ad-issue-dialog header h3 { margin: 0; font-size: 15px; }
+.ad-issue-text { margin: 0; max-height: 220px; overflow: auto; padding: 10px; border-radius: 10px; background: #fff; border: 1px solid rgba(0, 0, 0, 0.08); font-size: 10.5px; line-height: 1.7; white-space: pre-wrap; }
+.ad-note-ok { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 11.5px; color: #3c7d4a; }

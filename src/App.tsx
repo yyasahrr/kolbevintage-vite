@@ -22,6 +22,7 @@ import { adminUnlocked } from "@/state/admin";
 import { StyleBuilderPage } from "@/pages/StyleBuilderPage";
 import { BuilderApp } from "@/builder/BuilderApp";
 import { CorePageSlot, PublishedPage, SiteShell } from "@/builder/SiteIntegration";
+import { IssueButton } from "@/pages/AdminLaunch";
 
 function BrandMeta() {
   const { brand, seo } = useOps();
@@ -58,6 +59,7 @@ function ScrollToTop() {
 }
 
 function SiteRoutes() {
+  const { pathname } = useLocation();
   return (
     <SiteShell>
       <Routes>
@@ -79,6 +81,8 @@ function SiteRoutes() {
         <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      {/* the report button belongs to the shop floor as much as to the panel (decision 96) */}
+      <IssueButton page={pathname} />
     </SiteShell>
   );
 }
