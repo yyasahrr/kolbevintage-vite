@@ -1023,6 +1023,34 @@ function Reports() {
   }
   const topCustomers = [...byCustomer.values()].sort((a, b) => b.total - a.total).slice(0, 8);
 
+  /**
+   * loyal = came back. Counted from real order history, not from a score.
+   * (decision 65 — the fifth report)
+   */
+  const loyal = [...byCustomer.values()]
+    .filter((c) => c.orders > 1)
+    .sort((a, b) => b.orders - a.orders || b.total - a.total)
+    .slice(0, 8);
+  const repeatShare = byCustomer.size ? [...byCustomer.values()].filter((c) => c.orders > 1).length / byCustomer.size : 0;
+
+  /** abandoned carts live on the server — the panel asks it, it does not guess */
+  const [idle, setIdle] = useState(6);
+  const [carts, setCarts] = useState<{ carts: { id: string; email: string | null; updated_at: string; lines: number; qty: number; value: number; items: string[] }[]; totals: { carts: number; value: number; withEmail: number } } | null>(null);
+  const [cartError, setCartError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const { api } = await import("@/lib/api");
+        const res = await api.get<{ carts: { id: string; email: string | null; updated_at: string; lines: number; qty: number; value: number; items: string[] }[]; totals: { carts: number; value: number; withEmail: number } }>(`/api/admin/abandoned-carts?idle=${idle}`);
+        if (alive) { setCarts(res); setCartError(""); }
+      } catch {
+        if (alive) { setCarts(null); setCartError("فهرست سبدهای رهاشده خوانده نشد (دسترسی سفارش‌ها یا اتصال سرور)."); }
+      }
+    })();
+    return () => { alive = false; };
+  }, [idle]);
+
   const kpis = [
     { label: "فروش کل (بدون لغوشده)", value: formatPrice(total) },
     { label: "تعداد سفارش", value: fa(orders.length) },
@@ -1104,10 +1132,84 @@ function Reports() {
             </section>
           </div>
 
-          <p className="ad-hint">
-            «سبد رهاشده» هنوز در این صفحه نیست: اطلاعات سبدها سمت سرور است و endpoint مدیریتی‌اش
-            ساخته نشده. تا آن موقع هیچ عددی برایش نشان نمی‌دهیم.
-          </p>
+          <div className="ad-order-grid">
+            <section className="ad-card">
+              <header className="ad-card-head">
+                <h3>سبدهای رهاشده</h3>
+                <select
+                  className="ad-select is-compact"
+                  value={idle}
+                  aria-label="مدت بی‌حرکتی"
+                  onChange={(e) => setIdle(Number(e.target.value))}
+                >
+                  {[1, 6, 24, 72].map((h) => <option key={h} value={h}>{fa(h)} ساعت بی‌حرکت</option>)}
+                </select>
+              </header>
+              <div className="ad-card-body">
+                {cartError ? (
+                  <p className="ad-hint is-warn">{cartError}</p>
+                ) : !carts ? (
+                  <p className="ad-hint">در حال خواندن از سرور…</p>
+                ) : carts.carts.length === 0 ? (
+                  <p className="ad-empty-tight">سبدی با این شرط رها نشده است.</p>
+                ) : (
+                  <>
+                    <p className="ad-hint" style={{ marginTop: 0 }}>
+                      {fa(carts.totals.carts)} سبد · ارزش ثبت‌شده {formatPrice(carts.totals.value)} ·
+                      {" "}{fa(carts.totals.withEmail)} سبد ایمیل دارد. ارزش بر پایهٔ قیمت لحظهٔ افزودن است، نه نرخ امروز.
+                    </p>
+                    <div className="ad-table-wrap">
+                      <table className="ad-table">
+                        <thead><tr><th>سبد</th><th>آخرین فعالیت</th><th>قطعه</th><th>ارزش ثبت‌شده</th></tr></thead>
+                        <tbody>
+                          {carts.carts.slice(0, 10).map((c) => (
+                            <tr key={c.id}>
+                              <td>
+                                <b dir="ltr">{c.id.slice(0, 10)}</b>
+                                <small>{c.email ?? "مهمان"}</small>
+                              </td>
+                              <td>{timeAgo(new Date(c.updated_at).getTime())}</td>
+                              <td className="ad-num">{fa(c.qty)}</td>
+                              <td className="ad-money">{formatPrice(c.value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+
+            <section className="ad-card">
+              <header className="ad-card-head"><h3>مشتریان وفادار (خرید تکراری)</h3></header>
+              <div className="ad-card-body">
+                {loyal.length === 0 ? (
+                  <p className="ad-empty-tight">هنوز هیچ مشتری‌ای بیش از یک سفارش نداده است.</p>
+                ) : (
+                  <>
+                    <p className="ad-hint" style={{ marginTop: 0 }}>
+                      {(repeatShare * 100).toFixed(1).replace(".", "/")}٪ مشتریان بیش از یک‌بار خرید کرده‌اند.
+                    </p>
+                    <div className="ad-table-wrap">
+                      <table className="ad-table">
+                        <thead><tr><th>مشتری</th><th>سفارش</th><th>ارزش</th></tr></thead>
+                        <tbody>
+                          {loyal.map((c) => (
+                            <tr key={c.name}>
+                              <td>{c.name}</td>
+                              <td className="ad-num">{fa(c.orders)}</td>
+                              <td className="ad-money">{formatPrice(c.total)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+          </div>
         </>
       )}
     </div>

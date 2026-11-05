@@ -115,4 +115,55 @@ export async function analyticsRoutes(app: FastifyInstance) {
       sampleTooSmall: totals.visits < 30,
     };
   });
+  /**
+   * Abandoned carts (decision 65).
+   *
+   * A cart counts as abandoned when it is still open, has at least one line and
+   * nobody touched it for the hours passed in `idle` (default 6). The value is
+   * the price that was recorded on the line when the shopper added it — the
+   * panel says so instead of pretending it is a live quote.
+   */
+  app.get<{ Querystring: { idle?: string } }>("/api/admin/abandoned-carts", async (req) => {
+    await requirePermission(req, "orders:view");
+    const idle = Math.min(720, Math.max(1, Number(req.query.idle ?? 6) || 6));
+    const rows = (
+      await query<{
+        id: string;
+        email: string | null;
+        updated_at: string;
+        lines: number;
+        qty: number;
+        value: number;
+        items: string[];
+      }>(
+        `select c.id,
+                c.customer_email as email,
+                c.updated_at::text as updated_at,
+                count(cl.id)::int as lines,
+                coalesce(sum(cl.quantity), 0)::int as qty,
+                coalesce(sum(cl.quantity * cl.added_price), 0)::float8 as value,
+                coalesce(array_agg(coalesce(p.name, pv.sku) order by cl.created_at), '{}') as items
+           from carts c
+           join cart_lines cl on cl.cart_id = c.id
+           left join product_variants pv on pv.id = cl.variant_id
+           left join products p on p.id = pv.product_id
+          where c.status = 'open'
+            and c.updated_at <= now() - ($1 || ' hours')::interval
+          group by c.id, c.customer_email, c.updated_at
+          order by value desc
+          limit 50`,
+        [String(idle)],
+      )
+    ).rows;
+
+    return {
+      idleHours: idle,
+      carts: rows,
+      totals: {
+        carts: rows.length,
+        value: rows.reduce((n, r) => n + Number(r.value), 0),
+        withEmail: rows.filter((r) => r.email).length,
+      },
+    };
+  });
 }
