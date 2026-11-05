@@ -1278,6 +1278,7 @@
 }
 .pg-track::-webkit-scrollbar { display: none; }
 .pg-mobile .pg-slide {
+  position: relative;
   flex: 0 0 84%;           /* leaves ~16% of the next photo visible */
   scroll-snap-align: start;
   border-radius: 14px;
@@ -1314,7 +1315,7 @@
 }
 .pg-color-chip {
   position: absolute;
-  top: 10px;
+  bottom: 10px;
   inset-inline-end: 10px;
   display: inline-flex;
   align-items: center;

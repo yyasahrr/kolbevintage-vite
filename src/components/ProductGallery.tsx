@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { galleryFor, type CatalogProduct } from "@/data/catalog";
@@ -23,7 +24,15 @@ interface Slide {
  * On mobile it is a snap carousel sized to 84% so the next photo peeks in
  * from the side instead of being hidden behind a slider control.
  */
-export function ProductGallery({ product, color }: { product: CatalogProduct; color: ColorOption }) {
+export function ProductGallery({
+  product,
+  color,
+  overlay,
+}: {
+  product: CatalogProduct;
+  color: ColorOption;
+  overlay?: ReactNode;
+}) {
   const ops = useOps();
   const [index, setIndex] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -110,6 +119,9 @@ export function ProductGallery({ product, color }: { product: CatalogProduct; co
           {slides.map((s, i) => (
             <div key={i} className="pg-slide">
               {renderSlide(s, i)}
+              {i === index && overlay && (
+                <div className="pointer-events-none absolute inset-0 z-10">{overlay}</div>
+              )}
             </div>
           ))}
         </div>
@@ -134,6 +146,7 @@ export function ProductGallery({ product, color }: { product: CatalogProduct; co
       <div className="pg-desktop">
         <div className="pg-main">
           {slides[index] ? renderSlide(slides[index], index) : <div className="pg-frame" />}
+          {overlay && <div className="pointer-events-none absolute inset-0 z-10">{overlay}</div>}
           {slides.length > 1 && (
             <>
               <button type="button" className="pg-arrow is-prev" aria-label="تصویر قبلی" onClick={() => go(-1)} disabled={index === 0}>
