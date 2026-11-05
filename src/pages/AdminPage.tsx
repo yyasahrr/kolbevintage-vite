@@ -70,7 +70,7 @@ import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
 import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
-import { logSmsCampaign, removeSmsTemplate, resetJournalBlocks, saveSmsTemplate, setFeature, setJournalBlocks, setSeo, setSizeGuide } from "@/state/ops";
+import { addLog, logSmsCampaign, removeSmsTemplate, resetJournalBlocks, saveSmsTemplate, setFeature, setJournalBlocks, setSeo, setSizeGuide } from "@/state/ops";
 import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
@@ -2506,6 +2506,9 @@ function Customers() {
   const [tag, setTag] = useState("");
   const [spend, setSpend] = useState<"any" | "one" | "repeat" | "high">("any");
   const [campaign, setCampaign] = useState("");
+  /* bulk tagging of the visible rows (decision 12) */
+  const [pickedCustomers, setPickedCustomers] = useState<Set<string>>(new Set());
+  const [bulkTag, setBulkTag] = useState("");
 
   // "high value" is the top half of the book, not a made-up number
   const avgValue = useMemo(() => {
@@ -2624,18 +2627,90 @@ function Customers() {
         )}
         <span className="ad-hint">{fa(rows.length)} مشتری با این فیلتر</span>
       </div>
+      {rows.length > 0 && (
+        <div className="ad-bulkbar" role="region" aria-label="برچسب گروهی مشتریان">
+          <label className="ad-check">
+            <input
+              type="checkbox"
+              checked={pickedCustomers.size > 0 && pickedCustomers.size === rows.length}
+              onChange={(e) => setPickedCustomers(e.target.checked ? new Set(rows.map((r) => r.email || r.name)) : new Set())}
+            />
+            انتخاب همهٔ {fa(rows.length)} ردیف
+          </label>
+          <b>{fa(pickedCustomers.size)} مشتری انتخاب‌شده</b>
+          <input
+            className="ad-input is-compact"
+            value={bulkTag}
+            onChange={(e) => setBulkTag(e.target.value)}
+            placeholder="برچسب، مثلاً وفادار"
+            aria-label="برچسب گروهی"
+          />
+          <div className="ad-actions">
+            <button
+              type="button"
+              className="ad-btn is-sm is-primary"
+              disabled={!bulkTag.trim() || pickedCustomers.size === 0}
+              onClick={() => {
+                const tagName = bulkTag.trim();
+                pickedCustomers.forEach((key) => {
+                  const cur = admin.customers[key]?.tags ?? [];
+                  if (!cur.includes(tagName)) setCustomerMeta(key, { tags: [...cur, tagName], note: admin.customers[key]?.note ?? "" });
+                });
+                addLog({ actor: "مالک", action: `برچسب «${tagName}» روی ${pickedCustomers.size} مشتری`, target: "مشتریان" });
+                setPickedCustomers(new Set());
+                setBulkTag("");
+              }}
+            >
+              افزودن برچسب
+            </button>
+            <button
+              type="button"
+              className="ad-btn is-sm"
+              disabled={!bulkTag.trim() || pickedCustomers.size === 0}
+              onClick={() => {
+                const tagName = bulkTag.trim();
+                pickedCustomers.forEach((key) => {
+                  const cur = admin.customers[key]?.tags ?? [];
+                  setCustomerMeta(key, { tags: cur.filter((t) => t !== tagName), note: admin.customers[key]?.note ?? "" });
+                });
+                setPickedCustomers(new Set());
+                setBulkTag("");
+              }}
+            >
+              برداشتن برچسب
+            </button>
+            <button type="button" className="ad-btn is-sm" onClick={() => setPickedCustomers(new Set())}>لغو انتخاب</button>
+          </div>
+        </div>
+      )}
       {rows.length === 0 ? (
         <Empty text="هنوز مشتری‌ای ثبت نشده. اولین سفارش را از صفحهٔ تسویه حساب بساز." />
       ) : (
         <div className="ad-table-wrap">
           <table className="ad-table">
-            <thead><tr><th>مشتری</th><th>تماس</th><th>شهر</th><th>سفارش</th><th>ارزش خرید</th><th>آخرین</th><th>برچسب</th></tr></thead>
+            <thead><tr><th aria-label="انتخاب" /><th>مشتری</th><th>تماس</th><th>شهر</th><th>سفارش</th><th>ارزش خرید</th><th>آخرین</th><th>برچسب</th></tr></thead>
             <tbody>
               {rows.map((r) => {
                 const meta = admin.customers[r.email || r.name] ?? { tags: [], note: "" };
                 const open = openEmail === (r.email || r.name);
                 return (
-                  <CustomerRowView key={r.email || r.name} r={r} open={open} onToggle={() => setOpenEmail(open ? null : r.email || r.name)} meta={meta} />
+                  <CustomerRowView
+                    key={r.email || r.name}
+                    r={r}
+                    open={open}
+                    onToggle={() => setOpenEmail(open ? null : r.email || r.name)}
+                    meta={meta}
+                    picked={pickedCustomers.has(r.email || r.name)}
+                    onPick={() => {
+                      const key = r.email || r.name;
+                      setPickedCustomers((prev) => {
+                        const n = new Set(prev);
+                        if (n.has(key)) n.delete(key);
+                        else n.add(key);
+                        return n;
+                      });
+                    }}
+                  />
                 );
               })}
             </tbody>
@@ -2646,7 +2721,21 @@ function Customers() {
   );
 }
 
-function CustomerRowView({ r, open, onToggle, meta }: { r: CustomerRow; open: boolean; onToggle: () => void; meta: { tags: string[]; note: string } }) {
+function CustomerRowView({
+  r,
+  open,
+  onToggle,
+  meta,
+  picked,
+  onPick,
+}: {
+  r: CustomerRow;
+  open: boolean;
+  onToggle: () => void;
+  meta: { tags: string[]; note: string };
+  picked: boolean;
+  onPick: () => void;
+}) {
   const admin = useAdmin();
   const [tagInput, setTagInput] = useState("");
   const key = r.email || r.name;
@@ -2654,6 +2743,16 @@ function CustomerRowView({ r, open, onToggle, meta }: { r: CustomerRow; open: bo
   return (
     <>
       <tr className={cn(open && "is-open")} onClick={onToggle}>
+        <td>
+          <input
+            type="checkbox"
+            className="ad-checkbox"
+            checked={picked}
+            onClick={(e) => e.stopPropagation()}
+            onChange={onPick}
+            aria-label={`انتخاب ${r.name}`}
+          />
+        </td>
         <td>
           <b>{r.name}</b>
           {r.email && <small dir="ltr">{r.email}</small>}
@@ -2672,7 +2771,7 @@ function CustomerRowView({ r, open, onToggle, meta }: { r: CustomerRow; open: bo
       </tr>
       {open && (
         <tr className="ad-detail-row">
-          <td colSpan={7}>
+          <td colSpan={8}>
             <div className="ad-detail">
               <div className="ad-detail-col">
                 <h4>سفارش‌های {r.name}</h4>
@@ -3626,6 +3725,14 @@ function Reviews() {
   const session = useAdminMe();
   const [replying, setReplying] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
+  const [pickedReviews, setPickedReviews] = useState<Set<string>>(new Set());
+  const toggleReview = (id: string) =>
+    setPickedReviews((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
   const approved = admin.reviews.filter((r) => r.approved);
   // a review without a star is not counted in the average (decision 59)
   const rated = approved.filter((r) => r.rating > 0);
@@ -3636,10 +3743,68 @@ function Reviews() {
         title="نظرات مشتریان"
         sub={`${fa(approved.length)} نظر تأییدشده · ${fa(rated.length)} نظر ستاره‌دار · میانگین ${avg ? avg.toFixed(1).replace(".", "/") : "—"}`}
       />
+      {admin.reviews.length > 0 && (
+        <div className="ad-bulkbar" role="region" aria-label="عملیات گروهی نظرها">
+          <label className="ad-check">
+            <input
+              type="checkbox"
+              checked={pickedReviews.size === admin.reviews.length && admin.reviews.length > 0}
+              onChange={(e) => setPickedReviews(e.target.checked ? new Set(admin.reviews.map((r) => r.id)) : new Set())}
+            />
+            انتخاب همه
+          </label>
+          <b>{fa(pickedReviews.size)} نظر انتخاب‌شده</b>
+          <div className="ad-actions">
+            <button
+              type="button"
+              className="ad-btn is-sm is-primary"
+              disabled={pickedReviews.size === 0}
+              onClick={() => {
+                pickedReviews.forEach((id) => setReviewApproved(id, true));
+                addLog({ actor: session.me?.staff?.name ?? "مالک", action: `تأیید گروهی ${pickedReviews.size} نظر`, target: "نظرات" });
+                setPickedReviews(new Set());
+              }}
+            >
+              تأیید انتخاب‌شده‌ها
+            </button>
+            <button
+              type="button"
+              className="ad-btn is-sm"
+              disabled={pickedReviews.size === 0}
+              onClick={() => {
+                pickedReviews.forEach((id) => setReviewApproved(id, false));
+                setPickedReviews(new Set());
+              }}
+            >
+              برگرداندن به انتظار
+            </button>
+            <button
+              type="button"
+              className="ad-btn is-sm is-danger"
+              disabled={pickedReviews.size === 0}
+              onClick={() => {
+                if (!window.confirm(`${fa(pickedReviews.size)} نظر برای همیشه حذف شود؟`)) return;
+                pickedReviews.forEach((id) => removeReview(id));
+                addLog({ actor: session.me?.staff?.name ?? "مالک", action: `حذف گروهی ${pickedReviews.size} نظر`, target: "نظرات" });
+                setPickedReviews(new Set());
+              }}
+            >
+              حذف
+            </button>
+          </div>
+        </div>
+      )}
       <div className="ad-reviews">
         {admin.reviews.map((r) => (
           <article key={r.id} className={cn("ad-review", !r.approved && "is-pending")}>
             <header>
+              <input
+                type="checkbox"
+                className="ad-checkbox"
+                checked={pickedReviews.has(r.id)}
+                onChange={() => toggleReview(r.id)}
+                aria-label={`انتخاب نظر ${r.author}`}
+              />
               {r.rating > 0 ? (
                 <span className="ad-stars">{"★".repeat(r.rating)}<i>{"★".repeat(5 - r.rating)}</i></span>
               ) : (
