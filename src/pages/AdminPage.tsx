@@ -4499,6 +4499,7 @@ function Appearance() {
 }
 
 function StoreSettings({ onBack }: { onBack: () => void }) {
+  const navigate = useNavigate();
   const admin = useAdmin();
   const s = admin.settings;
   const [draft, setD] = useState(s);
@@ -4508,8 +4509,26 @@ function StoreSettings({ onBack }: { onBack: () => void }) {
 
   return (
     <>
-      <PageHead title="تنظیمات فروشگاه" sub="مشخصات برند، ارسال، ارز و دسترسی پنل." />
+      <PageHead title="تنظیمات فروشگاه" sub="هفت بخش: برند، ارسال، پرداخت و ارز، اطلاعیه، دسترسی پنل، مالیات/BNPL/کش‌بک و ظاهر — هر بخش سرِ جای خودش، بدون تنظیم تکراری." />
+      {/* seven sections, as decided in 61: the ones that live here are anchors,
+          the ones that belong to another screen say so and link there */}
+      <nav className="ad-settings-nav" aria-label="بخش‌های تنظیمات">
+        {[
+          { id: "set-brand", label: "برند" },
+          { id: "set-shipping", label: "ارسال" },
+          { id: "set-payment", label: "پرداخت و ارز" },
+          { id: "set-notice", label: "اطلاعیه" },
+          { id: "set-access", label: "دسترسی پنل" },
+        ].map((s2) => (
+          <a key={s2.id} href={`#${s2.id}`} className="ad-chip">{s2.label}</a>
+        ))}
+        <button type="button" className="ad-chip" onClick={() => navigate("/admin/system/commerce")}>مالیات · BNPL · کش‌بک</button>
+        <button type="button" className="ad-chip" onClick={() => navigate("/admin/experience/appearance")}>ظاهر سایت</button>
+      </nav>
+
+
       <div className="ad-grid-2">
+        <div id="set-brand" className="ad-anchor" />
         <Card title="مشخصات فروشگاه" icon={<Store width={14} height={14} />}>
           <label className="ad-field">نام فروشگاه<input className="ad-input" value={draft.name} onChange={(e) => setD({ ...draft, name: e.target.value })} /></label>
           <label className="ad-field">شعار<input className="ad-input" value={draft.tagline} onChange={(e) => setD({ ...draft, tagline: e.target.value })} /></label>
@@ -4520,6 +4539,7 @@ function StoreSettings({ onBack }: { onBack: () => void }) {
           </div>
         </Card>
 
+        <div id="set-notice" className="ad-anchor" />
         <Card title="اطلاعیهٔ بالای سایت" icon={<Megaphone width={14} height={14} />}>
           <p className="ad-hint" style={{ marginTop: 0 }}>
             جدا از حالت تعمیرات: تعمیرات یعنی «فروشگاه بسته است»، اطلاعیه یعنی «این را بدان» و
@@ -4568,6 +4588,8 @@ function StoreSettings({ onBack }: { onBack: () => void }) {
             </label>
           </div>
         </Card>
+        <div id="set-shipping" className="ad-anchor" />
+        <div id="set-payment" className="ad-anchor" />
         <Card title="ارسال و پرداخت" icon={<Truck width={14} height={14} />}>
           <div className="ad-two">
             <label className="ad-field">آستانهٔ ارسال رایگان (واحد پایه)
@@ -4609,6 +4631,7 @@ function StoreSettings({ onBack }: { onBack: () => void }) {
           <label className="ad-check"><input type="checkbox" checked={draft.maintenance} onChange={(e) => setD({ ...draft, maintenance: e.target.checked })} /> حالت تعمیرات (نشان در پنل؛ سایت باز می‌ماند)</label>
         </Card>
       </div>
+      <div id="set-access" className="ad-anchor" />
       <Card title="دسترسی پنل" icon={<Lock width={14} height={14} />}>
         <label className="ad-field">رمز مدیریت
           <input className="ad-input" dir="ltr" value={draft.passcode} onChange={(e) => setD({ ...draft, passcode: e.target.value })} />

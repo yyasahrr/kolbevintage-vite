@@ -3215,3 +3215,8 @@
 /* video length / URL entry (decisions 25 + 26) */
 .ad-video-url { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ad-video-url .ad-input { max-width: 22rem; }
+
+/* seven-section settings page (decision 61) */
+.ad-settings-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 10px 16px; }
+.ad-settings-nav .ad-chip { text-decoration: none; cursor: pointer; }
+.ad-anchor { scroll-margin-top: 96px; height: 0; }
