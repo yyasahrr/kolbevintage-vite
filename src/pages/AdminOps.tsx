@@ -34,6 +34,7 @@ import { liveCatalog, liveGetProduct } from "@/data/catalog";
 import { LOOKS, formatPrice } from "@/data/looks";
 import { ProductThumb } from "@/components/ProductThumb";
 import { ProductMediaEditor } from "@/components/ProductMediaEditor";
+import { DraftBanner, useLocalDraft } from "@/components/LocalDraft";
 import { fileToDataUrl } from "@/builder/ControlsUI";
 import { resolveImg } from "@/builder/stock";
 import { timeAgo } from "@/builder/util";
@@ -825,6 +826,8 @@ export function CrmPanel() {
   const [sent, setSent] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulkBody, setBulkBody] = useState("");
+  // an unsent message stays in this browser (decision 50)
+  const crmDraft = useLocalDraft<string>("kv_crm_message_draft", body, (v) => { if (typeof v === "string") setBody(v); }, Boolean(body));
   const togglePick = (k: string) => setPicked((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   const customers = useMemo(() => {
@@ -851,12 +854,23 @@ export function CrmPanel() {
     return labels.some((l) => l.id === audience);
   });
 
-  const send = () => {
-    if (!body.trim()) return;
-    const rows = audienceList.length;
-    setSent(`پیامک برای ${fa(rows)} مشتری در صف ارسال قرار گرفت (نمایشی).`);
-    addLog({ actor: "مدیر", action: "ارسال پیامک گروهی", target: audience === "all" ? "همهٔ مشتریان" : "بخش انتخاب‌شده", meta: `${fa(rows)} گیرنده` });
+  /* No fake queue: the panel prepares the text and says exactly where it goes.
+     Server sending lives in the SMS screen, where the provider is checked. */
+  const prepare = async (text: string, recipients: number, target: string) => {
+    if (!text.trim() || !recipients) return;
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+    setSent(
+      `${fa(recipients)} گیرنده · ${copied ? "متن کپی شد" : "متن آماده است"}؛ ارسال از اپ پیامک گوشی انجام می‌شود. برای ارسال خودکار از سرور، درگاه پیامک لازم است (صفحهٔ پیامک وضعیتش را نشان می‌دهد).`,
+    );
+    addLog({ actor: "مدیر", action: "آماده‌سازی پیامک گروهی", target, meta: `${fa(recipients)} گیرنده` });
   };
+  const send = () => void prepare(body, audienceList.length, audience === "all" ? "همهٔ مشتریان" : "بخش انتخاب‌شده");
 
   return (
     <>
@@ -929,7 +943,7 @@ export function CrmPanel() {
           <b>{fa(picked.size)} مشتری انتخاب‌شده</b>
           <input className="ad-input" style={{ maxWidth: 320 }} value={bulkBody} onChange={(e) => setBulkBody(e.target.value)} placeholder="متن پیامک برای انتخاب‌شده‌ها…" aria-label="متن پیامک گروهی" />
           <div className="ad-actions">
-            <button type="button" className="ad-btn is-sm" disabled={!bulkBody.trim()} onClick={() => { setSent(`پیامک به ${fa(picked.size)} مشتری انتخاب‌شده ارسال شد (نمایشی).`); addLog({ actor: "مدیر", action: "پیامک به انتخاب‌شده‌ها", target: `${fa(picked.size)} مشتری` }); setPicked(new Set()); setBulkBody(""); }}><Send width={12} height={12} /> ارسال</button>
+            <button type="button" className="ad-btn is-sm" disabled={!bulkBody.trim()} onClick={() => { void prepare(bulkBody, picked.size, `${fa(picked.size)} مشتری`).then(() => { setPicked(new Set()); setBulkBody(""); }); }}><Send width={12} height={12} /> ارسال</button>
             <button type="button" className="ad-btn is-sm" onClick={() => setPicked(new Set())}>لغو انتخاب</button>
           </div>
         </div>
@@ -941,6 +955,7 @@ export function CrmPanel() {
             {ops.labels.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         </label>
+        <DraftBanner draft={crmDraft} what="این پیام" />
         <label className="ad-field">متن پیامک
           <textarea className="ad-input" rows={3} value={body} onChange={(e) => setBody(e.target.value)} placeholder="{{name}} عزیز، …" />
         </label>

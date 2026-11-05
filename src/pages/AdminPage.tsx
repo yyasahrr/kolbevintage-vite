@@ -84,6 +84,7 @@ import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsP
 import { CommercePanel } from "./AdminCommercePanel";
 import { StaffPanel } from "./AdminRbac";
 import { loadAdminMe, invalidateAdminMe, useAdminMe } from "@/state/session";
+import { DraftBanner, useLocalDraft } from "@/components/LocalDraft";
 import { ChangelogPanel, IssueButton, IssueInbox, LaunchBanner, LaunchChecklist, ManualPanel, PurgePanel, SetupWizard } from "@/pages/AdminLaunch";
 import { can, permissionForScreen, firstAllowedScreen } from "@/admin/rbac";
 import "@/styles/admin.css";
@@ -3359,6 +3360,8 @@ function CodeModal({ initial, onClose }: { initial: Coupon; onClose: () => void 
   const [c, setC] = useState(initial);
   const [bulk, setBulk] = useState(0);
   const isExisting = !!getAdmin().coupons.find((x) => x.id === c.id);
+  // a code typed halfway stays in this browser until it is saved (decision 50)
+  const couponDraft = useLocalDraft<Coupon>("kv_coupon_draft", c, (v) => { if (v?.id) setC(v); }, !isExisting);
   const clean = (code: string) => code.trim().toUpperCase();
   const save = () => {
     const code = clean(c.code);
@@ -3374,6 +3377,7 @@ function CodeModal({ initial, onClose }: { initial: Coupon; onClose: () => void 
       }
       saveCoupons(extra);
     }
+    couponDraft.clear();
     onClose();
   };
   return (
@@ -3384,6 +3388,7 @@ function CodeModal({ initial, onClose }: { initial: Coupon; onClose: () => void 
           <button type="button" className="ad-icon" aria-label="بستن" onClick={onClose}><X width={16} height={16} /></button>
         </header>
         <div className="ad-modal-body">
+          <DraftBanner draft={couponDraft} what="این کد تخفیف" />
           <label className="ad-field">
             کد
             <div className="ad-inline" style={{ gap: 8 }}>
@@ -3484,6 +3489,17 @@ function SmsPanel() {
   const [provider, setProvider] = useState<{ configured: boolean; sender: string } | null>(null);
   const [sendState, setSendState] = useState<{ busy: boolean; ok?: boolean; text?: string }>({ busy: false });
   const [bulkProgress, setBulkProgress] = useState<{ done: number; sent: number; failed: number } | null>(null);
+  // an unsent campaign copy stays in this browser (decision 50)
+  const smsDraft = useLocalDraft<{ name: string; body: string; audience: string }>(
+    "kv_sms_draft",
+    { name: bulkName, body: bulkBody, audience },
+    (v) => {
+      if (typeof v?.name === "string") setBulkName(v.name);
+      if (typeof v?.body === "string") setBulkBody(v.body);
+      if (typeof v?.audience === "string") setAudience(v.audience);
+    },
+    Boolean(bulkName || bulkBody),
+  );
 
   useEffect(() => {
     let alive = true;
@@ -3556,6 +3572,7 @@ function SmsPanel() {
     setPrepared({ id: campaign.id, name: campaign.name, body: campaign.body, audience: campaign.audience, recipients: campaign.recipients });
     setConfirmed(false);
     setBulkName("");
+    smsDraft.clear();
   };
 
   return (
@@ -3663,6 +3680,7 @@ function SmsPanel() {
 
       {tab === "bulk" && (
         <Card title="پیام گروهی" icon={<Users width={14} height={14} />}>
+          <DraftBanner draft={smsDraft} what="این پیام" />
           <div className="ad-two">
             <label className="ad-field">
               نام این ارسال
@@ -3738,6 +3756,7 @@ function SmsPanel() {
                 });
                 setConfirmed(false);
                 setBulkName("");
+                smsDraft.clear();
               }}
             >
               <Send width={13} height={13} /> ارسال از سرور
@@ -4282,6 +4301,18 @@ function JournalEditor() {
   const [draft, setDraft] = useState<ArticleBlock[]>(saved ?? post?.blocks ?? []);
   const [dirty, setDirty] = useState(false);
   const [notice, setNotice] = useState("");
+  // a half-edited article survives a closed tab (decision 50)
+  const localDraft = useLocalDraft<ArticleBlock[]>(
+    `kv_journal_draft_${slug}`,
+    draft,
+    (blocks) => {
+      if (Array.isArray(blocks)) {
+        setDraft(blocks);
+        setDirty(true);
+      }
+    },
+    dirty,
+  );
 
   useEffect(() => {
     const next = ops.journalBlocks?.[slug] ?? post?.blocks ?? [];
@@ -4322,6 +4353,7 @@ function JournalEditor() {
 
   return (
     <Card title="ویرایشگر بلوکی ژورنال" icon={<BookOpen width={14} height={14} />}>
+      <DraftBanner draft={localDraft} what="این مقاله" />
       <label className="ad-field">
         مقاله
         <select className="ad-select" value={slug} onChange={(e) => setSlug(e.target.value)}>
@@ -4397,6 +4429,7 @@ function JournalEditor() {
           onClick={() => {
             setJournalBlocks(slug, draft.filter((b) => b.text.trim() || b.src || b.images?.length));
             setDirty(false);
+            localDraft.clear();
             setNotice("ذخیره شد؛ مقاله از همین حالا نسخهٔ تو را نشان می‌دهد.");
           }}
         >
