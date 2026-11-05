@@ -798,10 +798,23 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
     try {
       await adminLogin(passcode);
       invalidateAdminMe();
-      await loadAdminMe(true);
+      const me = await loadAdminMe(true);
+      if (me.mode === "server" && !me.authenticated) {
+        // the passcode was right, but the browser refused the session cookie
+        setError(
+          "رمز درست بود، اما مرورگر کوکی نشست را نگه نداشت. صفحه را در یک تب مستقل باز کن یا کوکی‌ها را برای این نشانی اجازه بده.",
+        );
+        return;
+      }
       unlockAdmin(passcode);
       onUnlock();
     } catch (err) {
+      /* A refused security token is not a wrong passcode: saying «رمز درست نیست»
+         for a 403 sent the owner chasing a password that was never wrong. */
+      if (err instanceof ApiError && err.code === "csrf_token_invalid") {
+        setError("توکن امنیتی مرورگر آماده نشد. یک بار صفحه را نو کن و همان رمز را دوباره بزن.");
+        return;
+      }
       const offline = !(err instanceof ApiError) || err.status >= 500;
       if (offline && (unlockAdmin(passcode) || passcode === sec.passcode)) {
         onUnlock();

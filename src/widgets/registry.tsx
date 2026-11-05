@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, Clock, Copy, Mail, MapPin, Phone, ShieldCheck, Sparkles, Truck, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { liveCatalog, liveGetProduct, newArrivals, totalStock, visibleProducts, type CatalogProduct } from "@/data/catalog";
-import { formatPrice, LOOKS } from "@/data/looks";
+import { formatPrice, LOOKS, stockOf } from "@/data/looks";
 import { POSTS } from "@/data/journal";
 import { resolveImg } from "@/builder/stock";
 import { ProductCard } from "@/components/ProductCard";
@@ -41,6 +41,19 @@ export interface WidgetDef {
   /** true when the widget needs sales/visitor data that a new shop has none of */
   needsData?: boolean;
   Component: ComponentType<WidgetProps>;
+}
+
+/** the slice of /api/commerce/config these widgets read (real settings, no defaults invented) */
+interface CommercePublicConfig {
+  reservationHoldMinutes: number;
+  paymentWindowMinutes: number;
+  shipping: { flat: number; express: number; freeThreshold: number; thresholdBasis: string };
+  cashback: {
+    enabled: boolean;
+    maxAmount: number;
+    holdDays: number;
+    tiers: { min: number; max: number | null; percent: number }[];
+  };
 }
 
 const num = (o: WidgetProps["options"], key: string, fallback: number) =>
@@ -1530,6 +1543,473 @@ export const WIDGETS: WidgetDef[] = [
         <Shell title={title}>
           <video src={video} controls playsInline preload="metadata" className="w-full max-w-[640px] border border-black/[0.07]" />
         </Shell>
+      );
+    },
+  },
+
+  /* ------------------------------------------------- batch 3 (product) */
+  {
+    kind: "product-fit",
+    name: "فرم و افتادگی",
+    blurb: "همان توضیح فرمی که برای این قطعه نوشته‌ای؛ قطعهٔ بدون توضیح فرم، این بلوک را نمی‌گیرد.",
+    group: "محصول",
+    zones: ["product-side"],
+    defaultTitle: "فرم و افتادگی",
+    needsData: true,
+    Component: ({ title, productId }) => {
+      const product = productId ? liveGetProduct(productId) : null;
+      if (!product?.fit) return null;
+      return (
+        <div className="border border-black/[0.07] px-4 py-3">
+          <p className="text-[11px] font-medium">{title || "فرم و افتادگی"}</p>
+          <p className="mt-1 text-[11.5px] leading-[1.95] text-ink-70">{product.fit}</p>
+        </div>
+      );
+    },
+  },
+  {
+    kind: "product-origin",
+    name: "ساخت و اصالت",
+    blurb: "فیلد «محل تولید» همان محصول؛ اگر خالی باشد چیزی نمایش داده نمی‌شود.",
+    group: "محصول",
+    zones: ["product-side"],
+    defaultTitle: "",
+    needsData: true,
+    Component: ({ productId }) => {
+      const product = productId ? liveGetProduct(productId) : null;
+      if (!product?.origin) return null;
+      return (
+        <p className="border border-black/[0.07] px-4 py-2 text-[11px] text-ink-70">
+          ساخت: {product.origin}
+        </p>
+      );
+    },
+  },
+  {
+    kind: "product-colors",
+    name: "رنگ‌های این قطعه",
+    blurb: "رنگ‌های واقعی همین محصول با کد رنگ خودشان و لینک به صفحهٔ محصول.",
+    group: "محصول",
+    zones: ["product-side"],
+    defaultTitle: "رنگ‌ها",
+    Component: ({ title, productId }) => {
+      const product = productId ? liveGetProduct(productId) : null;
+      if (!product || product.colors.length < 1) return null;
+      return (
+        <div className="border border-black/[0.07] px-4 py-3">
+          <p className="text-[11px] font-medium">{title || "رنگ‌ها"}</p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {product.colors.map((color) => (
+              <li key={color.id}>
+                <Link
+                  to={`/product/${product.id}?color=${color.id}`}
+                  className="flex items-center gap-1.5 border border-black/[0.07] px-2 py-1 text-[10.5px] text-ink-70 hover:border-ink/30"
+                >
+                  <span className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: color.hex }} />
+                  {color.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      );
+    },
+  },
+  {
+    kind: "product-sizes",
+    name: "سایزهای موجود",
+    blurb: "فقط سایزهایی که در انبار عدد دارند، از روی نقشهٔ موجودیِ خود محصول.",
+    group: "محصول",
+    zones: ["product-side"],
+    defaultTitle: "سایزهای موجود",
+    needsData: true,
+    Component: ({ title, productId }) => {
+      const product = productId ? liveGetProduct(productId) : null;
+      if (!product) return null;
+      const available = product.sizes.filter((size) =>
+        product.colors.some((color) => stockOf(product, color.id, size.id) > 0),
+      );
+      if (!available.length) return null;
+      return (
+        <div className="border border-black/[0.07] px-4 py-3">
+          <p className="text-[11px] font-medium">{title || "سایزهای موجود"}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {available.map((size) => (
+              <span key={size.id} className="border border-black/15 px-2 py-0.5 text-[10.5px] text-ink-70">
+                {size.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      );
+    },
+  },
+  {
+    kind: "product-gallery-count",
+    name: "تعداد تصاویر",
+    blurb: "از گالریِ خودت در فرم محصول شمرده می‌شود؛ کمتر از دو تصویر نمایش داده نمی‌شود.",
+    group: "محصول",
+    zones: ["product-side"],
+    defaultTitle: "",
+    Component: ({ productId }) => {
+      const ops = useOps();
+      const images = productId ? ops.productImages[productId] ?? [] : [];
+      if (images.length < 2) return null;
+      return (
+        <p className="text-[10.5px] text-ink-45">
+          {images.length.toLocaleString("fa-IR")} تصویر از این قطعه در گالری هست.
+        </p>
+      );
+    },
+  },
+  {
+    kind: "product-look-mates",
+    name: "قطعه‌های همین استایل",
+    blurb: "همان استایلی که این محصول از آن آمده؛ بدون تکرار خودِ محصول.",
+    group: "محصول",
+    zones: ["product-side"],
+    defaultTitle: "از همین استایل",
+    Component: ({ title, productId }) => {
+      const product = productId ? liveGetProduct(productId) : null;
+      if (!product) return null;
+      const list = liveCatalog().filter((p) => p.lookId === product.lookId && p.id !== product.id).slice(0, 3);
+      if (!list.length) return null;
+      return (
+        <Shell title={title} action={{ to: `/style/${product.lookId}`, label: "صفحهٔ استایل" }}>
+          <Grid items={list} cols={3} />
+        </Shell>
+      );
+    },
+  },
+
+  /* ------------------------------------------------- batch 3 (catalogue) */
+  {
+    kind: "price-range",
+    name: "بازهٔ قیمت دسته",
+    blurb: "کمترین و بیشترین قیمت واقعی محصولات یک دسته، با شمار قطعه‌ها.",
+    group: "کاتالوگ",
+    zones: ["home-middle", "home-bottom"],
+    defaultTitle: "بازهٔ قیمت",
+    needsData: true,
+    options: [{ key: "category", label: "دسته", type: "select", choicesSource: "categories", default: "" }],
+    Component: ({ title, options }) => {
+      const ops = useOps();
+      const slug = String(options.category ?? "");
+      const category = ops.categories.find((c) => c.slug === slug);
+      if (!category) return null;
+      const items = visibleProducts().filter((p) => p.category === category.name);
+      if (!items.length) return null;
+      const prices = items.map((p) => p.price);
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      return (
+        <Shell title={title} action={{ to: `/products?cat=${category.slug}`, label: category.name }}>
+          <p className="text-[12px] leading-[2] text-ink-70">
+            {items.length.toLocaleString("fa-IR")} قطعه در این دسته، از {formatPrice(min)}
+            {max > min ? ` تا ${formatPrice(max)}` : ""}.
+          </p>
+        </Shell>
+      );
+    },
+  },
+  {
+    kind: "newest-in-category",
+    name: "تازه‌ترین قطعهٔ دسته",
+    blurb: "آخرین محصولی که در یک دسته منتشر شده، با همان ترتیب ورودِ کاتالوگ.",
+    group: "کاتالوگ",
+    zones: ["home-middle", "home-bottom"],
+    defaultTitle: "تازه رسیده در این دسته",
+    needsData: true,
+    options: [{ key: "category", label: "دسته", type: "select", choicesSource: "categories", default: "" }],
+    Component: ({ title, options }) => {
+      const ops = useOps();
+      const category = ops.categories.find((c) => c.slug === String(options.category ?? ""));
+      if (!category) return null;
+      const newest = [...visibleProducts()]
+        .filter((p) => p.category === category.name)
+        .sort((a, b) => b.lookOrder - a.lookOrder)[0];
+      if (!newest) return null;
+      return (
+        <Shell title={title} action={{ to: `/products?cat=${category.slug}`, label: "همهٔ دسته" }}>
+          <Grid items={[newest]} cols={2} />
+        </Shell>
+      );
+    },
+  },
+  {
+    kind: "category-sizes",
+    name: "سایزهای موجود در دسته",
+    blurb: "اجتماع سایزهایی که در یک دسته واقعاً موجودند؛ سایز ناموجود لیست نمی‌شود.",
+    group: "کاتالوگ",
+    zones: ["home-middle", "home-bottom"],
+    defaultTitle: "سایزهای موجود",
+    needsData: true,
+    options: [{ key: "category", label: "دسته", type: "select", choicesSource: "categories", default: "" }],
+    Component: ({ title, options }) => {
+      const ops = useOps();
+      const category = ops.categories.find((c) => c.slug === String(options.category ?? ""));
+      if (!category) return null;
+      const labels = new Set<string>();
+      for (const product of visibleProducts().filter((p) => p.category === category.name)) {
+        for (const size of product.sizes) {
+          if (product.colors.some((color) => stockOf(product, color.id, size.id) > 0)) labels.add(size.label);
+        }
+      }
+      if (!labels.size) return null;
+      return (
+        <Shell title={title} description={`${category.name} · ${labels.size.toLocaleString("fa-IR")} سایز موجود`}>
+          <div className="flex flex-wrap gap-1.5">
+            {[...labels].map((label) => (
+              <span key={label} className="border border-black/15 px-2.5 py-1 text-[11px] text-ink-70">
+                {label}
+              </span>
+            ))}
+          </div>
+        </Shell>
+      );
+    },
+  },
+
+  /* ------------------------------------------------- batch 3 (cart & policy) */
+  {
+    kind: "shipping-estimate",
+    name: "هزینهٔ ارسال این سبد",
+    blurb: "از جمع همین سبد و اعداد واقعی ارسال در تنظیمات تجارت حساب می‌شود.",
+    group: "اعتماد",
+    zones: ["home-middle", "home-bottom"],
+    defaultTitle: "ارسال این سبد",
+    needsData: true,
+    Component: ({ title }) => {
+      const cart = useCart();
+      const { data } = useApiGet<CommercePublicConfig>("/api/commerce/config");
+      const shipping = data?.shipping;
+      if (!cart.lines.length || !shipping) return null;
+      const free = shipping.freeThreshold > 0 && cart.subtotal >= shipping.freeThreshold;
+      const cost = free ? 0 : shipping.flat;
+      return (
+        <Shell title={title}>
+          <p className="text-[12px] leading-[2] text-ink-70">
+            پست عادی برای این سبد {free ? "رایگان است" : formatPrice(cost)}.
+            {shipping.express > 0 ? ` ارسال پیشتاز ${formatPrice(shipping.express)}.` : ""}
+            {shipping.freeThreshold > 0 && !free
+              ? ` با ${formatPrice(shipping.freeThreshold - cart.subtotal)} خرید بیشتر، ارسال رایگان می‌شود.`
+              : ""}
+          </p>
+        </Shell>
+      );
+    },
+  },
+  {
+    kind: "cart-savings",
+    name: "صرفه‌جویی این سبد",
+    blurb: "تفاوت قیمت قبل و بعد از تخفیف برای قطعه‌های همین سبد؛ اگر تخفیفی نباشد، دیده نمی‌شود.",
+    group: "شخصی",
+    zones: ["home-middle", "home-bottom"],
+    defaultTitle: "",
+    needsData: true,
+    Component: () => {
+      const cart = useCart();
+      if (!cart.lines.length) return null;
+      let saved = 0;
+      for (const line of cart.lines) {
+        const product = liveGetProduct(line.productId);
+        if (product?.compareAt && product.compareAt > line.price) saved += (product.compareAt - line.price) * line.qty;
+      }
+      if (saved <= 0) return null;
+      return (
+        <p className="text-[11.5px] text-ink-70">
+          در این سبد {formatPrice(saved)} صرفه‌جویی کرده‌ای.
+        </p>
+      );
+    },
+  },
+  {
+    kind: "cashback-teaser",
+    name: "کش‌بک این خرید",
+    blurb: "با نرخ واقعی کش‌بکِ فروشگاه و جمع همین سبد حساب می‌شود؛ نرخ صفر یعنی بلوک خالی.",
+    group: "شخصی",
+    zones: ["home-middle", "home-bottom"],
+    defaultTitle: "",
+    needsData: true,
+    Component: () => {
+      const cart = useCart();
+      const ops = useOps();
+      const rate = Number(ops.cashbackRate ?? 0);
+      if (!cart.lines.length || rate <= 0) return null;
+      const amount = Math.round((cart.subtotal * rate) / 100);
+      if (amount <= 0) return null;
+      return (
+        <p className="text-[11.5px] text-ink-70">
+          با {rate.toLocaleString("fa-IR")}٪ کش‌بک، این سبد {formatPrice(amount)} اعتبار برمی‌گرداند — پس از پایان مهلت مرجوعی.
+        </p>
+      );
+    },
+  },
+  {
+    kind: "cashback-tiers",
+    name: "پلکان کش‌بک",
+    blurb: "پله‌های واقعی کش‌بک از تنظیمات تجارت؛ بدون پله، بلوک دیده نمی‌شود.",
+    group: "اعتماد",
+    zones: ["home-middle", "home-bottom"],
+    defaultTitle: "کش‌بک چطور حساب می‌شود",
+    needsData: true,
+    Component: ({ title }) => {
+      const { data } = useApiGet<CommercePublicConfig>("/api/commerce/config");
+      const cashback = data?.cashback;
+      if (!cashback?.enabled || !cashback.tiers.length) return null;
+      return (
+        <Shell title={title}>
+          <ul className="divide-y divide-black/[0.07]">
+            {cashback.tiers.map((tier) => (
+              <li key={`${tier.min}-${tier.max}`} className="flex items-center justify-between py-1.5 text-[11.5px]">
+                <span className="text-ink-70">
+                  {tier.max === null
+                    ? `خرید بالای ${formatPrice(tier.min)}`
+                    : `خرید ${formatPrice(tier.min)} تا ${formatPrice(tier.max)}`}
+                </span>
+                <span className="text-ink">{tier.percent.toLocaleString("fa-IR")}٪</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[10.5px] leading-[1.9] text-ink-45">
+            سقف هر سفارش {formatPrice(cashback.maxAmount)} و آزادسازی {cashback.holdDays.toLocaleString("fa-IR")} روز پس از تحویل.
+          </p>
+        </Shell>
+      );
+    },
+  },
+  {
+    kind: "hold-policy",
+    name: "مهلت پرداخت و رزرو موجودی",
+    blurb: "همان دقیقه‌هایی که در تنظیمات تجارت تعیین کرده‌ای، برای رزرو موجودی و پرداخت.",
+    group: "اعتماد",
+    zones: ["home-middle", "home-bottom"],
+    defaultTitle: "",
+    Component: () => {
+      const { data } = useApiGet<CommercePublicConfig>("/api/commerce/config");
+      if (!data) return null;
+      return (
+        <p className="text-[10.5px] leading-[1.9] text-ink-45">
+          موجودی به‌محض شروع پرداخت {data.reservationHoldMinutes.toLocaleString("fa-IR")} دقیقه برایت نگه داشته می‌شود و
+          پرداخت باید تا {data.paymentWindowMinutes.toLocaleString("fa-IR")} دقیقه کامل شود.
+        </p>
+      );
+    },
+  },
+  {
+    kind: "order-tracking-link",
+    name: "پیگیری سفارش",
+    blurb: "یک راه میان‌بر به سفارش‌های حساب؛ وضعیتی از خودش نمی‌سازد.",
+    group: "اعتماد",
+    zones: ["home-top", "home-middle", "home-bottom"],
+    defaultTitle: "",
+    Component: () => (
+      <Link to="/account/orders" className="inline-flex items-center gap-1.5 text-[11.5px] text-ink-70 underline decoration-black/20 underline-offset-4 hover:text-ink">
+        پیگیری سفارش و کد رهگیری
+        <ArrowLeft className="h-3 w-3" />
+      </Link>
+    ),
+  },
+  {
+    kind: "look-season",
+    name: "فصل این استایل",
+    blurb: "فصل و شمار قطعه‌های یک استایل که خودت ساخته‌ای.",
+    group: "کشف",
+    zones: ["home-middle", "home-bottom"],
+    defaultTitle: "این استایل",
+    needsData: true,
+    options: [{ key: "look", label: "استایل", type: "select", choicesSource: "looks", default: "" }],
+    Component: ({ title, options }) => {
+      const look = LOOKS.find((l) => l.id === String(options.look ?? ""));
+      if (!look) return null;
+      const count = visibleProducts().filter((p) => p.lookId === look.id).length;
+      if (!count) return null;
+      return (
+        <Shell title={title} description={look.season} action={{ to: `/style/${look.id}`, label: look.name }}>
+          <p className="text-[12px] leading-[2] text-ink-70">
+            {look.tagline} — {count.toLocaleString("fa-IR")} قطعه در این استایل.
+          </p>
+        </Shell>
+      );
+    },
+  },
+  {
+    kind: "journal-stats",
+    name: "شمار ژورنال",
+    blurb: "تعداد مقاله‌ها و مجموع زمان خواندن، از خود ژورنال شمرده می‌شود.",
+    group: "محتوا",
+    zones: ["home-bottom", "article-side"],
+    defaultTitle: "",
+    Component: () => {
+      const ops = useOps();
+      if (!ops.features.journal || !POSTS.length) return null;
+      const minutes = POSTS.reduce((sum, post) => sum + post.readTime, 0);
+      return (
+        <p className="text-[10.5px] text-ink-45">
+          {POSTS.length.toLocaleString("fa-IR")} مقاله · {minutes.toLocaleString("fa-IR")} دقیقه خواندن
+        </p>
+      );
+    },
+  },
+
+  /* ------------------------------------------------- batch 3 (article) */
+  {
+    kind: "article-reading-time",
+    name: "زمان خواندن مقاله",
+    blurb: "عدد واقعی زمان خواندنِ همین مقاله، از خود مقاله.",
+    group: "محتوا",
+    zones: ["article-side"],
+    defaultTitle: "",
+    Component: ({ articleSlug }) => {
+      const post = POSTS.find((p) => p.slug === articleSlug);
+      if (!post) return null;
+      return (
+        <p className="text-[10.5px] text-ink-45">
+          {post.date} · {post.readTime.toLocaleString("fa-IR")} دقیقه خواندن
+        </p>
+      );
+    },
+  },
+  {
+    kind: "article-next",
+    name: "مقالهٔ بعدی",
+    blurb: "مقاله‌ای که در ترتیب ژورنال بعد از این یکی می‌آید؛ آخرین مقاله، بعدی ندارد.",
+    group: "محتوا",
+    zones: ["article-side"],
+    defaultTitle: "بعد بخوان",
+    Component: ({ title, articleSlug }) => {
+      const index = POSTS.findIndex((p) => p.slug === articleSlug);
+      const next = index >= 0 ? POSTS[index + 1] : undefined;
+      if (!next) return null;
+      return (
+        <div className="border border-black/[0.07] px-4 py-3">
+          <p className="text-[10px] text-ink-45">{title || "بعد بخوان"}</p>
+          <Link to={`/journal/${next.slug}`} className="mt-1 block text-[12.5px] hover:text-ink-70">
+            {next.title}
+          </Link>
+          <p className="mt-1 text-[10.5px] text-ink-45">{next.readTime.toLocaleString("fa-IR")} دقیقه خواندن</p>
+        </div>
+      );
+    },
+  },
+  {
+    kind: "article-view-count",
+    name: "تعداد بازدید مقاله",
+    blurb: "از شمارش اول‌طرف صفحه‌ها؛ تا اولین بازدید، چیزی نمایش داده نمی‌شود.",
+    group: "محتوا",
+    zones: ["article-side"],
+    defaultTitle: "",
+    needsData: true,
+    Component: ({ articleSlug }) => {
+      const { data } = useApiGet<{ views: number }>(
+        articleSlug ? `/api/public/page-views?path=${encodeURIComponent(`/journal/${articleSlug}`)}` : null,
+      );
+      const views = data?.views ?? 0;
+      if (views < 1) return null;
+      return (
+        <p className="text-[10.5px] text-ink-45">
+          این مقاله {views.toLocaleString("fa-IR")} بار خوانده شده است.
+        </p>
       );
     },
   },

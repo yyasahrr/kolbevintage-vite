@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { config } from "../config";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
@@ -16,6 +16,14 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 const CSRF_COOKIE = "kv_csrf";
 const CSRF_HEADER = "x-csrf-token";
+/* A signed, cookie-less CSRF token. The storefront preview runs inside a frame
+   on another origin, where browsers drop "same-site" cookies entirely — the
+   double-submit pair then never exists and every write (login, sign-up, the
+   visit beacon) is refused with "invalid security token". The signed token is
+   still unreadable cross-origin (CORS keeps the response closed), so it keeps
+   the protection while needing no cookie at all. */
+const CSRF_SECRET = randomBytes(32).toString("hex");
+const CSRF_TTL_MS = 86_400_000;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export interface LimitRule {
@@ -59,6 +67,11 @@ function isCallback(path: string): boolean {
   return /^\/api\/commerce\/payments\/[^/]+\/callback$/.test(path);
 }
 
+/** the visit beacon carries no authority: it cannot read or change anything */
+function isBeacon(path: string): boolean {
+  return path === "/api/track";
+}
+
 function clientKey(req: FastifyRequest): string {
   const forwarded = req.headers["x-forwarded-for"];
   const ip = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.ip;
@@ -80,7 +93,57 @@ export function csrfToken(req: FastifyRequest): string | null {
   return readCookie(req, CSRF_COOKIE);
 }
 
+const signCsrf = (raw: string) => createHmac("sha256", CSRF_SECRET).update(raw).digest("base64url");
+
+export function issueCsrfToken(): string {
+  const raw = `${Date.now().toString(36)}.${randomBytes(12).toString("hex")}`;
+  return `${raw}.${signCsrf(raw)}`;
+}
+
+function signedCsrfValid(token: string): boolean {
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  const [stamp, nonce, signature] = parts;
+  const age = Date.now() - Number.parseInt(stamp, 36);
+  if (!Number.isFinite(age) || age < 0 || age > CSRF_TTL_MS) return false;
+  const expected = signCsrf(`${stamp}.${nonce}`);
+  if (expected.length !== signature.length) return false;
+  return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+}
+
+/**
+ * Is this request part of a cross-site embedding (the framed preview) or plain
+ * HTTPS? Browsers themselves say so: `Sec-Fetch-Site: cross-site` arrives on
+ * every request made from an iframe hosted on another origin, and the proxy
+ * adds `X-Forwarded-Proto: https`. Either one means a `SameSite=Lax` cookie
+ * will be dropped, so the cookies below switch to `SameSite=None; Secure`.
+ */
+function crossSite(req: FastifyRequest): boolean {
+  const forwarded = req.headers["x-forwarded-proto"];
+  const proto = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.protocol;
+  if (proto === "https") return true;
+  const fetchSite = req.headers["sec-fetch-site"];
+  return typeof fetchSite === "string" && fetchSite.toLowerCase() === "cross-site";
+}
+
+export function cookieSecurity(req: FastifyRequest): { secure: boolean; sameSite: "none" | "lax" } {
+  const https = crossSite(req);
+  return https ? { secure: true, sameSite: "none" } : { secure: false, sameSite: "lax" };
+}
+
 export function registerSecurity(app: FastifyInstance) {
+  /** hands out a token that works with or without cookies */
+  app.get("/api/csrf", async (req, reply) => {
+    const token = issueCsrfToken();
+    const { secure, sameSite } = cookieSecurity(req);
+    reply.header("cache-control", "no-store");
+    reply.header(
+      "set-cookie",
+      `${CSRF_COOKIE}=${encodeURIComponent(token)}; Path=/; SameSite=${sameSite === "none" ? "None" : "Lax"}; Max-Age=86400${secure ? "; Secure" : ""}`,
+    );
+    return { token };
+  });
+
   app.addHook("onRequest", async (req: FastifyRequest, reply: FastifyReply) => {
     const path = req.url.split("?")[0];
 
@@ -108,11 +171,14 @@ export function registerSecurity(app: FastifyInstance) {
     }
 
     /* ---------- CSRF (double submit) ---------- */
-    if (!SAFE_METHODS.has(req.method) && !isCallback(path)) {
+    if (!SAFE_METHODS.has(req.method) && !isCallback(path) && !isBeacon(path)) {
       const cookieToken = readCookie(req, CSRF_COOKIE);
       const headerToken = req.headers[CSRF_HEADER];
       const provided = typeof headerToken === "string" ? headerToken : "";
-      if (!cookieToken || !provided || provided !== cookieToken) {
+      const doubleSubmit = Boolean(cookieToken) && provided === cookieToken;
+      // a signed token works without any cookie (preview inside a frame)
+      const stateless = signedCsrfValid(provided);
+      if (!doubleSubmit && !stateless) {
         return reply.code(403).send({
           ok: false,
           code: "csrf_token_invalid",
@@ -138,12 +204,12 @@ export function registerSecurity(app: FastifyInstance) {
 
     // hand the browser a CSRF token to echo back in a header
     const existing = readCookie(req, CSRF_COOKIE);
-    if (!existing) {
-      const token = randomBytes(16).toString("hex");
-      const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+    if (!existing && !reply.getHeader("set-cookie")) {
+      const token = issueCsrfToken();
+      const { secure, sameSite } = cookieSecurity(req);
       reply.header(
         "set-cookie",
-        `${CSRF_COOKIE}=${token}; Path=/; SameSite=Lax; Max-Age=86400${secure}`,
+        `${CSRF_COOKIE}=${encodeURIComponent(token)}; Path=/; SameSite=${sameSite === "none" ? "None" : "Lax"}; Max-Age=86400${secure ? "; Secure" : ""}`,
       );
     }
     return payload;

@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { config } from "./config";
 import { query } from "./db";
 import { newToken } from "./security";
+import { cookieSecurity } from "./http/security";
 
 export const COOKIE = "kv_session";
 
@@ -26,11 +27,14 @@ export async function createSession(kind: SessionKind, subject: string): Promise
 }
 
 export function setSessionCookie(reply: FastifyReply, token: string, expires: Date) {
+  // in the framed preview the panel is a third-party context: a "lax" cookie is
+  // dropped there, so the login would silently not stick
+  const { secure, sameSite } = cookieSecurity(reply.request);
   reply.setCookie(COOKIE, token, {
     path: "/",
     httpOnly: true,
-    sameSite: "lax",
-    secure: config.isProd,
+    sameSite,
+    secure: secure || config.isProd,
     expires,
   });
 }

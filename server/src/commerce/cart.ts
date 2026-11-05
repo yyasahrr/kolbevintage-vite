@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../config";
+import { cookieSecurity } from "../http/security";
 import { query, withTransaction } from "../db";
 import { readSession } from "../sessions";
 import { CommerceError } from "./errors";
@@ -168,11 +169,12 @@ async function createCart(customerEmail: string | null): Promise<CartRow> {
 }
 
 export function setCartCookie(reply: FastifyReply, token: string) {
+  const { secure, sameSite } = cookieSecurity(reply.request);
   reply.setCookie(CART_COOKIE, token, {
     path: "/",
     httpOnly: true,
-    sameSite: "lax",
-    secure: config.isProd,
+    sameSite,
+    secure: secure || config.isProd,
     maxAge: 30 * 24 * 60 * 60,
   });
 }

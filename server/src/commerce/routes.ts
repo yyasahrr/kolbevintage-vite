@@ -4,6 +4,7 @@ import { query } from "../db";
 import { createSession, setSessionCookie } from "../sessions";
 import { actorOf, currentSession, requireAdminSession, requireSuperadmin } from "./auth";
 import { requirePermission } from "../http/rbac";
+import { cookieSecurity } from "../http/security";
 import {
   cashbackWallet,
   cashbackOverview,
@@ -197,12 +198,16 @@ export async function commerceRoutes(app: FastifyInstance) {
       idempotencyKey: req.body?.idempotencyKey ?? null,
     });
     // ties the sandbox /simulate control to the browser that opened the checkout
-    reply.setCookie("kv_checkout", result.checkout.id, {
-      path: "/",
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24,
-    });
+    {
+      const { secure, sameSite } = cookieSecurity(req);
+      reply.setCookie("kv_checkout", result.checkout.id, {
+        path: "/",
+        httpOnly: true,
+        sameSite,
+        secure,
+        maxAge: 60 * 60 * 24,
+      });
+    }
     return reply.code(201).send(result);
   });
 

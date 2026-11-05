@@ -1699,3 +1699,71 @@ test("the gateway claims no capability it was not given (refunds stay off by def
   assert.equal(providerCapabilities("gateway").refund, true);
   await clearGatewayEnv();
 });
+
+/* =====================================================================
+   The cookie-less browser (the framed preview, a locked-down browser).
+
+   These are the two failures the owner actually hit: the panel refused the
+   passcode and sign-up answered «توکن امنیتی معتبر نیست», because the CSRF
+   cookie is dropped when the shop runs inside a frame on another origin.
+   ===================================================================== */
+
+test("a browser that cannot keep cookies still logs in, with a signed token", async () => {
+  const tokenRes = await fetch(`${base}/api/csrf`);
+  assert.equal(tokenRes.status, 200);
+  const { token } = (await tokenRes.json()) as { token: string };
+  assert.ok(token && token.split(".").length === 3, "a signed token comes back");
+
+  const login = await fetch(`${base}/api/admin/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-csrf-token": token },
+    body: JSON.stringify({ passcode: "1234" }),
+  });
+  assert.equal(login.status, 200, await login.clone().text());
+  const session = (login.headers.getSetCookie?.() ?? []).find((c) => c.startsWith("kv_session="));
+  assert.ok(session, "a session cookie comes back even without a CSRF cookie");
+
+  const me = await fetch(`${base}/api/admin/me`, { headers: { cookie: session.split(";")[0] } });
+  assert.equal(me.status, 200);
+  assert.equal(((await me.json()) as Json).authenticated, true);
+});
+
+test("signing up works from a cookie-less browser too", async () => {
+  const { token } = (await (await fetch(`${base}/api/csrf`)).json()) as { token: string };
+  const email = `frame-${Date.now()}@example.com`;
+  const signup = await fetch(`${base}/api/auth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-csrf-token": token },
+    body: JSON.stringify({ email, password: "demo1234", name: "خریدار بدون کوکی" }),
+  });
+  assert.ok([200, 201].includes(signup.status), await signup.clone().text());
+  const session = (signup.headers.getSetCookie?.() ?? []).find((c) => c.startsWith("kv_session="));
+  assert.ok(session, "the new customer is signed in");
+});
+
+test("a write with no token at all is still refused", async () => {
+  const res = await fetch(`${base}/api/admin/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ passcode: "1234" }),
+  });
+  assert.equal(res.status, 403);
+  assert.equal(((await res.json()) as Json).code, "csrf_token_invalid");
+});
+
+test("the visit beacon records a page view without a CSRF pair", async () => {
+  // a fresh session and path every run: page_views is intentionally not wiped
+  const stamp = Date.now().toString(36);
+  const session = `probe-${stamp}`;
+  const path = `/journal/probe-${stamp}`;
+  const res = await fetch(`${base}/api/track`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path, session, device: "desktop" }),
+  });
+  assert.equal(res.status, 204, await res.clone().text());
+  const row = await query("select count(*)::int as n from page_views where session = $1", [session]);
+  assert.equal(Number(row.rows[0].n), 1);
+  const views = (await (await fetch(`${base}/api/public/page-views?path=${path}`)).json()) as Json;
+  assert.equal(views.views, 1);
+});

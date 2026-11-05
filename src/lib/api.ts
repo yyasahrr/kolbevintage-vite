@@ -27,17 +27,67 @@ function csrfToken(): string {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
+/**
+ * A token for the next write.
+ *
+ * The cookie alone was not enough: on the very first page load the browser has
+ * not received it yet, and inside the framed preview the cookie is dropped
+ * entirely, so `document.cookie` stays empty and every POST came back as
+ * «توکن امنیتی معتبر نیست» — login, sign-up and the visit beacon alike. The
+ * server now hands the same token out as JSON from /api/csrf, and accepts its
+ * signature without any cookie, so one write always works.
+ */
+let memToken = "";
+let tokenPending: Promise<string> | null = null;
+
+async function fetchCsrfToken(): Promise<string> {
+  try {
+    const res = await fetch(`${BASE}/api/csrf`, { credentials: "include", cache: "no-store" });
+    if (!res.ok) return "";
+    const data = (await res.json()) as { token?: string };
+    memToken = typeof data?.token === "string" ? data.token : "";
+  } catch {
+    memToken = "";
+  }
+  return memToken;
+}
+
+async function ensureCsrfToken(): Promise<string> {
+  const fromCookie = csrfToken();
+  if (fromCookie) return fromCookie;
+  if (memToken) return memToken;
+  if (!tokenPending) {
+    tokenPending = fetchCsrfToken().finally(() => {
+      tokenPending = null;
+    });
+  }
+  return tokenPending;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
-  const token = csrfToken();
   const method = (init.method ?? "GET").toUpperCase();
-  if (token && method !== "GET" && method !== "HEAD") headers.set("x-csrf-token", token);
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+  const isWrite = method !== "GET" && method !== "HEAD";
+
+  const send = async (token: string) => {
+    const headers = new Headers(init.headers);
+    if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
+    if (token && isWrite) headers.set("x-csrf-token", token);
+    return fetch(`${BASE}${path}`, { ...init, headers, credentials: "include" });
+  };
+
+  let token = isWrite ? await ensureCsrfToken() : "";
+  let res = await send(token);
+
+  // a stale token (server restarted, cookie rotated) is worth exactly one retry
+  if (isWrite && res.status === 403) {
+    const peek = await res.clone().text();
+    if (peek.includes("csrf_token_invalid")) {
+      memToken = "";
+      token = await fetchCsrfToken();
+      if (token) res = await send(token);
+    }
+  }
+
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
@@ -84,7 +134,13 @@ export async function uploadImage(file: File): Promise<string> {
   const form = new FormData();
   form.append("file", file);
   try {
-    const res = await fetch(`${BASE}/api/uploads`, { method: "POST", body: form, credentials: "include" });
+    const token = await ensureCsrfToken();
+    const res = await fetch(`${BASE}/api/uploads`, {
+      method: "POST",
+      body: form,
+      credentials: "include",
+      headers: token ? { "x-csrf-token": token } : undefined,
+    });
     if (!res.ok) throw new Error(String(res.status));
     const data = (await res.json()) as { url?: string };
     if (!data.url) throw new Error("no url");

@@ -42,6 +42,19 @@ export async function publicRoutes(app: FastifyInstance) {
     return { views: Number(res.rows[0]?.views ?? 0) };
   });
 
+  /** the same counter for a journal article (path is validated, never raw SQL input) */
+  app.get<{ Querystring: { path?: string } }>("/api/public/page-views", async (req) => {
+    const path = String(req.query.path ?? "").slice(0, 120);
+    if (!/^\/(product|journal)\/[A-Za-z0-9._-]+$/.test(path)) {
+      return { views: 0 };
+    }
+    const res = await query<{ views: number }>(
+      `select count(*)::int as views from page_views where path = $1 or path like $2`,
+      [path, `${path}?%`],
+    );
+    return { views: Number(res.rows[0]?.views ?? 0) };
+  });
+
   /** newsletter sign-up from the storefront widget */
   app.post<{ Body: { email?: string; source?: string } | undefined }>("/api/newsletter", async (req, reply) => {
     const email = (req.body?.email ?? "").trim().toLowerCase().slice(0, 160);
