@@ -3979,7 +3979,7 @@ textarea.ad-input {
   background: rgba(27, 24, 21, 0.05);
 }
 .ad-studio-gate {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   font-size: 12px;
