@@ -211,19 +211,38 @@ export async function authRoutes(app: FastifyInstance) {
     const ops = (await getDocument<Record<string, any>>("ops")) ?? {};
     const expected = String(admin.settings?.passcode ?? ops.security?.passcode ?? "");
 
+    const ip = req.ip;
+    const userAgent = String(req.headers["user-agent"] ?? "").slice(0, 200);
+    const recordLogin = (subject: string, ok: boolean, reason: string | null) =>
+      query("insert into login_events (subject, ok, reason, ip, user_agent) values ($1,$2,$3,$4,$5)", [
+        subject,
+        ok,
+        reason,
+        ip,
+        userAgent,
+      ]);
+
     let subject = "admin";
     if (expected && passcode === expected) {
       subject = "admin";
     } else {
-      const staff = await query<{ subject: string; passcode_hash: string | null }>(
-        "select subject, passcode_hash from staff where active and passcode_hash is not null",
+      const staff = await query<{ subject: string; passcode_hash: string | null; expired: boolean }>(
+        `select subject, passcode_hash, (expires_at is not null and expires_at <= now()) as expired
+           from staff where active and passcode_hash is not null`,
       );
       const match = staff.rows.find((row) => verifyPassword(passcode, row.passcode_hash));
       if (!match) {
+        await recordLogin("unknown", false, "bad_passcode");
         return reply.code(401).send({ ok: false, message: "رمز مدیریت درست نیست." });
+      }
+      // decision 89: a temporary grant stops working on its date, not on the next deploy
+      if (match.expired) {
+        await recordLogin(match.subject, false, "expired");
+        return reply.code(401).send({ ok: false, message: "دسترسی این حساب به پایان رسیده است." });
       }
       subject = match.subject;
     }
+    await recordLogin(subject, true, null);
 
     const session = await createSession("admin", subject);
     setSessionCookie(reply, session.token, session.expires);

@@ -31,6 +31,14 @@ import {
 const RE_ROLE_ID = /^[a-z][a-z0-9-]{1,30}$/;
 const RESERVED_SUBJECTS = new Set(["admin", "superadmin"]);
 
+/** an empty string or null clears the limit; anything else must be a real date */
+function parseExpiry(value: unknown): Date | null {
+  if (value === null || value === undefined || value === "") return null;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) throw validation("تاریخ پایان دسترسی معتبر نیست.");
+  return date;
+}
+
 export async function rbacRoutes(app: FastifyInstance) {
   /** the panel's first call after login: who am I and what may I do */
   app.get("/api/admin/me", async (req) => {
@@ -152,7 +160,7 @@ export async function rbacRoutes(app: FastifyInstance) {
     return { staff: await listStaff(), roles: await listRoles() };
   });
 
-  app.post<{ Body: { name?: string; subject?: string; passcode?: string; roleId?: string } }>(
+  app.post<{ Body: { name?: string; subject?: string; passcode?: string; roleId?: string; expiresAt?: string | null } }>(
     "/api/admin/staff",
     async (req, reply) => {
       const session = await requirePermission(req, "staff:manage");
@@ -171,20 +179,18 @@ export async function rbacRoutes(app: FastifyInstance) {
       if (roleId === OWNER_ROLE) await requireOwnerRole(session);
       const dup = await query("select 1 from staff where subject = $1", [subject]);
       if (dup.rowCount) throw conflict("این شناسهٔ ورود قبلاً ثبت شده است.");
+      const expiresAt = parseExpiry(req.body?.expiresAt);
       const id = `staff-${randomUUID().slice(0, 8)}`;
-      await query("insert into staff (id, name, subject, role_id, passcode_hash, active) values ($1,$2,$3,$4,$5,true)", [
-        id,
-        name,
-        subject,
-        roleId,
-        hashPassword(passcode),
-      ]);
+      await query(
+        "insert into staff (id, name, subject, role_id, passcode_hash, active, expires_at) values ($1,$2,$3,$4,$5,true,$6)",
+        [id, name, subject, roleId, hashPassword(passcode), expiresAt],
+      );
       await recordAudit({
         actor: session.subject,
         action: "staff.create",
         targetType: "staff",
         targetId: id,
-        after: { name, subject, roleId },
+        after: { name, subject, roleId, expiresAt: expiresAt?.toISOString() ?? null },
         requestId: req.id,
       });
       return reply.code(201).send({ ok: true, staff: await listStaff() });
@@ -193,7 +199,7 @@ export async function rbacRoutes(app: FastifyInstance) {
 
   app.patch<{
     Params: { id: string };
-    Body: { name?: string; roleId?: string; active?: boolean; passcode?: string };
+    Body: { name?: string; roleId?: string; active?: boolean; passcode?: string; expiresAt?: string | null };
   }>("/api/admin/staff/:id", async (req) => {
     const session = await requirePermission(req, "staff:manage");
     await requireOwnerRole(session);
@@ -217,24 +223,78 @@ export async function rbacRoutes(app: FastifyInstance) {
     }
     const passcode = req.body?.passcode === undefined ? undefined : String(req.body.passcode);
     if (passcode !== undefined && passcode.length < 6) throw validation("رمز کارمند باید حداقل ۶ نویسه باشد.");
-    await query(
-      `update staff set name = $2, role_id = $3, active = $4${passcode === undefined ? "" : ", passcode_hash = $5"}
-       where id = $1`,
-      passcode === undefined
-        ? [id, String(req.body?.name ?? current.name).trim(), roleId, active]
-        : [id, String(req.body?.name ?? current.name).trim(), roleId, active, hashPassword(passcode)],
-    );
+    // `expiresAt: null` clears the limit; leaving it out keeps the current one
+    const expiresAt =
+      req.body?.expiresAt === undefined
+        ? current.expires_at
+          ? new Date(current.expires_at)
+          : null
+        : parseExpiry(req.body.expiresAt);
+    const name = String(req.body?.name ?? current.name).trim();
+    if (passcode === undefined) {
+      await query("update staff set name = $2, role_id = $3, active = $4, expires_at = $5 where id = $1", [
+        id,
+        name,
+        roleId,
+        active,
+        expiresAt,
+      ]);
+    } else {
+      await query(
+        "update staff set name = $2, role_id = $3, active = $4, passcode_hash = $5, expires_at = $6 where id = $1",
+        [id, name, roleId, active, hashPassword(passcode), expiresAt],
+      );
+    }
     if (passcode !== undefined) await query("delete from sessions where kind = 'admin' and subject = $1", [current.subject]);
     await recordAudit({
       actor: session.subject,
       action: "staff.update",
       targetType: "staff",
       targetId: id,
-      before: { name: current.name, roleId: current.role_id, active: current.active },
-      after: { roleId, active, passcodeChanged: passcode !== undefined },
+      before: { name: current.name, roleId: current.role_id, active: current.active, expiresAt: current.expires_at },
+      after: { roleId, active, passcodeChanged: passcode !== undefined, expiresAt: expiresAt?.toISOString() ?? null },
       requestId: req.id,
     });
     return { ok: true, staff: await listStaff() };
+  });
+
+  /** login history (decision 88): success and refusals, newest first */
+  app.get<{ Querystring: { limit?: string } }>("/api/admin/logins", async (req) => {
+    await requirePermission(req, "security:view");
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit ?? 50) || 50));
+    const res = await query(
+      `select id::text, at, subject, ok, reason, ip, user_agent
+         from login_events order by at desc, id desc limit $1`,
+      [limit],
+    );
+    return {
+      events: res.rows.map((row) => ({
+        id: row.id,
+        at: row.at,
+        subject: row.subject,
+        ok: row.ok,
+        reason: row.reason,
+        ip: row.ip,
+        userAgent: row.user_agent,
+      })),
+      activeSessions: (await query("select count(*)::int as n from sessions where kind = 'admin' and expires_at > now()"))
+        .rows[0].n,
+    };
+  });
+
+  /** "sign out everywhere" (decision 88) — every admin session dies, this one too */
+  app.post("/api/admin/sessions/revoke-all", async (req) => {
+    const session = await requirePermission(req, "security:edit");
+    const res = await query("delete from sessions where kind = 'admin'");
+    await recordAudit({
+      actor: session.subject,
+      action: "sessions.revoke_all",
+      targetType: "session",
+      targetId: "admin",
+      after: { revoked: res.rowCount ?? 0 },
+      requestId: req.id,
+    });
+    return { ok: true, revoked: res.rowCount ?? 0 };
   });
 
   /** the matrix a role editor renders, fetched once */

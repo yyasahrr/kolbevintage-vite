@@ -30,6 +30,8 @@ interface StaffRow {
   role_name: string;
   active: boolean;
   has_passcode: boolean;
+  expires_at: string | null;
+  expired?: boolean;
 }
 
 const fa = (n: number) => n.toLocaleString("fa-IR");
@@ -110,6 +112,8 @@ export function StaffPanel() {
   const [staffSubject, setStaffSubject] = useState("");
   const [staffPass, setStaffPass] = useState("");
   const [staffRole, setStaffRole] = useState("");
+  /** decision 89: an optional end date for a temporary grant (empty = permanent) */
+  const [staffExpiry, setStaffExpiry] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -208,12 +212,18 @@ export function StaffPanel() {
         subject: staffSubject.trim().toLowerCase(),
         passcode: staffPass,
         roleId: staffRole,
+        expiresAt: staffExpiry || null,
       });
       setStaff(res.staff);
       setStaffName("");
       setStaffSubject("");
       setStaffPass("");
-      setNote("کارمند اضافه شد؛ می‌تواند با همین رمز وارد پنل شود.");
+      setStaffExpiry("");
+      setNote(
+        staffExpiry
+          ? `کارمند اضافه شد؛ دسترسی‌اش تا ${staffExpiry} کار می‌کند و بعد از آن رمزش پذیرفته نمی‌شود.`
+          : "کارمند اضافه شد؛ می‌تواند با همین رمز وارد پنل شود.",
+      );
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "اضافه نشد.");
     } finally {
@@ -221,7 +231,7 @@ export function StaffPanel() {
     }
   };
 
-  const patchStaff = async (row: StaffRow, patch: { roleId?: string; active?: boolean }) => {
+  const patchStaff = async (row: StaffRow, patch: { roleId?: string; active?: boolean; expiresAt?: string | null }) => {
     setBusy(`staff:${row.id}`);
     setFormError(null);
     try {
@@ -403,6 +413,7 @@ export function StaffPanel() {
               <span>نام</span>
               <span>شناسهٔ ورود</span>
               <span>نقش</span>
+              <span>دسترسی موقت تا</span>
               <span>وضعیت</span>
             </div>
             {staff.map((row) => (
@@ -419,6 +430,24 @@ export function StaffPanel() {
                     <option key={role.id} value={role.id}>{role.name}</option>
                   ))}
                 </select>
+                <span className="ad-rbac-expiry">
+                  <input
+                    className="ad-input is-compact"
+                    type="date"
+                    dir="ltr"
+                    value={row.expires_at ? row.expires_at.slice(0, 10) : ""}
+                    disabled={busy === `staff:${row.id}`}
+                    aria-label={`پایان دسترسی ${row.name}`}
+                    onChange={(e) => void patchStaff(row, { expiresAt: e.target.value || null })}
+                  />
+                  {row.expired ? (
+                    <em className="ad-chip is-danger">منقضی</em>
+                  ) : row.expires_at ? (
+                    <em className="ad-chip">موقت</em>
+                  ) : (
+                    <em className="ad-hint">دائمی</em>
+                  )}
+                </span>
                 <label className="ad-rbac-toggle">
                   <input
                     type="checkbox"
@@ -458,6 +487,17 @@ export function StaffPanel() {
                 ))}
               </select>
             </label>
+            <label className="ad-field">
+              <span className="ad-field-label">پایان دسترسی (اختیاری)</span>
+              <input
+                className="ad-input"
+                type="date"
+                dir="ltr"
+                value={staffExpiry}
+                onChange={(e) => setStaffExpiry(e.target.value)}
+                aria-label="تاریخ پایان دسترسی"
+              />
+            </label>
           </div>
           <div className="ad-actions">
             <button
@@ -471,6 +511,7 @@ export function StaffPanel() {
           </div>
           <p className="ad-rbac-hint">
             رمز هر کارمند مستقل است؛ با همان رمز در همین صفحهٔ ورود وارد می‌شود و فقط مجوزهای نقش خودش را می‌بیند. رمز فروشگاه همیشه مالک است.
+            تاریخ پایان بگذاری، دسترسی موقت می‌شود: از فردای آن روز رمز این کارمند رد می‌شود و مجوزهایش هم باطل است.
           </p>
         </div>
       </section>

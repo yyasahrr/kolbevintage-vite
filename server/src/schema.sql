@@ -492,3 +492,18 @@ create table if not exists backups (
   cloud_error text
 );
 create index if not exists backups_created_idx on backups (created_at desc);
+
+-- temporary staff access (decision 89): a grant that ends on a date
+alter table staff add column if not exists expires_at timestamptz;
+
+-- login history (decision 88): every admin sign-in attempt, refused ones too
+create table if not exists login_events (
+  id bigserial primary key,
+  at timestamptz not null default now(),
+  subject text not null,
+  ok boolean not null,
+  reason text,
+  ip text,
+  user_agent text
+);
+create index if not exists login_events_at_idx on login_events (at desc);

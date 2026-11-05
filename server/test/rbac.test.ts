@@ -355,3 +355,54 @@ test("the last active owner cannot be deactivated, even by a delegated staff man
   assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.match(res.body.error, /مالک/);
 });
+
+test("a temporary grant stops working on its date and every sign-in is recorded", async () => {
+  const owner = makeClient();
+  await owner.login(OWNER_PASSCODE);
+  // the role only needs to exist; a re-run may already have created it
+  await owner.post("/api/admin/roles", { id: "auditor", name: "auditor", permissions: ["settings:view"] });
+
+  // a grant that ended yesterday
+  const expired = await owner.post("/api/admin/staff", {
+    name: "مهمان منقضی",
+    subject: "ghost",
+    passcode: "ghost-pass-1",
+    roleId: "auditor",
+    expiresAt: new Date(Date.now() - 86400000).toISOString(),
+  });
+  assert.equal(expired.status, 201, JSON.stringify(expired.body));
+
+  const ghost = makeClient();
+  const refused = await ghost.post("/api/admin/login", { passcode: "ghost-pass-1" });
+  assert.equal(refused.status, 401, "an expired grant cannot sign in");
+  assert.match(String(refused.body.message), /پایان/);
+
+  // a grant that ends tomorrow still works
+  const live = await owner.post("/api/admin/staff", {
+    name: "مهمان امروز",
+    subject: "temp",
+    passcode: "temp-pass-1",
+    roleId: "auditor",
+    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+  });
+  assert.equal(live.status, 201, JSON.stringify(live.body));
+  const temp = makeClient();
+  const ok = await temp.post("/api/admin/login", { passcode: "temp-pass-1" });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+
+  // the history names both the refusal reason and the successes
+  const history = await owner.get("/api/admin/logins?limit=20");
+  assert.equal(history.status, 200, JSON.stringify(history.body));
+  assert.ok(history.body.events.some((e: { ok: boolean; reason: string | null }) => !e.ok && e.reason === "expired"));
+  assert.ok(history.body.events.filter((e: { ok: boolean }) => e.ok).length >= 2);
+  assert.ok(history.body.activeSessions >= 2);
+
+  // sign out everywhere kills both sessions, including the caller's own
+  const revoked = await owner.post("/api/admin/sessions/revoke-all", {});
+  assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+  assert.ok(revoked.body.revoked >= 2);
+  const after = await temp.get("/api/admin/staff");
+  assert.equal(after.status, 401, "the other session is gone too");
+  const ownerAgain = await owner.get("/api/admin/staff");
+  assert.equal(ownerAgain.status, 401, "and so is the caller's own session");
+});

@@ -104,6 +104,9 @@ export interface StaffRow {
   role_name?: string;
   active: boolean;
   has_passcode: boolean;
+  expires_at: string | null;
+  /** true when the grant's date has passed — the row stays, the access does not */
+  expired?: boolean;
 }
 
 /**
@@ -138,7 +141,8 @@ export const listRoles = async (): Promise<RoleRow[]> => {
 export const listStaff = async (): Promise<StaffRow[]> => {
   const res = await query<StaffRow>(
     `select s.id, s.name, s.subject, s.role_id, r.name as role_name, s.active,
-            (s.passcode_hash is not null) as has_passcode
+            (s.passcode_hash is not null) as has_passcode, s.expires_at,
+            (s.expires_at is not null and s.expires_at <= now()) as expired
      from staff s join roles r on r.id = s.role_id
      order by s.active desc, s.created_at`,
   );
@@ -150,7 +154,8 @@ export const roleForSubject = async (subject: string, executor?: { query: typeof
   if (subject === "superadmin") return { roleId: "superadmin", permissions: [...PERMISSIONS] };
   const run = executor?.query ?? query;
   const res = await run(
-    "select r.id, r.permissions from staff s join roles r on r.id = s.role_id where s.subject = $1 and s.active",
+    `select r.id, r.permissions from staff s join roles r on r.id = s.role_id
+      where s.subject = $1 and s.active and (s.expires_at is null or s.expires_at > now())`,
     [subject],
   );
   const row = res.rows[0] as { id: string; permissions: unknown } | undefined;

@@ -3079,3 +3079,7 @@
 .ad-bell-main small{ font-size:10.5px; color:#6b6255; line-height:1.6 }
 .ad-bell-stale{ color:#a2711f !important }
 .ad-bell-foot{ margin:4px 4px 2px; font-size:10px; color:#8b8175; text-align:end }
+
+/* ---------- temporary access (decision 89) ---------- */
+.ad-rbac-expiry{ display:flex; align-items:center; gap:6px; flex-wrap:wrap }
+.ad-rbac-expiry .ad-chip{ font-size:10px }

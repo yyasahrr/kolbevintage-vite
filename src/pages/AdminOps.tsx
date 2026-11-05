@@ -1381,6 +1381,105 @@ export function LogsPanel() {
   );
 }
 
+/* ---------- login history + sign out everywhere (decision 88) ---------- */
+
+interface LoginEvent {
+  id: string;
+  at: string;
+  subject: string;
+  ok: boolean;
+  reason: string | null;
+  ip: string | null;
+  userAgent: string | null;
+}
+
+const LOGIN_REASON: Record<string, string> = {
+  bad_passcode: "رمز اشتباه",
+  expired: "دسترسی منقضی",
+};
+
+function LoginHistory() {
+  const [events, setEvents] = useState<LoginEvent[] | null>(null);
+  const [activeSessions, setActiveSessions] = useState(0);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const { api } = await import("@/lib/api");
+      const data = await api.get<{ events: LoginEvent[]; activeSessions: number }>("/api/admin/logins?limit=50");
+      setEvents(data.events);
+      setActiveSessions(data.activeSessions);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "سابقهٔ ورود خوانده نشد");
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const revokeAll = async () => {
+    if (!window.confirm("همهٔ نشست‌های پنل بسته شود؟ همین نشست هم بسته می‌شود و باید دوباره وارد شوی.")) return;
+    setBusy(true);
+    setNote("");
+    try {
+      const { api } = await import("@/lib/api");
+      const res = await api.post<{ ok: boolean; revoked: number }>("/api/admin/sessions/revoke-all", {});
+      setNote(`${fa(res.revoked)} نشست بسته شد. حالا دوباره وارد شو.`);
+      const { invalidateAdminMe } = await import("@/state/session");
+      invalidateAdminMe();
+      await load();
+    } catch (err) {
+      setNote(err instanceof Error ? `بسته نشد: ${err.message}` : "بسته نشد");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel title="سابقهٔ ورود به پنل">
+      <div className="ad-filters">
+        <button type="button" className="ad-btn is-sm" onClick={() => void load()}>به‌روزرسانی</button>
+        <button type="button" className="ad-btn is-sm is-danger" onClick={() => void revokeAll()} disabled={busy}>
+          {busy ? "در حال بستن…" : `خروج از همهٔ نشست‌ها (${fa(activeSessions)} باز)`}
+        </button>
+      </div>
+      {note && <p className="ad-hint">{note}</p>}
+      {error && (
+        <div className="ad-empty">
+          سابقه خوانده نشد: {error}
+          <div style={{ marginTop: 8 }}><button type="button" className="ad-btn is-sm" onClick={() => void load()}>تلاش دوباره</button></div>
+        </div>
+      )}
+      {events && events.length === 0 && <p className="ad-hint">هنوز ورودی ثبت نشده.</p>}
+      {events && events.length > 0 && (
+        <div className="ad-table-wrap">
+          <table className="ad-table">
+            <thead><tr><th>زمان</th><th>کاربر</th><th>نتیجه</th><th>IP</th><th>مرورگر</th></tr></thead>
+            <tbody>
+              {events.map((e) => (
+                <tr key={e.id} className={cn(!e.ok && "is-off")}>
+                  <td className="ad-num">{formatJalaliDateTime(e.at)}</td>
+                  <td dir="ltr">{e.subject}</td>
+                  <td>{e.ok ? "موفق" : `رد شد — ${LOGIN_REASON[e.reason ?? ""] ?? e.reason ?? "نامشخص"}`}</td>
+                  <td dir="ltr">{e.ip ?? "—"}</td>
+                  <td title={e.userAgent ?? undefined}>{e.userAgent ? e.userAgent.slice(0, 42) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="ad-hint">
+        هر تلاش ورود — موفق و ناموفق — ثبت می‌شود. «خروج از همهٔ نشست‌ها» همهٔ کوکی‌های مدیریتی را باطل می‌کند.
+      </p>
+    </Panel>
+  );
+}
+
 export function SecurityPanel() {
   const ops = useOps();
   const sec = ops.security;
@@ -1422,6 +1521,7 @@ export function SecurityPanel() {
           </div>
         )}
       </Panel>
+      <LoginHistory />
     </>
   );
 }
