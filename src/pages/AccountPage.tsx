@@ -67,6 +67,7 @@ export function AccountPage() {
     );
   }
 
+  const [openOrder, setOpenOrder] = useState<string | null>(null);
   const acc = auth.account;
   const orders = admin.orders.filter((o) => o.email.toLowerCase() === acc.email.toLowerCase());
   const tickets = ops.tickets.filter((t) => t.email === acc.email);
@@ -154,12 +155,37 @@ export function AccountPage() {
                           <p className="acc-order-id" dir="ltr">{o.id}</p>
                           <p className="acc-muted">{formatJalali(o.at)} · {o.lines.length.toLocaleString("fa-IR")} قلم</p>
                         </div>
-                        <span className={cn("acc-pill", o.status === "done" ? "is-done" : o.status === "cancelled" ? "is-bad" : "is-open")}>
-                          {o.status === "pending" ? "در انتظار" : o.status === "processing" ? "آماده‌سازی" : o.status === "shipped" ? "ارسال شده" : o.status === "done" ? "تحویل شده" : "لغو شده"}
+                        <span className={cn("acc-pill", o.status === "done" ? "is-done" : o.status === "cancelled" || o.status === "exception" ? "is-bad" : "is-open")}>
+                          {o.status === "pending" ? "در انتظار" : o.status === "processing" ? "آماده‌سازی" : o.status === "shipped" ? "ارسال شده" : o.status === "done" ? "تحویل شده" : o.status === "exception" ? "بررسی مالی" : "لغو شده"}
                         </span>
                         <b>{formatPrice(o.total)}</b>
-                        <button type="button" className="acc-link" onClick={() => setTab("orders")} aria-label={`سفارش ${o.id}`}>جزئیات</button>
+                        <button
+                          type="button"
+                          className="acc-link"
+                          onClick={() => setOpenOrder(openOrder === o.id ? null : o.id)}
+                          aria-expanded={openOrder === o.id}
+                          aria-label={`جزئیات سفارش ${o.id}`}
+                        >
+                          {openOrder === o.id ? "بستن" : "جزئیات"}
+                        </button>
                       </div>
+                      {openOrder === o.id && (
+                        <div className="acc-order-detail">
+                          {/* the carrier code the shop entered in the panel (decision 84) */}
+                          <p>
+                            کد رهگیری:{" "}
+                            {o.tracking ? <b className="acc-track" dir="ltr">{o.tracking}</b> : <span className="acc-muted">هنوز ثبت نشده — پس از تحویل به پست پیامک می‌شود.</span>}
+                          </p>
+                          <ul>
+                            {o.lines.map((l, i) => (
+                              <li key={i}>
+                                {l.name} · {l.color} / {l.size} × {l.qty.toLocaleString("fa-IR")}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="acc-muted">ارسال به: {o.city} — {o.address}</p>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

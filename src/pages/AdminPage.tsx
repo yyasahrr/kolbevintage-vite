@@ -49,6 +49,7 @@ import {
   CornerDownLeft,
   X,
   XCircle,
+  Clock,
   Ruler,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
@@ -825,6 +826,52 @@ function Dashboard({ onGo }: { onGo: (t: Tab) => void }) {
   );
 }
 
+
+/** the day's actual work, first thing on the dashboard (decision 1) */
+function WorkQueue({ onGo }: { onGo: (t: Tab) => void }) {
+  const admin = useAdmin();
+  const ops = useOps();
+  const pendingOrders = admin.orders.filter((o) => o.status === "pending" || o.status === "processing").length;
+  const unpaid = admin.orders.filter((o) => o.status === "exception").length;
+  const openTickets = ops.tickets.filter((t) => t.status !== "closed").length;
+  const pendingReviews = admin.reviews.filter((r) => !r.approved).length;
+  const pendingReturns = ops.returns.filter((r) => r.status === "requested").length;
+  // "low" means some colour/size line is at or under its threshold, not zero stock
+  const lowStock = liveCatalog().filter((p) =>
+    p.sizes.some((sz) => {
+      const n = p.colors.reduce((sum, c) => sum + stockOf(p, c.id, sz.id), 0);
+      return n > 0 && n <= lowStockLineOf(p.id);
+    }),
+  ).length;
+
+  const items = [
+    { id: "orders", label: "سفارش در انتظار آماده‌سازی", n: pendingOrders, to: "orders" as Tab },
+    { id: "unpaid", label: "سفارش با وضعیت مالی استثنایی", n: unpaid, to: "orders" as Tab },
+    { id: "tickets", label: "تیکت باز", n: openTickets, to: "tickets" as Tab },
+    { id: "reviews", label: "نظر در انتظار تأیید", n: pendingReviews, to: "reviews" as Tab },
+    { id: "returns", label: "مرجوعی در انتظار تصمیم", n: pendingReturns, to: "returns" as Tab },
+    { id: "stock", label: "محصول کم‌موجود", n: lowStock, to: "inventory" as Tab },
+  ].filter((i) => i.n > 0);
+
+  return (
+    <Card title="صف کار امروز" icon={<Clock width={14} height={14} />}>
+      {items.length === 0 ? (
+        <p className="ad-empty-tight">صف خالی است: نه سفارش باز، نه تیکت، نه نظر یا مرجوعی در انتظار.</p>
+      ) : (
+        <div className="ad-queue">
+          {items.map((i) => (
+            <button key={i.id} type="button" className="ad-queue-item" onClick={() => onGo(i.to)}>
+              <b>{fa(i.n)}</b>
+              <span>{i.label}</span>
+              <ArrowLeft width={12} height={12} />
+            </button>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
   const admin = useAdmin();
   const docs = useDocs();
@@ -860,7 +907,9 @@ function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
 
   return (
     <>
-      <PageHead title="داشبورد" sub="نمای کلی فروشگاه، انبار، مشتریان و جشنواره‌ها در یک نگاه." />
+      <PageHead title="داشبورد" sub="اول کارِ امروز، بعد اعداد فروشگاه." />
+
+      <WorkQueue onGo={onGo} />
 
       <div className="ad-kpis">
         {kpis.map((k) => (

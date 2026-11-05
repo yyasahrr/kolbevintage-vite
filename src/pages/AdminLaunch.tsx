@@ -149,7 +149,7 @@ export function LaunchChecklist() {
   const ops = useOps();
   const admin = useAdmin();
   const session = useAdminMe();
-  const [health, setHealth] = useState<{ database?: string; migrations?: string | number } | null>(null);
+  const [health, setHealth] = useState<{ ok?: boolean; db?: string } | null>(null);
   const [backups, setBackups] = useState<{ name: string; at: string | number; bytes: number }[] | null>(null);
 
   useEffect(() => {
@@ -157,8 +157,9 @@ export function LaunchChecklist() {
     void (async () => {
       const { api } = await import("@/lib/api");
       try {
-        const h = await api.get<{ database?: string }>("/api/health");
-        if (alive) setHealth(h as { database?: string });
+        // the public probe answers { ok, db } — nothing else is needed to prove the server is up
+        const h = await api.get<{ ok?: boolean; db?: string }>("/api/health");
+        if (alive) setHealth(h);
       } catch {
         if (alive) setHealth(null);
       }
@@ -180,10 +181,10 @@ export function LaunchChecklist() {
       {
         id: "security",
         title: "امنیت",
-        detail: health?.database
-          ? "سرور پاسخ می‌دهد و پنل پشت نشست ادمین است؛ هر عمل پنل مجوز سرور دارد و در گزارش فعالیت می‌ماند."
+        detail: health?.ok
+          ? `سرور پاسخ می‌دهد (پایگاه: ${health.db ?? "—"}) و پنل پشت نشست ادمین است؛ هر عمل پنل مجوز سرور دارد و در گزارش فعالیت می‌ماند.`
           : "پاسخ سرور خوانده نشد — پیش از انتشار دستی بررسی کن.",
-        state: { status: health?.database ? "ok" : "fail", text: health?.database ? "سرور پاسخ داد" : "بی‌پاسخ" } as CheckState,
+        state: { status: health?.ok ? "ok" : "fail", text: health?.ok ? "سرور پاسخ داد" : "بی‌پاسخ" } as CheckState,
       },
       {
         id: "backup",
