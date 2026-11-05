@@ -155,16 +155,18 @@ export function CommercePanel() {
   const [busy, setBusy] = useState(false);
   const [superCode, setSuperCode] = useState("");
   const [elevated, setElevated] = useState(false);
+  const [providers, setProviders] = useState<{ mock: boolean; gateway: boolean }>({ mock: true, gateway: false });
 
   const load = useCallback(async () => {
     try {
-      const [s, r, a, c, o, log] = await Promise.all([
+      const [s, r, a, c, o, log, cfg] = await Promise.all([
         api.get<CommerceSettings>("/api/commerce/admin/settings"),
         api.get<Refund[]>("/api/commerce/admin/refunds"),
         api.get<Adjustment[]>("/api/commerce/admin/inventory/adjustments"),
         api.get<CashbackOverview>("/api/commerce/admin/cashback"),
         api.get<CommerceOrder[]>("/api/commerce/orders?all=1&limit=50"),
         api.get<AuditEntry[]>("/api/commerce/admin/audit?limit=50"),
+        api.get<{ providers?: { mock?: boolean; gateway?: boolean } }>("/api/commerce/config"),
       ]);
       setSettings(s);
       setRefunds(r);
@@ -172,6 +174,7 @@ export function CommercePanel() {
       setCashback(c);
       setOrders(o);
       setAudit(log);
+      setProviders({ mock: cfg.providers?.mock !== false, gateway: Boolean(cfg.providers?.gateway) });
     } catch (error) {
       setMessage({ ok: false, text: error instanceof Error ? error.message : "خواندن تنظیمات ناموفق بود." });
     }
@@ -306,6 +309,13 @@ export function CommercePanel() {
               />
               پرداخت چهارقسطی برای کل فروشگاه فعال باشد
             </label>
+            {settings.paymentProvider === "gateway" && !providers.gateway && (
+              <p className="ad-hint is-warn">
+                درگاه واقعی هنوز پیکربندی نشده است: باید PAYMENT_GATEWAY_URL (و در صورت نیاز توکن/کلید امضا) در محیط
+                سرور تنظیم شود. تا آن زمان هر پرداخت با خطای «provider_not_configured» متوقف می‌شود و سفارشی ثبت
+                نمی‌شود — عمداً، تا پولی جابه‌جا نشود.
+              </p>
+            )}
             <p className="ad-hint">
               این کلید در سطح فروشگاه است، نه محصول. وقتی روشن باشد گزینهٔ اقساط برای همهٔ محصولات و کل سفارش (یک
               پرداخت، یک مرسوله) نمایش داده می‌شود؛ برچسب «اقساطی/غیراقساطی» محصولات دیگر درگاه را مخفی نمی‌کند.
@@ -325,7 +335,16 @@ export function CommercePanel() {
               </label>
               <label className="ad-field">
                 ارائه‌دهنده
-                <input className="ad-input" value={settings.paymentProvider} readOnly dir="ltr" />
+                <select
+                  className="ad-input"
+                  value={settings.paymentProvider}
+                  onChange={(e) => patch({ paymentProvider: e.target.value })}
+                >
+                  <option value="mock">درگاه آزمایشی (mock)</option>
+                  <option value="gateway" disabled={!providers.gateway}>
+                    درگاه واقعی{providers.gateway ? "" : " — پیکربندی نشده"}
+                  </option>
+                </select>
               </label>
             </div>
           </Panel>

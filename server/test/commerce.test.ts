@@ -4,6 +4,7 @@ process.env.LOG_LEVEL = "silent";
 process.env.SUPERADMIN_PASSCODE = "super-secret";
 
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test, { after, before, beforeEach } from "node:test";
 import type { FastifyInstance } from "fastify";
 
@@ -1406,4 +1407,295 @@ test("the panel's campaign ceiling and coupon limits reach the pricing tables", 
     await query(`insert into coupons (${cols.join(", ")}) values (${values.join(", ")})`, cols.map((c) => row[c]));
   }
   await query("delete from price_rules");
+});
+
+/* =====================================================================
+   The real gateway (the last real gap before the shop can take money).
+
+   The tests run against a stub provider on localhost that speaks the same
+   tiny contract as a real one: /initiate hands back a reference and a
+   redirect URL, /verify is the only source of truth about money. The point of
+   each test is what the shop refuses to believe.
+   ===================================================================== */
+
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+
+type StubMode = "settled" | "pending" | "down" | "wrongAmount";
+
+async function startGatewayStub() {
+  const calls: { path: string; body: Json; signature: string | null }[] = [];
+  let mode: StubMode = "settled";
+
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      void (async () => {
+        const body: Json = raw ? JSON.parse(raw) : {};
+        const signature = typeof req.headers["x-signature"] === "string" ? req.headers["x-signature"] : null;
+        calls.push({ path: String(req.url), body, signature });
+        res.setHeader("content-type", "application/json");
+
+        if (req.url === "/initiate") {
+          res.end(
+            JSON.stringify({
+              providerRef: `stub_${body.reference}`,
+              redirectUrl: `https://sandbox.example/pay/${body.reference}`,
+              instructions: "به صفحهٔ پرداخت آزمایشی منتقل شو.",
+            }),
+          );
+          return;
+        }
+        if (req.url === "/verify") {
+          if (mode === "down") {
+            res.statusCode = 503;
+            res.end(JSON.stringify({ message: "provider unavailable" }));
+            return;
+          }
+          const settledAmount = Number(
+            (await query("select amount from payment_attempts where id = $1", [body.reference])).rows[0]?.amount ?? 0,
+          );
+          if (mode === "pending") {
+            res.end(JSON.stringify({ status: "pending", providerRef: `stub_${body.reference}` }));
+            return;
+          }
+          res.end(
+            JSON.stringify({
+              status: "settled",
+              providerRef: `stub_${body.reference}`,
+              amount: mode === "wrongAmount" ? settledAmount + 250000 : settledAmount,
+            }),
+          );
+          return;
+        }
+        res.statusCode = 404;
+        res.end("{}");
+      })();
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    calls,
+    setMode: (next: StubMode) => {
+      mode = next;
+    },
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
+async function useGatewaySettings(paymentProvider: string) {
+  const settings = await import("../src/commerce/settings");
+  await settings.saveCommerceSettings({ paymentProvider } as any);
+}
+
+async function clearGatewayEnv() {
+  delete process.env.PAYMENT_GATEWAY_URL;
+  delete process.env.PAYMENT_GATEWAY_SECRET;
+  delete process.env.PAYMENT_GATEWAY_TOKEN;
+  delete process.env.PAYMENT_GATEWAY_REFUNDS;
+  delete process.env.PUBLIC_BASE_URL;
+}
+
+function gatewaySignature(reference: string, status: string) {
+  return createHmac("sha256", "gw-secret").update(`${reference}:${status}`).digest("hex");
+}
+
+/** gateway callbacks carry two proofs: the route's shared-secret header and the
+    body signature the provider checks before it asks the gateway again */
+async function gatewayCallback(client: Client, attemptId: string, body: Json) {
+  const { signCallbackPayload } = await import("../src/commerce/payments");
+  const settings = await import("../src/commerce/settings");
+  const current = await settings.loadCommerceSettings(true);
+  const res = await fetch(`${base}/api/commerce/payments/${attemptId}/callback`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-provider-signature": signCallbackPayload(current.providerWebhookSecret, attemptId, body),
+      cookie: client.cookie(),
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  return { status: res.status, body: text ? JSON.parse(text) : null };
+}
+
+test("a gateway that is not configured is refused, never faked with the mock", async () => {
+  await clearGatewayEnv();
+  await useGatewaySettings("gateway");
+  try {
+    const client = makeClient();
+    const variantId = await setStock(SKU, 3);
+    const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
+    assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
+
+    const pay = await client.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, { method: "online" });
+    assert.equal(pay.status, 503, JSON.stringify(pay.body));
+    assert.equal(pay.body.code, "provider_not_configured");
+
+    const orders = await query("select count(*)::int as n from orders");
+    assert.equal(Number(orders.rows[0].n), 0, "no order may exist for a payment that never started");
+    const attempts = await query("select count(*)::int as n from payment_attempts where status = 'settled'");
+    assert.equal(Number(attempts.rows[0].n), 0);
+
+    // and the shop cannot pretend the gateway is available either
+    const config = await client.get("/api/commerce/config");
+    assert.equal(config.body.providers.gateway, false);
+    assert.equal(config.body.providers.mock, true);
+  } finally {
+    await useGatewaySettings("mock");
+    await clearGatewayEnv();
+  }
+});
+
+test("the gateway settles only after its own verify call, and exactly once", async () => {
+  const stub = await startGatewayStub();
+  process.env.PAYMENT_GATEWAY_URL = stub.url;
+  process.env.PAYMENT_GATEWAY_SECRET = "gw-secret";
+  process.env.PUBLIC_BASE_URL = "https://shop.example";
+  await useGatewaySettings("gateway");
+  try {
+    const client = makeClient();
+    const variantId = await setStock(SKU, 3);
+    const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
+    assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
+
+    const pay = await client.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, { method: "online" });
+    assert.equal(pay.status, 200, JSON.stringify(pay.body));
+    const attemptId = pay.body.attempt.id as string;
+    assert.equal(pay.body.attempt.provider, "gateway");
+    // a real gateway is never offered as a mock, even with mock controls on
+    assert.equal(pay.body.payment.mock, false);
+    assert.match(String(pay.body.payment.redirectUrl), /^https:\/\/sandbox\.example\/pay\//);
+
+    // the provider was told where to call back and where to send the shopper
+    const initiate = stub.calls.find((call) => call.path === "/initiate");
+    assert.ok(initiate, "initiate must reach the provider");
+    assert.equal(initiate.body.amount, Number(pay.body.attempt.amount));
+    assert.equal(
+      initiate.body.callbackUrl,
+      `https://shop.example/api/commerce/payments/${attemptId}/callback`,
+    );
+    assert.equal(initiate.body.returnUrl, `https://shop.example/#/payment/${attemptId}`);
+    assert.equal(initiate.signature?.length, 64, "requests are HMAC-signed when a secret exists");
+
+    // 1. an unsigned callback is a claim, not a payment
+    const unsigned = await gatewayCallback(client, attemptId, { status: "settled" });
+    assert.equal(unsigned.status, 200, JSON.stringify(unsigned.body));
+    assert.equal(unsigned.body.status, "pending_verification");
+    assert.equal(stub.calls.filter((call) => call.path === "/verify").length, 0, "unsigned claims never reach verify");
+    assert.equal((await query("select count(*)::int as n from orders")).rows[0].n, 0);
+
+    // 2. a correctly signed callback makes the server ask the provider
+    const signed = await gatewayCallback(client, attemptId, {
+      status: "settled",
+      signature: gatewaySignature(attemptId, "settled"),
+    });
+    assert.equal(signed.status, 200, JSON.stringify(signed.body));
+    assert.equal(signed.body.status, "settled", JSON.stringify(signed.body));
+    assert.ok(signed.body.orderId);
+
+    // 3. the callback replayed settles once, with the same order
+    const replay = await gatewayCallback(client, attemptId, {
+      status: "settled",
+      signature: gatewaySignature(attemptId, "settled"),
+    });
+    assert.equal(replay.body.status, "settled");
+    assert.equal(replay.body.orderId, signed.body.orderId);
+    assert.equal((await query("select count(*)::int as n from orders")).rows[0].n, 1);
+
+    // 4. the shopper's return page reads the same truth
+    const status = await client.get(`/api/commerce/payments/${attemptId}`);
+    assert.equal(status.status, 200, JSON.stringify(status.body));
+    assert.equal(status.body.status, "settled");
+    assert.equal(status.body.order.id, signed.body.orderId);
+    assert.equal(status.body.mock, false);
+
+    const available = await client.get(`/api/commerce/config`);
+    assert.equal(available.body.providers.gateway, true);
+  } finally {
+    await stub.close();
+    await useGatewaySettings("mock");
+    await clearGatewayEnv();
+  }
+});
+
+test("a settled amount that does not match the order becomes an exception, not a sale", async () => {
+  const stub = await startGatewayStub();
+  stub.setMode("wrongAmount");
+  process.env.PAYMENT_GATEWAY_URL = stub.url;
+  process.env.PAYMENT_GATEWAY_SECRET = "gw-secret";
+  await useGatewaySettings("gateway");
+  try {
+    const client = makeClient();
+    const variantId = await setStock(SKU, 3);
+    const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
+    const pay = await client.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, { method: "online" });
+    const attemptId = pay.body.attempt.id as string;
+
+    const res = await gatewayCallback(client, attemptId, {
+      status: "settled",
+      signature: gatewaySignature(attemptId, "settled"),
+    });
+    assert.equal(res.body.status, "exception", JSON.stringify(res.body));
+    assert.equal((await query("select count(*)::int as n from orders")).rows[0].n, 0);
+    const row = await query("select status, last_error from payment_attempts where id = $1", [attemptId]);
+    assert.equal(row.rows[0].status, "exception");
+    assert.equal(row.rows[0].last_error, "amount_mismatch");
+  } finally {
+    await stub.close();
+    await useGatewaySettings("mock");
+    await clearGatewayEnv();
+  }
+});
+
+test("a provider we cannot reach parks the payment, and a later callback recovers it", async () => {
+  const stub = await startGatewayStub();
+  stub.setMode("down");
+  process.env.PAYMENT_GATEWAY_URL = stub.url;
+  process.env.PAYMENT_GATEWAY_SECRET = "gw-secret";
+  await useGatewaySettings("gateway");
+  try {
+    const client = makeClient();
+    const variantId = await setStock(SKU, 3);
+    const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
+    const pay = await client.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, { method: "online" });
+    const attemptId = pay.body.attempt.id as string;
+
+    const parked = await gatewayCallback(client, attemptId, {
+      status: "settled",
+      signature: gatewaySignature(attemptId, "settled"),
+    });
+    assert.equal(parked.body.status, "pending_verification", JSON.stringify(parked.body));
+    assert.equal((await query("select count(*)::int as n from orders")).rows[0].n, 0);
+
+    // the provider comes back; the same signed callback now settles
+    stub.setMode("settled");
+    const recovered = await gatewayCallback(client, attemptId, {
+      status: "settled",
+      signature: gatewaySignature(attemptId, "settled"),
+    });
+    assert.equal(recovered.body.status, "settled", JSON.stringify(recovered.body));
+    assert.ok(recovered.body.orderId);
+  } finally {
+    await stub.close();
+    await useGatewaySettings("mock");
+    await clearGatewayEnv();
+  }
+});
+
+test("the gateway claims no capability it was not given (refunds stay off by default)", async () => {
+  await clearGatewayEnv();
+  const { providerCapabilities } = await import("../src/commerce/payments");
+  const off = providerCapabilities("gateway");
+  assert.equal(off.refund, false);
+  assert.equal(off.bnpl4, false);
+  assert.equal(off.signedCallbacks, true);
+
+  process.env.PAYMENT_GATEWAY_REFUNDS = "1";
+  assert.equal(providerCapabilities("gateway").refund, true);
+  await clearGatewayEnv();
 });

@@ -573,6 +573,45 @@
   (نیاز به آپلود ویدیو در پنل)، نقشهٔ تعاملی (تصمیم دربارهٔ سرویس بیرونی)، و بقیهٔ فهرست.
   هر کدام با همین چارچوب یک تعریف تازه است و در سند همین‌جا اضافه می‌شود.
 
+### درگاه پرداخت واقعی — کد کامل، کلید با توست
+
+پرداخت تا امروز فقط با درگاه آزمایشی (`mock`) انجام می‌شد. آداپتور واقعی حالا کد است، ولی
+عمداً **بدون کلید روشن نمی‌شود**:
+
+- `server/src/commerce/gateway.ts` — Provider با شناسهٔ `gateway`، در همان قرارداد موجود
+  `initiate` / `verify` که درگاه آزمایشی هم دارد. دو فراخوان بیرونی:
+  - `POST <PAYMENT_GATEWAY_URL>/initiate` با `{reference, amount, currency, description, callbackUrl, returnUrl}`
+    → `{providerRef, redirectUrl?, instructions?}`
+  - `POST <PAYMENT_GATEWAY_URL>/verify` با `{reference, providerRef}`
+    → `{status: settled|pending|failed|cancelled, amount, providerRef}`
+- پنج قاعده که همین کد را از «ادعای پرداخت» جدا می‌کند:
+  1. Callback به‌تنهایی اثبات نیست؛ حتی با امضای درست، فقط `verify` سمت سرور اجرا می‌شود.
+  2. بدون امضای معتبر (وقتی `PAYMENT_GATEWAY_SECRET` هست) تراکنش `pending_verification` می‌ماند —
+     نه settled، نه failed.
+  3. مبلغ اعلامی درگاه باید تا ریال با مبلغ سفارش بخواند؛ وگرنه `exception` برای رسیدگی انسانی.
+  4. خطای شبکه/Timeout → `pending_verification`؛ هیچ نتیجه‌ای از خودمان نمی‌سازیم.
+  5. بدون `PAYMENT_GATEWAY_URL` این Provider انتخاب نمی‌شود: `503 provider_not_configured`،
+     و `/api/commerce/config` مقدار `providers = {mock: true, gateway: false}` می‌دهد. هیچ
+     برگشتِ خودکاری به mock وجود ندارد.
+- کال‌بک و بازگشت: درگاه به `PUBLIC_BASE_URL/api/commerce/payments/:id/callback` پست می‌کند و
+  خریدار به `PUBLIC_BASE_URL/#/payment/:attemptId` برمی‌گردد. صفحهٔ بازگشت
+  (`src/pages/PaymentReturnPage.tsx`) پارامترهای درگاه را به سرور می‌دهد و بعد **وضعیت واقعی**
+  را از `GET /api/commerce/payments/:id` می‌خواند: «تأیید شد»، «انجام نشد»، «در حال تأیید».
+  اگر درگاه هنوز قطعی نگفته، صفحه نمی‌گوید پرداخت شد و خریدار را به «سفارش‌های من» می‌فرستد.
+- پنل: در «تنظیمات تجارت» انتخاب درگاه شد سلکت، و گزینهٔ «درگاه واقعی» تا پیکربندی نشدن
+  **disabled** است با توضیح اینکه هر پرداخت با `provider_not_configured` متوقف می‌شود.
+- بازپرداخت: `capabilities.refund` فقط با `PAYMENT_GATEWAY_REFUNDS=1` روشن می‌شود؛ تا آن موقع
+  درخواست بازپرداخت `manual_review` می‌شود، نه ادعای بازپرداخت.
+- آزمون‌ها: **۵ آزمون تازه روی یک درگاه قلابی محلی** (`server/test/commerce.test.ts`): رد شدن
+  درگاه بدون کلید (و نبود سفارش)، تسویه فقط با `verify` و فقط یک‌بار، مبلغ ناهمخوان → `exception`،
+  قطعی درگاه → `pending_verification` و بازیابی با کال‌بک بعدی، و اینکه درگاه قابلیتی را که به آن
+  داده نشده ادعا نمی‌کند. جمع تست تجارت: **۴۶ از ۴۶**.
+- برای امتحان بدون درگاه واقعی: `node scripts/gateway-stub.mjs` یک درگاه قلابی روی `:4010` بالا
+  می‌آورد (صفحهٔ پرداخت، کال‌بک سرورساید، امضای HMAC) تا کل مسیر با چشم دیده شود.
+
+آنچه هنوز با توست: نشانی درگاه، توکن/کلید امضا و `PUBLIC_BASE_URL` واقعی. تا آن لحظه، این
+«آماده برای اتصال» است، نه «درگاه وصل شد».
+
 ### دستورهای بررسی (فاز ۹)
 
 | دستور | چه چیزی را می‌سنجد |
@@ -581,11 +620,11 @@
 | `npm run audit:mobile` | علت‌های مکانیکی خرابی روی گوشی (هدف لمسی، عرض ثابت، اعلان نامعتبر، `dvh`، `safe-area`) |
 | `npm run audit:widgets` | ساختار فهرست ویجت‌ها + بودنشان در بیلد |
 | `npm run audit:purge` | همان `TRUNCATE` پاک‌سازی را در تراکنشی اجرا و برمی‌گرداند |
-| `npm run test:commerce` / `npm run test:rbac` | ۴۱ و ۱۳ آزمون یکپارچه روی PostgreSQL واقعی |
+| `npm run test:commerce` / `npm run test:rbac` | ۴۶ و ۱۳ آزمون یکپارچه روی PostgreSQL واقعی |
 
 ### تست‌ها در پایان فاز ۹
 
-- `npm run test:commerce` → **۴۱ از ۴۱**، `npm run test:rbac` → **۱۳ از ۱۳**.
+- `npm run test:commerce` → **۴۶ از ۴۶**، `npm run test:rbac` → **۱۳ از ۱۳**.
 - دو شکست قدیمی (۶ و ۳۶) دیگر شکست نیستند، اما مهم است بدانی چرا: هیچ‌کدام باگ محصول نبود.
   - تست ۶ کد تخفیفی را امتحان می‌کرد که در پایگاه تست وجود نداشت و کمپین قبلی را با
     `on conflict ... do nothing` نادیده می‌گرفت. حالا خودش کد و کمپینش را می‌سازد/تازه می‌کند و

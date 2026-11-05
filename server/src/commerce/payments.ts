@@ -11,6 +11,7 @@ import { cashbackWallet, redeemCashback, round2 } from "./cashback";
 import { enqueue } from "./outbox";
 import { buildQuote, type Quote } from "./pricing";
 import { loadCommerceSettings, type CommerceSettings } from "./settings";
+import { gatewayConfigured, gatewayProvider } from "./gateway";
 
 /* =====================================================================
    Payments — a callback is never proof of payment.
@@ -136,17 +137,38 @@ export const mockBnplProvider: PaymentProvider = {
 const PROVIDERS: Record<string, PaymentProvider> = {
   mock: mockProvider,
   "mock-bnpl4": mockBnplProvider,
+  // the real gateway; refused unless PAYMENT_GATEWAY_URL is set (fail closed)
+  gateway: gatewayProvider,
 };
 
+/** capabilities never gate on configuration: a store must be able to read what
+    a provider can and cannot do without enabling it first */
 export function providerCapabilities(id: string): ProviderCapabilities {
-  return providerFor(id).capabilities;
+  const provider = PROVIDERS[id];
+  if (!provider) throw new CommerceError(`درگاه «${id}» پشتیبانی نمی‌شود.`, 400, "provider_unknown");
+  return provider.capabilities;
 }
 
 export function providerFor(id: string): PaymentProvider {
   const provider = PROVIDERS[id];
   if (!provider) throw new CommerceError(`درگاه «${id}» پشتیبانی نمی‌شود.`, 400, "provider_unknown");
+  if (id === "gateway" && !gatewayConfigured()) {
+    // selecting a gateway without configuring it must fail loudly, not silently
+    // fall back to the mock provider and take the order
+    throw new CommerceError(
+      "درگاه پرداخت واقعی پیکربندی نشده است؛ PAYMENT_GATEWAY_URL را تنظیم کن یا به درگاه آزمایشی برگرد.",
+      503,
+      "provider_not_configured",
+    );
+  }
   return provider;
 }
+
+/** which providers this build can actually offer right now */
+export const availableProviders = () => ({
+  mock: true,
+  gateway: gatewayConfigured(),
+});
 
 export function publicAttempt(row: PaymentAttemptRow) {
   return {
@@ -370,7 +392,7 @@ export async function startPayment(input: {
   const initiated = await provider.initiate(res.rows[0]);
   await query(
     `update payment_attempts set provider_ref = $2, raw = $3, updated_at = now() where id = $1`,
-    [attemptId, initiated.providerRef, JSON.stringify({ mock: true, instructions: initiated.instructions })],
+    [attemptId, initiated.providerRef, JSON.stringify({ provider: provider.id, instructions: initiated.instructions })],
   );
 
   return {
@@ -378,7 +400,8 @@ export async function startPayment(input: {
     payment: {
       redirectUrl: initiated.redirectUrl,
       instructions: initiated.instructions,
-      mock: settings.allowMockControls && !config.isProd,
+      // a real gateway is never "mock", even where the mock controls are on
+      mock: provider.id.startsWith("mock") && settings.allowMockControls && !config.isProd,
     },
     reused: false,
   };
@@ -587,6 +610,45 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
         : null,
     };
   });
+}
+
+/** the shopper's browser asks what happened after coming back from the gateway */
+export async function paymentStatus(
+  attemptId: string,
+  viewer?: { kind: "admin" | "customer"; subject: string } | null,
+  checkoutCookie?: string | null,
+) {
+  const attempt = await loadAttempt(attemptId);
+  const owner = await query<{ email: string | null; checkout_id: string }>(
+    `select c.customer_email as email, a.checkout_id from payment_attempts a
+       join checkout_sessions c on c.id = a.checkout_id
+      where a.id = $1`,
+    [attemptId],
+  );
+  const ownerEmail = owner.rows[0]?.email ?? null;
+  const checkoutId = owner.rows[0]?.checkout_id ?? null;
+  const isAdmin = viewer?.kind === "admin";
+  const ownsOrder = viewer?.kind === "customer" && ownerEmail !== null && viewer.subject === ownerEmail;
+  const ownsBrowser = Boolean(checkoutId && checkoutCookie && checkoutCookie === checkoutId);
+  if (!isAdmin && !ownsOrder && !ownsBrowser) {
+    throw new CommerceError("این تراکنش برای تو نیست.", 403, "payment_forbidden");
+  }
+
+  let order: { id: string; status: string; total: number } | null = null;
+  if (attempt.order_id) {
+    const res = await query<{ id: string; status: string; total: string | number }>(
+      "select id, status, total from orders where id = $1",
+      [attempt.order_id],
+    );
+    const row = res.rows[0];
+    if (row) order = { id: row.id, status: String(row.status), total: Number(row.total) };
+  }
+  return { ...publicAttempt(attempt), order, mock: attempt.provider.startsWith("mock") };
+}
+
+/** which provider owns an attempt (the callback route signs differently per provider) */
+export async function attemptProviderId(attemptId: string): Promise<string> {
+  return (await loadAttempt(attemptId)).provider;
 }
 
 /** provider callback (in a real gateway this payload is signed) */

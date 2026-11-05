@@ -38,6 +38,9 @@ import {
   publicAttempt,
   reconcileAttempt,
   simulatePayment,
+  paymentStatus,
+  attemptProviderId,
+  availableProviders,
   startPayment,
   type PaymentAttemptRow,
 } from "./payments";
@@ -100,6 +103,9 @@ export async function commerceRoutes(app: FastifyInstance) {
         thresholdBasis: settings.shippingThresholdBasis,
       },
       paymentProvider: settings.paymentProvider,
+      // what this build can actually offer; the gateway stays false until its
+      // URL is configured, so the storefront never promises it early
+      providers: availableProviders(),
       mockControls: settings.allowMockControls && !config.isProd,
       cashback: {
         enabled: settings.cashbackEnabled,
@@ -244,12 +250,24 @@ export async function commerceRoutes(app: FastifyInstance) {
     return simulatePayment(req.params.id, String(req.body?.result ?? "success"), session, cookie);
   });
 
+  app.get<{ Params: { id: string } }>("/api/commerce/payments/:id", async (req) => {
+    const session = await currentSession(req);
+    const cookie = req.cookies?.kv_checkout ?? null;
+    return paymentStatus(req.params.id, session, cookie);
+  });
+
   app.post<{ Params: { id: string }; Body: Record<string, unknown> }>(
     "/api/commerce/payments/:id/callback",
     async (req, reply) => {
       const settings = await loadCommerceSettings();
       const body = req.body ?? {};
-      if (settings.requireCallbackSignature) {
+      /* The generic HMAC below is the shared secret of the *simulated* flow, whose
+         payload shape we define. A real gateway signs with its own key over its own
+         fields; that signature is checked inside the provider's verify(), which then
+         asks the gateway itself. So the generic check is skipped for `gateway` — and
+         an unsigned claim there still cannot settle anything (it parks the attempt). */
+      const providerId = await attemptProviderId(req.params.id);
+      if (settings.requireCallbackSignature && providerId !== "gateway") {
         const signature = req.headers["x-provider-signature"];
         const ok = verifyCallbackSignature(
           settings.providerWebhookSecret,

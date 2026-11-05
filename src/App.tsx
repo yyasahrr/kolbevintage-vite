@@ -16,6 +16,7 @@ import { ArticlePage } from "@/pages/ArticlePage";
 import { AboutPage } from "@/pages/AboutPage";
 import { WishlistPage } from "@/pages/WishlistPage";
 import { CheckoutPage } from "@/pages/CheckoutPage";
+import { PaymentReturnPage } from "@/pages/PaymentReturnPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { adminUnlocked } from "@/state/admin";
@@ -132,6 +133,7 @@ function SiteRoutes() {
         <Route path="/account" element={<AccountPage />} />
         <Route path="/account/:tab" element={<AccountPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
+        <Route path="/payment/:attemptId" element={<PaymentReturnPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       {/* the report button belongs to the shop floor as much as to the panel (decision 96) */}

@@ -102,9 +102,15 @@ available = on_hand − quarantined − Σ(active reservations, expires_at > now
 - **Callback به‌تنهایی اثبات پرداخت نیست.** بک‌اند با `verify` سمت Provider
   تأیید می‌کند. پاسخ نامشخص (Timeout) سفارش را Paid نمی‌کند و در
   `pending_verification` می‌ماند تا `reconcile`.
-- Provider پیش‌فرض `mock` (و `mock-bnpl4`) است؛ همان قرارداد آداپتور برای
-  اتصال درگاه واقعی وجود دارد. کنترل‌های شبیه‌سازی فقط وقتی
-  `NODE_ENV !== production` است فعال‌اند.
+- Provider پیش‌فرض `mock` (و `mock-bnpl4`) است. آداپتور درگاه واقعی هم پیاده شده است
+  (`commerce/gateway.ts`، شناسهٔ `gateway`) و همان قرارداد `initiate`/`verify` را دارد:
+  - بدون `PAYMENT_GATEWAY_URL` انتخاب نمی‌شود: `503 provider_not_configured` و
+    `providers.gateway=false` در `/api/commerce/config` — هیچ برگشتی به mock نیست.
+  - کال‌بک حتی با امضای معتبر فقط `verify` سمت سرور را راه می‌اندازد؛ مبلغ اعلامی درگاه باید تا
+    ریال با سفارش بخواند وگرنه `exception`. خطای شبکه → `pending_verification`.
+  - `capabilities.refund` فقط با `PAYMENT_GATEWAY_REFUNDS=1` روشن است.
+  - صفحهٔ بازگشت خریدار: `#/payment/:attemptId` (وضعیت واقعی از `GET /api/commerce/payments/:id`).
+- کنترل‌های شبیه‌سازی فقط وقتی `NODE_ENV !== production` است فعال‌اند.
 - **قانون جدید BNPL (جایگزین OWN-05):** درگاه چهارقسطی در سطح **کل فروشگاه**
   فعال/غیرفعال می‌شود، نه در سطح دسته/محصول/واریانت. وقتی روشن است گزینه برای
   همهٔ محصولات و **کل سفارش** ارائه می‌شود؛ برچسب «اقساطی/غیراقساطی» قدیمی
