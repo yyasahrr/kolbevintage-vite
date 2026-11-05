@@ -1904,6 +1904,7 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
   const [price, setPrice] = useState(product?.price ?? 100);
   const [compareAt, setCompareAt] = useState(product?.compareAt ?? 0);
   // optional cost price; with it the panel can show a real margin (decision 38)
+  const [video, setVideo] = useState<string | undefined>(product ? getOps().productVideos?.[product.id] : undefined);
   const [cost, setCost] = useState(
     product ? (getAdmin().productEdits[product.id]?.cost ?? admin.customProducts.find((c) => c.id === product.id)?.cost ?? 0) : 0,
   );
@@ -2165,7 +2166,13 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
             <div className="ad-form-grid">
               <div className="ad-form-col">
                 <p className="ad-field-label">گالری تصاویر</p>
-                <ProductMediaEditor images={images} colors={colors} onChange={setImages} />
+                <ProductMediaEditor
+                  images={images}
+                  colors={colors}
+                  onChange={setImages}
+                  video={video}
+                  onVideo={(url) => setVideo(url)}
+                />
               </div>
               <div className="ad-form-col">
                 <p className="ad-field-label">پیش‌نمایش</p>

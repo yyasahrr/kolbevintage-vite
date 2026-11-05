@@ -220,6 +220,8 @@ export interface OpsState {
   homeSections: HomeSection[];
   /** productId → ordered gallery, each image with its own colour + role */
   productImages: ProductImageMap;
+  /** productId → one short video (decision 23: 12 photos plus a clip) */
+  productVideos: Record<string, string>;
   /** kept for backwards compatibility with older saved data */
   colorMedia: ColorMedia;
   hoverMedia: MediaMap;
@@ -348,6 +350,7 @@ const DEFAULT: OpsState = {
   sizeSets: SIZE_SETS,
   homeSections: defaultHomeSections(),
   productImages: {},
+  productVideos: {},
   colorMedia: {},
   hoverMedia: {},
   labels: [
@@ -570,6 +573,14 @@ export const sizesForGarment = (g: GarmentKind): string[] => {
 export const productImagesOf = (productId: string): ProductImage[] => cache.productImages[productId] ?? [];
 export const setProductImages = (productId: string, images: ProductImage[]) =>
   patchOps({ productImages: { ...cache.productImages, [productId]: images } });
+export const productVideoOf = (productId: string): string | undefined => cache.productVideos[productId];
+export const setProductVideo = (productId: string, url: string | undefined) => {
+  const next = { ...cache.productVideos };
+  if (url) next[productId] = url;
+  else delete next[productId];
+  return patchOps({ productVideos: next });
+};
+
 export const updateProductImage = (productId: string, imageId: string, p: Partial<ProductImage>) =>
   setProductImages(productId, productImagesOf(productId).map((i) => (i.id === imageId ? { ...i, ...p } : i)));
 export const removeProductImage = (productId: string, imageId: string) =>

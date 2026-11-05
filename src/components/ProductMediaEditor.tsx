@@ -16,6 +16,9 @@ interface Props {
   onChange: (images: ProductImage[]) => void;
   /** disabled while the product has no colours yet */
   emptyHint?: string;
+  /** one short clip per product (decision 23) */
+  video?: string;
+  onVideo?: (url: string | undefined) => void;
 }
 
 /**
@@ -25,8 +28,11 @@ interface Props {
  */
 const MAX_IMAGES = 12;
 
-export function ProductMediaEditor({ images, colors, onChange, emptyHint }: Props) {
+export function ProductMediaEditor({ images, colors, onChange, emptyHint, video, onVideo }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
+  const [videoBusy, setVideoBusy] = useState(false);
+  const [videoError, setVideoError] = useState("");
   const [busy, setBusy] = useState(false);
   const [limitHit, setLimitHit] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -124,6 +130,56 @@ export function ProductMediaEditor({ images, colors, onChange, emptyHint }: Prop
             : `${images.length.toLocaleString("fa-IR")} از ${MAX_IMAGES.toLocaleString("fa-IR")} تصویر`}
         </span>
       </div>
+
+      {onVideo && (
+        <div className="ad-video-row">
+          <div>
+            <p className="ad-field-label">ویدیوی کوتاه (اختیاری)</p>
+            <p className="ad-hint" style={{ marginTop: 0 }}>
+              یک کلیپ ۱۰–۳۰ ثانیه‌ای از همان قطعه؛ در صفحهٔ محصول زیر گالری پخش می‌شود. حداکثر ۲۰ مگابایت.
+            </p>
+          </div>
+          {video ? (
+            <div className="ad-video-preview">
+              <video src={video} controls preload="metadata" />
+              <button type="button" className="ad-btn is-sm is-danger" onClick={() => onVideo(undefined)}>
+                <Trash2 width={12} height={12} /> حذف ویدیو
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="ad-btn is-sm" disabled={videoBusy} onClick={() => videoRef.current?.click()}>
+              {videoBusy ? <Loader2 className="animate-spin" width={13} height={13} /> : <Upload width={13} height={13} />}
+              {videoBusy ? "در حال بارگذاری…" : "افزودن ویدیو"}
+            </button>
+          )}
+          <input
+            ref={videoRef}
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime"
+            hidden
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.currentTarget.value = "";
+              if (!file) return;
+              setVideoError("");
+              if (file.size > 20 * 1024 * 1024) {
+                setVideoError("حجم ویدیو بیشتر از ۲۰ مگابایت است؛ کلیپ کوتاه‌تری انتخاب کن.");
+                return;
+              }
+              setVideoBusy(true);
+              try {
+                const url = await uploadImage(file);
+                onVideo(url);
+              } catch {
+                setVideoError("بارگذاری ویدیو ناموفق بود.");
+              } finally {
+                setVideoBusy(false);
+              }
+            }}
+          />
+          {videoError && <p className="ad-hint is-warn">{videoError}</p>}
+        </div>
+      )}
 
       {images.length === 0 ? (
         <p className="ad-hint">هنوز تصویری اضافه نشده؛ تا وقتی عکس آپلود نکنی، برش عکس رانوی به‌عنوان تصویر محصول استفاده می‌شود.</p>

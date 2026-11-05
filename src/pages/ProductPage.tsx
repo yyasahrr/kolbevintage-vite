@@ -47,6 +47,7 @@ export function ProductPage() {
   const opsForGuide = useOps();
   const categoryGuide = product ? opsForGuide.sizeGuides[product.category] : undefined;
   const features = opsForGuide.features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
+  const video = product ? opsForGuide.productVideos?.[product.id] : undefined;
   const [tryonOpen, setTryonOpen] = useState(false);
   const priceRef = useRef<HTMLDivElement>(null);
   const [pastPrice, setPastPrice] = useState(false);
@@ -156,6 +157,19 @@ export function ProductPage() {
               دیدن روی رانوی
             </Link>
           </div>
+
+          {video && (
+            <figure className="mt-3">
+              <video
+                src={video}
+                controls
+                preload="metadata"
+                playsInline
+                className="w-full rounded-[var(--radius-lg)] border border-black/10 bg-black/5"
+              />
+              <figcaption className="mt-1.5 text-[10px] text-ink-45">ویدیوی کوتاه همین قطعه</figcaption>
+            </figure>
+          )}
 
           <p className="mt-3 hidden text-[10.5px] leading-relaxed text-ink-45 md:block">
             تصاویر از عکاسی رسمی رانوی پاییز / زمستان ۲۶ گرفته شده‌اند. رنگ واقعی ممکن است بسته به نمایشگر
