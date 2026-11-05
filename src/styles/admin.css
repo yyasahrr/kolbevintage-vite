@@ -3959,7 +3959,7 @@ textarea.ad-input {
   padding: 0 10px 6px;
   font-size: 9.5px;
   letter-spacing: 0.04em;
-  color: #8a8175;
+  color: var(--ad-muted);
 }
 .ad-nav-link {
   display: flex;
