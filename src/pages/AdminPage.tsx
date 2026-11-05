@@ -5026,22 +5026,57 @@ function Appearance() {
   return (
     <>
       <PageHead title="ظاهر سایت" sub="یک تصمیم سطح فروشگاه: تم انتخابی برای همهٔ بازدیدکنندگان اعمال می‌شود و مشتری کلید تغییر ظاهر ندارد." />
-      <div className="ad-themes">
-        {THEMES.map((t) => (
-          <button key={t.id} type="button" className={cn("ad-theme", theme.id === t.id && "is-on")} onClick={() => setTheme(t.id)} aria-pressed={theme.id === t.id}>
-            <span className="ad-theme-prev" style={{ background: t.tokens["--color-bone"], borderColor: t.tokens["--line"] }}>
-              <i style={{ background: t.tokens["--color-paper"], borderRadius: t.tokens["--radius-xl"], boxShadow: t.tokens["--card-shadow"] }}>
-                <b style={{ background: t.tokens["--color-ink"] }} />
-                <small style={{ background: t.tokens["--color-ink-45"] }} />
-                <em style={{ background: t.tokens["--color-ink"], borderRadius: t.tokens["--btn-radius"] }} />
-              </i>
-              <u style={{ background: t.tokens["--color-sand"], borderRadius: t.tokens["--radius-lg"] }} />
-            </span>
-            <b>{t.label}</b>
-            <small>{t.description}</small>
-          </button>
-        ))}
+      <div className="ad-appearance-note">
+        <b>{fa(THEMES.length)} سبک آماده است</b>
+        <span>
+          هر کارت یک سبک کامل است — رنگ، فونت، گوشه‌ها و سایه‌ها با هم عوض می‌شوند. سبک
+          انتخابی روی ویترین، صفحهٔ محصول، سبد خرید و استودیو اثر می‌گذارد.
+        </span>
       </div>
+      {THEMES.length === 0 ? (
+        <p className="ad-empty">
+          فهرست سبک‌ها خالی است. این یک ایراد نصب است، نه یک انتخاب: فایل <code dir="ltr">src/theme/themes.ts</code> را
+          بررسی کن.
+        </p>
+      ) : (
+        <div className="ad-themes">
+          {THEMES.map((t) => {
+            const on = theme.id === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                className={cn("ad-theme", on && "is-on")}
+                onClick={() => setTheme(t.id)}
+                aria-pressed={on}
+                aria-label={`سبک ${t.label}${on ? " — اعمال‌شده" : ""}`}
+              >
+                <span className="ad-theme-prev" style={{ background: t.tokens["--color-bone"], borderColor: t.tokens["--line"] }} aria-hidden="true">
+                  <i className="ad-theme-sheet" style={{ background: t.tokens["--color-paper"], borderRadius: t.tokens["--radius-xl"], boxShadow: t.tokens["--card-shadow"] }}>
+                    <span className="ad-theme-bar" style={{ background: t.tokens["--color-ink"] }} />
+                    <span className="ad-theme-line" style={{ background: t.tokens["--color-ink-45"] }} />
+                    <span className="ad-theme-line is-short" style={{ background: t.tokens["--color-ink-45"] }} />
+                    <span
+                      className="ad-theme-cta"
+                      style={{ background: t.tokens["--color-ember"] ?? t.tokens["--color-ink"], borderRadius: t.tokens["--btn-radius"] }}
+                    />
+                  </i>
+                  <u style={{ background: t.tokens["--color-sand"], borderRadius: t.tokens["--radius-lg"] }} />
+                </span>
+                <span className="ad-theme-name">
+                  <b>{t.label}</b>
+                  {on && <span className="ad-theme-now">اعمال‌شده</span>}
+                </span>
+                <small>{t.tagline} — {t.description}</small>
+                <span className="ad-theme-cats">
+                  <em>{t.category}</em>
+                  {t.badge && <em className="is-badge">{t.badge}</em>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="ad-grid-2">
         <SizeGuidePanel />
         <SeoPanel />
