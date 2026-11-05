@@ -3488,10 +3488,14 @@
   padding: 10px 12px;
   font-size: 10px;
   letter-spacing: 0.01em;
+}
+/* only a table that lives in its own scroll box gets a sticky head: on a long
+   page a page-sticky head would ride over the panel header instead */
+.ad-table-wrap:not(.no-sticky) .ad-table th {
   position: sticky;
   top: 0;
   z-index: 1;
-  backdrop-filter: blur(6px);
+  background: var(--ad-surface-2);
 }
 .ad-table td {
   padding: 11px 12px;
