@@ -16,6 +16,10 @@
     "start": "SERVE_STATIC=1 REQUIRE_ADMIN_AUTH=1 NODE_ENV=production tsx server/src/index.ts",
     "test:commerce": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/commerce.test.ts",
     "test": "npm run test:commerce && npm run test:rbac",
+    "audit:contrast": "node scripts/contrast-check.mjs",
+    "audit:mobile": "node scripts/mobile-audit.mjs",
+    "audit:purge": "node scripts/purge-dryrun.mjs",
+    "audit": "npm run audit:contrast && npm run audit:mobile",
     "test:rbac": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/rbac.test.ts",
     "restore": "node --import tsx scripts/restore-backup.mjs",
    "clear-demo": "node --import tsx scripts/clear-demo-data.mjs"
