@@ -4064,3 +4064,49 @@ textarea.ad-input {
   gap: 10px;
   flex-wrap: wrap;
 }
+
+/* ---------- 13. the product form lines up, column by column ----------
+   A two-up row inside a form column used to carry the field's own 12px bottom
+   margin *and* the row's gap, so every second row sat 12px lower than its
+   neighbour and the columns drifted apart as you scrolled. The row now owns the
+   distance; the field inside it owns none. */
+.ad-modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.ad-two,
+.ad-three {
+  margin-bottom: 12px;
+  gap: 0 12px;
+}
+.ad-two .ad-field,
+.ad-three .ad-field {
+  margin-bottom: 0;
+}
+.ad-form-col > .ad-two:last-child,
+.ad-form-col > .ad-three:last-child {
+  margin-bottom: 0;
+}
+.ad-form-col > .ad-hint {
+  margin-top: 2px;
+}
+.ad-form-grid > .ad-form-col > .ad-field-label:first-child {
+  min-height: 20px;
+}
+/* the preview column is a card, not a floating thumb */
+.ad-form-preview .ad-preview-thumb {
+  max-width: 240px;
+  margin: 0;
+}
+.ad-form-preview .ad-preview-thumb img,
+.ad-form-preview .ad-preview-thumb .w-full {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+@media (max-width: 899px) {
+  .ad-form-grid {
+    gap: 16px;
+  }
+}
