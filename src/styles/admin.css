@@ -4128,3 +4128,83 @@ textarea.ad-input {
     gap: 16px;
   }
 }
+
+/* =====================================================================
+   Craft pass, second layer (make-interfaces-feel-better checklist)
+   ---------------------------------------------------------------------
+   These are the rules that need no redesign: they tighten what is already
+   there. Each one is chosen because it fixes a real behaviour, not a mood.
+   ===================================================================== */
+
+/* 1. A 30px icon button is a 30px target. The visual box stays dense; the hit
+      area grows to 40px with a pseudo-element so touch and mouse both land. */
+.ad-icon {
+  position: relative;
+}
+.ad-icon::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: inherit;
+}
+
+/* 2. Numbers that change while you look at them must not reflow the row. */
+.ad-kpi b,
+.ad-stat b,
+.ad-report-kpi b,
+.ad-pill,
+.ad-chip-count,
+.ad-rank,
+.ad-total,
+.ad-order-total,
+.ad-cart-line b {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 3. Headlines break between words, not mid-phrase. */
+.ad-head h2,
+.ad-card-head h3,
+.ad-empty h3,
+.ad-modal-head h3 {
+  text-wrap: balance;
+}
+.ad-head p,
+.ad-hint,
+.ad-empty-tight,
+.ad-return-top b {
+  text-wrap: pretty;
+}
+
+/* 4. Arabic-script text renders heavier than Latin at the same weight on macOS;
+      antialiasing evens the two out without touching size or weight. */
+.ad-app {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 5. A product image on a light card needs an edge, or it floats. Pure black at
+      10% in light mode, pure white at 10% in dark — never a tinted neutral. */
+.ad-form-preview .ad-preview-thumb,
+.ad-gallery-card,
+.ad-preview-thumb {
+  outline: 1px solid rgba(0, 0, 0, 0.1);
+  outline-offset: -1px;
+}
+.ad-app[data-ad-theme="dark"] .ad-form-preview .ad-preview-thumb,
+.ad-app[data-ad-theme="dark"] .ad-gallery-card,
+.ad-app[data-ad-theme="dark"] .ad-preview-thumb {
+  outline-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 6. Concentric corners: an inner box inside a padded parent takes the parent's
+      radius minus the padding, otherwise the two arcs fight each other. */
+.ad-card .ad-table-wrap,
+.ad-card .ad-bulkbar,
+.ad-card .ad-toolbar {
+  border-radius: 10px;
+}
+
+/* 7. Thin dividers inside a dense table read as data, not as borders. */
+.ad-table td {
+  border-bottom-color: rgba(27, 24, 21, 0.055);
+}

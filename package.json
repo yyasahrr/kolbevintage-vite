@@ -26,7 +26,8 @@
     "clear-demo": "node --import tsx scripts/clear-demo-data.mjs",
     "lint:ui": "node scripts/ui-audit.mjs",
     "goldens": "node scripts/goldens-preflight.mjs && playwright test -c tests/visual/playwright.config.ts",
-    "goldens:update": "node scripts/goldens-preflight.mjs && playwright test -c tests/visual/playwright.config.ts --update-snapshots"
+    "goldens:update": "node scripts/goldens-preflight.mjs && playwright test -c tests/visual/playwright.config.ts --update-snapshots",
+    "skills:install": "node scripts/install-skills.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
