@@ -43,6 +43,9 @@ export function ProductPage() {
   const [colorId, setColorId] = useState(product?.colors[0]?.id ?? "");
   const [sizeId, setSizeId] = useState(product?.sizes[0]?.id ?? "");
   const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
+  // per-category measurements the owner maintains in the panel (decision 56)
+  const opsForGuide = useOps();
+  const categoryGuide = product ? opsForGuide.sizeGuides[product.category] : undefined;
   const [tryonOpen, setTryonOpen] = useState(false);
   const priceRef = useRef<HTMLDivElement>(null);
   const [pastPrice, setPastPrice] = useState(false);
@@ -288,6 +291,37 @@ export function ProductPage() {
                 );
               })}
             </div>
+
+            {categoryGuide && (
+              <details className="mt-3 rounded-lg border border-black/10 bg-white/60">
+                <summary className="cursor-pointer px-3 py-2 text-[11px] text-ink">
+                  جدول اندازهٔ {product.category} (سانتی‌متر)
+                </summary>
+                <div className="overflow-x-auto px-3 pb-3">
+                  <table className="w-full text-[10.5px]">
+                    <thead>
+                      <tr className="text-ink-45">
+                        <th className="py-1 text-start font-normal">سایز</th>
+                        <th className="py-1 text-start font-normal">دور سینه</th>
+                        <th className="py-1 text-start font-normal">دور کمر</th>
+                        <th className="py-1 text-start font-normal">دور باسن</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categoryGuide.rows.map((row) => (
+                        <tr key={row.size} className="border-t border-black/5">
+                          <td className="py-1 text-ink">{row.size}</td>
+                          <td className="py-1 text-ink-70" dir="ltr">{row.chest}</td>
+                          <td className="py-1 text-ink-70" dir="ltr">{row.waist}</td>
+                          <td className="py-1 text-ink-70" dir="ltr">{row.hips}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {categoryGuide.note && <p className="mt-2 text-[10px] leading-relaxed text-ink-45">{categoryGuide.note}</p>}
+                </div>
+              </details>
+            )}
 
             <p className="mt-2 text-[10.5px] leading-relaxed text-ink-45">
               مطمئن نیستی؟ <button type="button" className="underline underline-offset-4 hover:text-ink" onClick={() => setSizeGuideOpen(true)}>راهنمای سایز هوشمند</button> با قد، وزن و اندازه‌های بدنت سایز درست را پیدا می‌کند.

@@ -24,7 +24,18 @@ import { BuilderApp } from "@/builder/BuilderApp";
 import { CorePageSlot, PublishedPage, SiteShell } from "@/builder/SiteIntegration";
 
 function BrandMeta() {
-  const { brand } = useOps();
+  const { brand, seo } = useOps();
+  /* the owner's search title + description are the real document head (decision 64) */
+  useEffect(() => {
+    if (seo.title) document.title = seo.title;
+    let meta = document.querySelector("meta[name='description']") as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "description";
+      document.head.appendChild(meta);
+    }
+    if (seo.description) meta.content = seo.description;
+  }, [seo.title, seo.description]);
   useEffect(() => {
     const link = (document.querySelector("link[rel='icon']") as HTMLLinkElement | null) ?? (() => {
       const el = document.createElement("link");

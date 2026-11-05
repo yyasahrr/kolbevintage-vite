@@ -3106,3 +3106,21 @@
 .ad-review-reply p{ margin:4px 0 2px; font-size:12px; line-height:1.85 }
 .ad-review-reply small{ font-size:10px; opacity:.6 }
 .ad-stars.is-none{ font-size:10.5px; opacity:.55 }
+
+/* size guide editor cell + search preview (decisions 56, 64) */
+.ad-input.is-cell { min-width: 5.5rem; padding: 4px 6px; font-size: 11px; }
+.ad-select.is-compact { min-width: 9rem; font-size: 11px; }
+.ad-hint.is-warn { color: var(--color-ember, #b4552d); }
+.ad-seo-preview {
+  margin-block: 10px 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: #fff;
+  display: grid;
+  gap: 3px;
+}
+.ad-seo-preview .ad-seo-url { font-size: 10.5px; color: #3c7d4a; }
+.ad-seo-preview b { font-size: 12.5px; color: #1a3fb8; font-weight: 500; }
+.ad-seo-preview p { margin: 0; font-size: 11px; line-height: 1.8; color: #4b4b4b; }
+.ad-ticket-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 8px; margin-block-end: 10px; }

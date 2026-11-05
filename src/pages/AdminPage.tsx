@@ -49,6 +49,7 @@ import {
   CornerDownLeft,
   X,
   XCircle,
+  Ruler,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { weekdayName } from "@/utils/date";
@@ -64,7 +65,7 @@ import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
 import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
-import { logSmsCampaign, removeSmsTemplate, saveSmsTemplate } from "@/state/ops";
+import { logSmsCampaign, removeSmsTemplate, saveSmsTemplate, setSeo, setSizeGuide } from "@/state/ops";
 import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
@@ -3782,6 +3783,117 @@ function Content() {
   );
 }
 
+
+/* ------------------------------------------------------------------ */
+/* size guides, search preview and the 404 copy (decisions 56/64/66)  */
+/* ------------------------------------------------------------------ */
+
+function SizeGuidePanel() {
+  const ops = useOps();
+  const categories = [...new Set([...ops.categories.map((c) => c.name)])];
+  const [picked, setPicked] = useState(categories[0] ?? "");
+  const guide = ops.sizeGuides[picked] ?? { note: "", rows: [] };
+  const write = (rows: typeof guide.rows, note = guide.note) => setSizeGuide(picked, { rows, note });
+
+  if (!categories.length) return <Card title="جدول اندازه"><Empty text="اول یک دستهٔ محصول بساز." /></Card>;
+
+  return (
+    <Card title="جدول اندازهٔ هر دسته" icon={<Ruler width={14} height={14} />}>
+      <p className="ad-hint" style={{ marginTop: 0 }}>
+        همان جدولی که در صفحهٔ محصول همان دسته باز می‌شود؛ خالی بماند، جدولی هم نمایش داده نمی‌شود.
+      </p>
+      <label className="ad-field">
+        دسته
+        <select className="ad-select" value={picked} onChange={(e) => setPicked(e.target.value)}>
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </label>
+      <div className="ad-table-wrap">
+        <table className="ad-table">
+          <thead><tr><th>سایز</th><th>دور سینه</th><th>دور کمر</th><th>دور باسن</th><th /></tr></thead>
+          <tbody>
+            {guide.rows.map((row, i) => (
+              <tr key={i}>
+                {(["size", "chest", "waist", "hips"] as const).map((field) => (
+                  <td key={field}>
+                    <input
+                      className="ad-input is-cell"
+                      dir={field === "size" ? "ltr" : "ltr"}
+                      value={row[field]}
+                      aria-label={field}
+                      onChange={(e) =>
+                        write(guide.rows.map((r, j) => (j === i ? { ...r, [field]: e.target.value } : r)))
+                      }
+                    />
+                  </td>
+                ))}
+                <td>
+                  <button
+                    type="button"
+                    className="ad-icon"
+                    aria-label="حذف ردیف"
+                    onClick={() => write(guide.rows.filter((_, j) => j !== i))}
+                  >
+                    <Trash2 width={13} height={13} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="ad-actions">
+        <button type="button" className="ad-btn is-sm" onClick={() => write([...guide.rows, { size: "", chest: "", waist: "", hips: "" }])}>
+          <Plus width={13} height={13} /> ردیف تازه
+        </button>
+      </div>
+      <label className="ad-field">
+        یادداشت جدول
+        <input className="ad-input" value={guide.note} onChange={(e) => write(guide.rows, e.target.value)} placeholder="مثلاً: اندازه‌ها با خطای ±۱ سانتی‌متر" />
+      </label>
+    </Card>
+  );
+}
+
+function SeoPanel() {
+  const ops = useOps();
+  const seo = ops.seo;
+  // length hints follow what search engines actually cut off
+  const titleLen = seo.title.length;
+  const descLen = seo.description.length;
+  return (
+    <Card title="عنوان و توضیح در جست‌وجو" icon={<Search width={14} height={14} />}>
+      <label className="ad-field">
+        عنوان صفحهٔ اصلی ({fa(titleLen)} نویسه — تا ۶۰)
+        <input className="ad-input" value={seo.title} onChange={(e) => setSeo({ title: e.target.value })} aria-label="عنوان سئو" />
+      </label>
+      <label className="ad-field">
+        توضیح ({fa(descLen)} نویسه — تا ۱۶۰)
+        <textarea className="ad-input" rows={3} value={seo.description} onChange={(e) => setSeo({ description: e.target.value })} aria-label="توضیح سئو" />
+      </label>
+      {titleLen > 60 && <p className="ad-hint is-warn">عنوان بلندتر از ۶۰ نویسه در نتایج بریده می‌شود.</p>}
+      {descLen > 160 && <p className="ad-hint is-warn">توضیح بلندتر از ۱۶۰ نویسه بریده می‌شود.</p>}
+      {/* an honest preview: it is exactly what the fields say, nothing generated */}
+      <div className="ad-seo-preview" role="group" aria-label="پیش‌نمایش نتیجهٔ جست‌وجو">
+        <span className="ad-seo-url" dir="ltr">velours.ir</span>
+        <b>{seo.title || "بدون عنوان"}</b>
+        <p>{seo.description || "بدون توضیح"}</p>
+      </div>
+      <label className="ad-field">
+        عنوان صفحهٔ ۴۰۴
+        <input className="ad-input" value={seo.notFoundTitle} onChange={(e) => setSeo({ notFoundTitle: e.target.value })} aria-label="عنوان ۴۰۴" />
+      </label>
+      <label className="ad-field">
+        متن صفحهٔ ۴۰۴
+        <textarea className="ad-input" rows={2} value={seo.notFoundText} onChange={(e) => setSeo({ notFoundText: e.target.value })} aria-label="متن ۴۰۴" />
+      </label>
+      <a className="ad-btn is-sm" href="/this-page-does-not-exist" target="_blank" rel="noreferrer">
+        دیدن صفحهٔ ۴۰۴
+      </a>
+    </Card>
+  );
+}
+
 function Appearance() {
   const { theme, setTheme } = useTheme();
   return (
@@ -3802,6 +3914,10 @@ function Appearance() {
             <small>{t.description}</small>
           </button>
         ))}
+      </div>
+      <div className="ad-grid-2">
+        <SizeGuidePanel />
+        <SeoPanel />
       </div>
     </>
   );
