@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -40,7 +40,6 @@ import {
   Tags,
   Trash2,
   Truck,
-  TrendingUp,
   Users,
   Wifi,
   ShieldCheck as ShieldIcon,
@@ -64,6 +63,7 @@ import { ProductMediaEditor } from "@/components/ProductMediaEditor";
 import { adminLogin, adminLogout, ApiError } from "@/lib/api";
 import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
+import { useDialogFocus } from "@/hooks/useOverlay";
 import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
@@ -86,6 +86,7 @@ import { WidgetsPanel } from "@/pages/AdminWidgets";
 import { ChangelogPanel, IssueButton, IssueInbox, LaunchChecklist, ManualPanel, PurgePanel, SetupWizard } from "@/pages/AdminLaunch";
 import { can, permissionForScreen, firstAllowedScreen } from "@/admin/rbac";
 import "@/styles/admin.css";
+import "@/styles/admin-shell.css";
 import { Dashboard as OverviewDashboard } from "@/admin/Dashboard";
 
 /* =====================================================================
@@ -323,6 +324,14 @@ export function AdminPage() {
     if (current !== canonical) navigate(canonical, { replace: true });
   }, [tab, orderId, location.pathname, navigate]);
   const [navOpen, setNavOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
+  useDialogFocus(navOpen, navRef);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 900px)");
+    const closeOnDesktop = () => { if (media.matches) setNavOpen(false); };
+    media.addEventListener("change", closeOnDesktop);
+    return () => media.removeEventListener("change", closeOnDesktop);
+  }, []);
   const admin = useAdmin();
   const session = useAdminMe();
   const { permissions, offline } = session;
@@ -422,8 +431,6 @@ export function AdminPage() {
     ? tab
     : (groupIds.find((g) => GROUP_CHILDREN[g]!.includes(tab)) ?? null);
 
-  const currentGroup = group ? TABS.find((t) => t.id === group) ?? null : null;
-  const currentScreen = TABS.flatMap((t) => [t, ...(t.children ?? [])]).find((t) => t.id === tab) ?? null;
 
   const badges: Partial<Record<Tab, number>> = {
     orders: admin.orders.filter((o) => o.status === "pending").length,
@@ -435,85 +442,31 @@ export function AdminPage() {
   return (
     <div className="ad-app" data-ad-theme={adTheme}>
       <header className="ad-top">
-        <button type="button" className="ad-burger" aria-label="منوی پنل" aria-expanded={navOpen} onClick={() => setNavOpen((v) => !v)}>
-          <Layers width={17} height={17} />
+        <button type="button" className="ad-burger" aria-label="باز کردن منوی پنل" aria-controls="admin-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>
+          <Layers width={18} height={18} />
         </button>
-        <Link to="/" className="ad-top-id" aria-label="بازگشت به سایت">
-          <span className="ad-top-logo latin-track">KOLBE VINTAGE</span>
-          <span className="ad-top-badge">پنل مدیریت</span>
-        </Link>
-        <nav className="ad-crumb" aria-label="مسیر صفحه">
-          <span>پنل</span>
-          {currentGroup && currentGroup.id !== tab && (
-            <>
-              <i aria-hidden>/</i>
-              <span>{currentGroup.label}</span>
-            </>
-          )}
-          <i aria-hidden>/</i>
-          <strong>{currentScreen?.label ?? "داشبورد"}</strong>
-        </nav>
+        <span className="shell-mobile-brand">کلبه وینتیج</span>
+        <button type="button" className="ad-btn is-sm ad-cmd-trigger" onClick={() => setPaletteOpen(true)} aria-label="جست‌وجوی بخش‌های پنل (Ctrl+K)">
+          <Search width={16} height={16} /><span className="shell-search-label">جست‌وجوی بخش‌ها</span><kbd className="ad-kbd" dir="ltr">Ctrl K</kbd>
+        </button>
         <div className="ad-top-spacer" />
-        <button
-          type="button"
-          className="ad-nav-toggle"
-          aria-label={navCollapsed ? "باز کردن سایدبار" : "جمع کردن سایدبار"}
-          aria-pressed={navCollapsed}
-          title="جمع/باز کردن سایدبار"
-          onClick={() => setNavCollapsed((v) => !v)}
-        >
-          {navCollapsed ? <ChevronsLeft width={15} height={15} /> : <ChevronsRight width={15} height={15} />}
-        </button>
-        <button
-          type="button"
-          className="ad-btn is-sm ad-cmd-trigger"
-          onClick={() => setPaletteOpen(true)}
-          aria-label="جست‌وجوی سریع بخش‌ها (Ctrl+K)"
-        >
-          <Search width={14} height={14} />
-          <span className="ad-top-btn-label">جست‌وجو</span>
-          <kbd className="ad-kbd latin-track" dir="ltr">⌘K</kbd>
-        </button>
-        <button
-          type="button"
-          className="ad-btn is-sm"
-          onClick={() => setAdTheme(adTheme === "dark" ? "light" : "dark")}
-          aria-pressed={adTheme === "dark"}
-          aria-label={adTheme === "dark" ? "روشن کردن پنل" : "تیره کردن پنل"}
-          title={adTheme === "dark" ? "پنل روشن" : "پنل تیره"}
-        >
-          {adTheme === "dark" ? <Sun width={14} height={14} /> : <Moon width={14} height={14} />}
-        </button>
-        {session.me?.staff && (
-          <span className="ad-role-pill" title={`نقش: ${session.me.staff.roleName}`}>
-            <ShieldIcon width={12} height={12} />
-            {session.me.staff.name}
-            <em>{session.me.staff.roleName}</em>
-          </span>
-        )}
-        <span className="ad-top-stat">
-          <TrendingUp width={13} height={13} />
-          {fa(admin.orders.length)} سفارش
-        </span>
-        <OpsBell onGo={(next) => setTab(next)} />
         <SyncBadge />
-        <Link to="/builder" className="ad-btn is-sm is-primary" aria-label="صفحه‌ساز استودیو" title="استودیو صفحه‌ساز">
-          <LayoutTemplate width={14} height={14} />
-          <span className="ad-top-btn-label">استودیو</span>
-        </Link>
-        <Link to="/" className="ad-btn is-sm" aria-label="مشاهده سایت">
-          <Store width={14} height={14} />
-          <span className="ad-top-btn-label">سایت</span>
-        </Link>
-        <button type="button" className="ad-btn is-sm" onClick={() => { lockAdmin(); void adminLogout(); setUnlocked(false); }}>
-          <LogOut width={14} height={14} />
-          <span className="ad-top-btn-label">خروج</span>
+        <OpsBell onGo={(next) => setTab(next)} />
+        <button type="button" className="ad-btn is-sm" onClick={() => setAdTheme(adTheme === "dark" ? "light" : "dark")} aria-pressed={adTheme === "dark"} aria-label={adTheme === "dark" ? "روشن کردن پنل" : "تیره کردن پنل"} title={adTheme === "dark" ? "پنل روشن" : "پنل تیره"}>
+          {adTheme === "dark" ? <Sun width={16} height={16} /> : <Moon width={16} height={16} />}
         </button>
+        {session.me?.staff && <span className="ad-role-pill" title={`${session.me.staff.name} · ${session.me.staff.roleName}`}><ShieldIcon width={14} height={14} /> <span>{session.me.staff.name}</span></span>}
+        <button type="button" className="ad-btn is-sm" onClick={() => { lockAdmin(); void adminLogout(); setUnlocked(false); }} aria-label="خروج از پنل" title="خروج از پنل"><LogOut width={16} height={16} /></button>
       </header>
 
       <div className="ad-body">
-        <nav className={cn("ad-nav", navOpen && "is-open", navCollapsed && "is-collapsed")} aria-label="بخش‌های پنل">
+        <nav ref={navRef} id="admin-navigation" tabIndex={-1} className={cn("ad-nav", navOpen && "is-open", navCollapsed && "is-collapsed")} aria-label="بخش‌های پنل">
           <div className="ad-nav-inner">
+            <div className="shell-brand"><Link to="/" className="shell-brand-link" title="بازگشت به فروشگاه"><span className="shell-brand-mark">K</span><span className="shell-brand-text"><b>کلبه وینتیج</b><small>پنل مدیریت فروشگاه</small></span></Link>
+              <button type="button" className="ad-nav-toggle" aria-label={navCollapsed ? "باز کردن سایدبار" : "جمع کردن سایدبار"} aria-pressed={navCollapsed} onClick={() => setNavCollapsed(v => !v)}>{navCollapsed ? <ChevronsLeft width={16} height={16} /> : <ChevronsRight width={16} height={16} />}</button>
+              <button type="button" className="shell-nav-close" aria-label="بستن منوی پنل" onClick={() => setNavOpen(false)}><X width={18} height={18} /></button>
+            </div>
+            <span className="shell-nav-caption">منوی اصلی</span>
             {!session.ready && !offline && (
               <p className="ad-nav-loading" aria-busy="true">در حال خواندن سطح دسترسی…</p>
             )}
@@ -528,7 +481,8 @@ export function AdminPage() {
                   key={t.id}
                   type="button"
                   className={cn("ad-nav-item", isOn && "is-on")}
-                  onClick={() => { setTab(kids ? kids[0] : t.id); setNavOpen(false); }}
+                  title={t.label} aria-label={t.label} aria-current={isOn ? "page" : undefined}
+                  onClick={() => { setTab(t.children?.[0]?.id ?? t.id); setNavOpen(false); }}
                 >
                   <t.icon width={15} height={15} />
                   <span>{t.label}</span>
@@ -542,15 +496,15 @@ export function AdminPage() {
               <span className="ad-nav-studio-head">
                 <Sparkles width={12} height={12} /> استودیو
               </span>
-              <Link to="/builder" className="ad-nav-link" onClick={() => setNavOpen(false)}>
+              <Link to="/builder" className="ad-nav-link" title="صفحه‌ساز و لندینگ" onClick={() => setNavOpen(false)}>
                 <LayoutTemplate width={15} height={15} />
                 <span>صفحه‌ساز و لندینگ</span>
               </Link>
-              <Link to="/style-builder" className="ad-nav-link" onClick={() => setNavOpen(false)}>
+              <Link to="/style-builder" className="ad-nav-link" title="استایل‌بیلدر" onClick={() => setNavOpen(false)}>
                 <Palette width={15} height={15} />
                 <span>استایل‌بیلدر</span>
               </Link>
-              <Link to="/" className="ad-nav-link" onClick={() => setNavOpen(false)}>
+              <Link to="/" className="ad-nav-link" title="دیدن فروشگاه" onClick={() => setNavOpen(false)}>
                 <Store width={15} height={15} />
                 <span>دیدن فروشگاه</span>
               </Link>

@@ -1,0 +1,54 @@
+/* Shared shell: the existing admin theme remains the source of colours. */
+.ad-app { --shell-header-height: 64px; }
+.ad-top { min-width: 0; min-height: var(--shell-header-height); padding: 8px 20px; gap: 8px; background: var(--ad-surface); color: var(--ad-ink); border-color: var(--ad-line); }
+.ad-top .ad-btn, .ad-burger, .ad-nav-toggle, .shell-nav-close { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 8px; border: 1px solid var(--ad-line); border-radius: 10px; background: var(--ad-surface); color: var(--ad-muted-2); cursor: pointer; }
+.ad-top .ad-btn:hover, .ad-burger:hover, .ad-nav-toggle:hover, .shell-nav-close:hover { background: var(--ad-surface-2); color: var(--ad-brand); }
+.ad-top .ad-cmd-trigger { justify-content: flex-start; gap: 10px; width: min(320px, 35vw); padding-inline: 12px; background: var(--ad-surface-2); color: var(--ad-muted-2); }
+.ad-top .ad-kbd { margin-inline-start: auto; border-color: var(--ad-line); background: var(--ad-surface); color: var(--ad-muted); }
+.shell-search-label { font-size: 12px; white-space: nowrap; }
+.shell-mobile-brand { display: none; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.ad-role-pill { max-width: 160px; color: var(--ad-ink); background: var(--ad-surface-2); }
+.ad-role-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ad-nav-inner { padding: 16px 12px; }
+.shell-brand { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 0 20px; }
+.shell-brand-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; color: var(--ad-ink); text-decoration: none; }
+.shell-brand-mark { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 10px; background: var(--ad-brand); color: var(--ad-surface); font-weight: 700; }
+.shell-brand-text { min-width: 0; display: grid; font-size: 13px; line-height: 1.6; }
+.shell-brand-text small { color: var(--ad-muted); font-size: 10px; white-space: nowrap; }
+.shell-nav-caption { padding: 4px 12px; color: var(--ad-muted); font-size: 10px; }
+.shell-nav-close { display: none; }
+.ad-nav-item { min-height: 44px; }
+.ad-nav-studio-head { letter-spacing: 0; }
+.ad-top .ad-bell-count { color: var(--ad-surface); }
+.ad-top button:focus-visible, .ad-nav button:focus-visible, .ad-nav a:focus-visible { outline: 2px solid var(--ad-brand); outline-offset: 2px; }
+@media (min-width: 900px) {
+  .ad-burger { display: none; }
+  .ad-app { display: grid; grid-template-columns: 224px minmax(0, 1fr); grid-template-rows: var(--shell-header-height) minmax(0, 1fr); }
+  .ad-app:has(.ad-nav.is-collapsed) { grid-template-columns: 72px minmax(0, 1fr); }
+  .ad-body { display: contents; }
+  .ad-top { grid-column: 2; grid-row: 1; }
+  .ad-nav, .ad-nav.is-collapsed { grid-column: 1; grid-row: 1 / 3; width: auto; min-width: 0; }
+  .ad-main { grid-column: 2; grid-row: 2; min-height: 0; }
+  .ad-nav.is-collapsed .ad-nav-inner { padding: 16px 8px; }
+  .ad-nav.is-collapsed .shell-brand { flex-direction: column; }
+  .ad-nav.is-collapsed .shell-brand-text, .ad-nav.is-collapsed .shell-nav-caption, .ad-nav.is-collapsed .ad-nav-studio-head, .ad-nav.is-collapsed .ad-nav-link span { display: none; }
+  .ad-nav.is-collapsed .ad-nav-link { justify-content: center; }
+  .ad-nav-toggle { display: inline-flex; }
+}
+@media (max-width: 899px) {
+  .ad-top { padding-inline: 12px; }
+  .ad-nav.is-open { inset-block: 0; z-index: var(--ad-z-popover); }
+  .ad-nav-scrim { inset-block-start: 0; z-index: var(--ad-z-scrim); }
+  .shell-nav-close { display: inline-flex; }
+  .ad-nav-toggle { display: none; }
+  .ad-role-pill { display: none; }
+}
+@media (max-width: 559px) {
+  .ad-top { gap: 4px; padding-inline: 8px; }
+  .ad-top .ad-cmd-trigger { width: 44px; flex: none; justify-content: center; padding: 8px; }
+  .shell-search-label, .ad-top .ad-kbd { display: none; }
+  .shell-mobile-brand { display: inline; }
+  .ad-top .ad-sync { flex: none; }
+}
+
+@media (max-width: 399px) { .shell-mobile-brand { display: none; } }

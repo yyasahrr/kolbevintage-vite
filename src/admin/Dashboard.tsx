@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, ArrowLeft, BarChart3, Clock3, ShoppingBag, WalletCards } from "lucide-react";
+import { Activity, ArrowLeft, BarChart3, Clock3, Package, WalletCards } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatJalaliShort } from "@/utils/date";
 import "./dashboard.css";
@@ -44,20 +44,20 @@ export function Dashboard({ onOrders }: { onOrders: () => void }) {
     {state.kind === "error" && <div className="dash-state" role="alert"><strong>{state.denied ? "دسترسی به اطلاعات سفارش ندارید" : "دریافت اطلاعات ناموفق بود"}</strong><p>{state.denied ? "برای مشاهده این گزارش، مجوز مشاهده داشبورد و سفارش‌ها لازم است." : "اتصال به سرور را بررسی و دوباره تلاش کنید."}</p>{!state.denied && <button className="ad-btn is-primary" onClick={() => setAttempt(n => n + 1)}>تلاش دوباره</button>}</div>}
     {state.kind === "ready" && <>
       <div className="dash-metrics">
-        <Metric icon={ShoppingBag} label="سفارش‌های ثبت‌شده" value={fa(state.data.counts.total)} detail="همه وضعیت‌ها در بازه انتخابی" />
-        <Metric icon={WalletCards} label="سفارش با پرداخت تسویه‌شده" value={fa(state.data.counts.settled)} detail="بر اساس وضعیت پرداخت سفارش" />
-        <Metric icon={Clock3} label="نیازمند پیگیری" value={fa(state.data.counts.attention)} detail="سفارش‌های باز و استثنایی در این بازه" />
         <Metric icon={BarChart3} label="فروش خالص" value="در دسترس نیست" detail="در انتظار تعریف و تطبیق مالی" />
+        <Metric icon={WalletCards} label="سفارش‌های پرداخت‌شده" value={fa(state.data.counts.settled)} detail="پرداخت تسویه‌شده در بازه انتخابی" />
+        <Metric icon={Clock3} label="در انتظار آماده‌سازی" value="در دسترس نیست" detail="تفکیک دقیق آماده‌سازی در این گزارش فراهم نیست" />
+        <Metric icon={Package} label="هشدار کم‌موجودی" value="در دسترس نیست" detail="منبع قابل اتکای هشدار در این گزارش فراهم نیست" />
       </div>
-      <div className="dash-grid">
-        <Panel title="روند فروش" detail="گزارش مالی"><div className="dash-placeholder"><span className="dash-placeholder-icon"><BarChart3 size={25} /></span><strong>داده مالی قابل اتکا در دسترس نیست</strong><p>نمودار فروش پس از تأیید تعریف فروش خالص و تطبیق پرداخت و بازپرداخت فعال می‌شود.</p></div></Panel>
-        <Panel title="وضعیت سفارش‌ها" detail="توزیع سفارش‌های ثبت‌شده در بازه انتخابی">{state.data.statuses.length === 0 ? <div className="dash-empty">در این بازه سفارشی ثبت نشده است.</div> : <div className="dash-status-list">{state.data.statuses.map((row, i) => <div key={`${row.status}-${i}`} className="dash-status"><div><span>{statusLabel(row.status)}</span><b>{fa(row.count)}</b></div><span className="dash-track"><span style={{ width: `${row.count / state.data.counts.total * 100}%` }} /></span></div>)}</div>}</Panel>
-      </div>
-      <div className="dash-grid dash-grid-bottom">
-        <Panel title="صف پیگیری" detail="فقط سفارش‌های ثبت‌شده در بازه انتخابی"><div className="dash-queue"><span className="dash-queue-icon"><Activity size={20} /></span><div><strong>{fa(state.data.counts.attention)} سفارش نیازمند پیگیری</strong><p>پرداخت در انتظار، آماده‌سازی یا وضعیت استثنایی</p></div><button className="dash-link" onClick={onOrders}>مشاهده سفارش‌ها <ArrowLeft size={15} /></button></div></Panel>
-        <Panel title="محصولات پرفروش" detail="تعداد اقلام سفارش‌های تسویه‌شده؛ پیش از کسر مرجوعی">{state.data.products.length === 0 ? <div className="dash-empty">قلم واجد شرایطی در داده‌های این بازه یافت نشد.</div> : <ol className="dash-products">{state.data.products.map((p, i) => <li key={p.product_id}><span className="dash-rank">{fa(i + 1)}</span><span className="dash-product-name">{p.name}</span><strong>{fa(p.quantity)} عدد</strong></li>)}</ol>}</Panel>
+      <div className="dash-grid dash-primary-grid">
+        <Panel title="روند فروش" detail="گزارش مالی در بازه انتخابی"><div className="dash-placeholder"><span className="dash-placeholder-icon"><BarChart3 size={20} /></span><div><strong>نمودار فروش هنوز در دسترس نیست</strong><p>پس از تأیید تعریف فروش خالص و تطبیق پرداخت‌ها و بازپرداخت‌ها نمایش داده می‌شود.</p></div></div></Panel>
+        <Panel title="صف پیگیری" detail="فقط سفارش‌های ثبت‌شده در بازه انتخابی"><div className="dash-queue"><span className="dash-queue-icon"><Activity size={18} /></span><div><strong>{fa(state.data.counts.attention)} سفارش نیازمند پیگیری</strong><p>سفارش‌های باز یا استثنایی، نه کل صف عملیات</p></div><button className="dash-link" onClick={onOrders}>مشاهده سفارش‌ها <ArrowLeft size={15} /></button></div></Panel>
       </div>
       <Panel title="سفارش‌های اخیر" detail="۱۰ سفارش آخر در بازه انتخابی"><div className="dash-table-wrap"><table className="dash-table"><thead><tr><th>شماره سفارش</th><th><button className="dash-sort" onClick={() => setAscending(v => !v)} aria-label={`مرتب‌سازی تاریخ؛ ترتیب فعلی ${ascending ? "صعودی" : "نزولی"}`}>تاریخ {ascending ? "↑" : "↓"}</button></th><th>وضعیت سفارش</th><th>پرداخت</th></tr></thead><tbody>{state.data.recent.length === 0 ? <tr><td colSpan={4}>سفارشی در این بازه وجود ندارد.</td></tr> : [...state.data.recent].sort((a,b) => (Date.parse(a.created_at) - Date.parse(b.created_at)) * (ascending ? 1 : -1)).map(o => <tr key={o.id}><td><bdi dir="ltr">{o.id}</bdi></td><td>{formatJalaliShort(o.created_at)}</td><td><span className="dash-badge">{statusLabel(o.status)}</span></td><td>{o.payment_status === "settled" ? "تسویه‌شده" : o.payment_status === "unpaid" ? "پرداخت‌نشده" : "نامشخص"}</td></tr>)}</tbody></table></div><div className="dash-table-foot"><button className="dash-link" onClick={onOrders}>همه سفارش‌ها <ArrowLeft size={15} /></button></div></Panel>
+      <div className="dash-grid dash-summary-grid">
+        <Panel title="محصولات پرفروش" detail="تعداد اقلام تسویه‌شده؛ پیش از کسر مرجوعی">{state.data.products.length === 0 ? <div className="dash-empty">قلم واجد شرایطی در داده‌های این بازه یافت نشد.</div> : <ol className="dash-products">{state.data.products.map((p, i) => <li key={p.product_id}><span className="dash-rank">{fa(i + 1)}</span><span className="dash-product-name" title={p.name}>{p.name}</span><strong>{fa(p.quantity)} عدد</strong></li>)}</ol>}</Panel>
+        <Panel title="خلاصه سفارش‌ها" detail="همه سفارش‌های ثبت‌شده در بازه انتخابی"><div className="dash-summary-total"><span>کل سفارش‌ها</span><strong>{fa(state.data.counts.total)}</strong></div>{state.data.statuses.length === 0 ? <div className="dash-empty">در این بازه سفارشی ثبت نشده است.</div> : <div className="dash-status-list">{state.data.statuses.map((row, i) => <div key={`${row.status}-${i}`} className="dash-status"><div><span>{statusLabel(row.status)}</span><b>{fa(row.count)}</b></div><span className="dash-track"><span style={{ width: `${state.data.counts.total ? row.count / state.data.counts.total * 100 : 0}%` }} /></span></div>)}</div>}</Panel>
+      </div>
     </>}
   </div>;
 }
