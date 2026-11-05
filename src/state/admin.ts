@@ -22,6 +22,12 @@ export interface StoreSettings {
   returnDays: number;
   passcode: string;
   maintenance: boolean;
+  /**
+   * a shop-floor announcement, deliberately separate from maintenance
+   * (decision 63): maintenance is "we are closed", a notice is "here is
+   * something you should know" and it shows while everything still works.
+   */
+  notice: { on: boolean; text: string; href: string; tone: "info" | "warn" };
   /** store-wide "low stock" line; 0/undefined = the built-in default (decision 32) */
   lowStockThreshold?: number;
 }
@@ -310,6 +316,7 @@ const DEFAULT_ADMIN: AdminState = {
     returnDays: 14,
     passcode: "1234",
     maintenance: false,
+    notice: { on: false, text: "", href: "", tone: "info" },
   },
   orders: [],
   coupons: [

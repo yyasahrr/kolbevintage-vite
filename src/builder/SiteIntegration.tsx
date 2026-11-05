@@ -7,6 +7,7 @@ import type { BDoc } from "./core";
 import { activeTemplate, corePageDoc, routeKind, useDocs } from "./docs";
 import { LiveDoc } from "./Renderer";
 import { Header } from "@/components/Header";
+import { ShopNotice } from "@/components/ShopNotice";
 import { SiteFooter } from "@/components/SiteFooter";
 import { CartDrawer } from "@/components/CartDrawer";
 import { Toasts } from "@/components/Toasts";
@@ -51,6 +52,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
         رفتن به محتوای اصلی
       </a>
       {header ? <LiveDoc doc={header} className="eb-site-header" /> : <Header />}
+      <ShopNotice />
       <main id="main" className="flex-1">
         {children}
       </main>

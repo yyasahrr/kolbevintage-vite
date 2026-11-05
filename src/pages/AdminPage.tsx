@@ -4233,6 +4233,55 @@ function StoreSettings({ onBack }: { onBack: () => void }) {
             <label className="ad-field">ایمیل<input className="ad-input" dir="ltr" value={draft.email} onChange={(e) => setD({ ...draft, email: e.target.value })} /></label>
           </div>
         </Card>
+
+        <Card title="اطلاعیهٔ بالای سایت" icon={<Megaphone width={14} height={14} />}>
+          <p className="ad-hint" style={{ marginTop: 0 }}>
+            جدا از حالت تعمیرات: تعمیرات یعنی «فروشگاه بسته است»، اطلاعیه یعنی «این را بدان» و
+            فروشگاه باز می‌ماند. متن همان‌طور که می‌نویسی بالای همهٔ صفحه‌ها می‌آید.
+          </p>
+          <label className="ad-check">
+            <input
+              type="checkbox"
+              checked={draft.notice?.on ?? false}
+              onChange={(e) => setD({ ...draft, notice: { ...(draft.notice ?? { text: "", href: "", tone: "info" as const }), on: e.target.checked } })}
+            />
+            اطلاعیه نمایش داده شود
+          </label>
+          <label className="ad-field">
+            متن اطلاعیه
+            <input
+              className="ad-input"
+              value={draft.notice?.text ?? ""}
+              maxLength={160}
+              onChange={(e) => setD({ ...draft, notice: { ...(draft.notice ?? { on: false, href: "", tone: "info" as const }), text: e.target.value } })}
+              placeholder="ارسال‌های این هفته با پست پیشتاز، دو روز دیرتر می‌رسد."
+            />
+            <small className="ad-hint">{fa((draft.notice?.text ?? "").length)} از ۱۶۰ نویسه</small>
+          </label>
+          <div className="ad-two">
+            <label className="ad-field">
+              لینک (اختیاری)
+              <input
+                className="ad-input"
+                dir="ltr"
+                value={draft.notice?.href ?? ""}
+                onChange={(e) => setD({ ...draft, notice: { ...(draft.notice ?? { on: false, text: "", tone: "info" as const }), href: e.target.value } })}
+                placeholder="/products"
+              />
+            </label>
+            <label className="ad-field">
+              رنگ
+              <select
+                className="ad-select"
+                value={draft.notice?.tone ?? "info"}
+                onChange={(e) => setD({ ...draft, notice: { ...(draft.notice ?? { on: false, text: "", href: "" }), tone: e.target.value as "info" | "warn" } })}
+              >
+                <option value="info">آرام (اطلاع‌رسانی)</option>
+                <option value="warn">هشدار (تأخیر، تعطیلی)</option>
+              </select>
+            </label>
+          </div>
+        </Card>
         <Card title="ارسال و پرداخت" icon={<Truck width={14} height={14} />}>
           <div className="ad-two">
             <label className="ad-field">آستانهٔ ارسال رایگان (واحد پایه)
