@@ -379,7 +379,7 @@ export function AdminPage() {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
-      if (e.key === "Escape") setPaletteOpen(false);
+      if (e.key === "Escape") { setPaletteOpen(false); setNavOpen(false); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -443,7 +443,7 @@ export function AdminPage() {
           <Layers width={17} height={17} />
         </button>
         <Link to="/" className="ad-top-id" aria-label="بازگشت به سایت">
-          <span className="ad-top-logo latin-track">VELOURS</span>
+          <span className="ad-top-logo latin-track">KOLBE VINTAGE</span>
           <span className="ad-top-badge">پنل مدیریت</span>
         </Link>
         <nav className="ad-crumb" aria-label="مسیر صفحه">
@@ -1039,8 +1039,6 @@ function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
         }
       />
 
-      <WorkQueue onGo={onGo} />
-
       <div className="ad-kpis">
         {kpis.map((k) => (
           <button key={k.label} type="button" className="ad-kpi" onClick={() => onGo(k.to)}>
@@ -1051,6 +1049,8 @@ function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
           </button>
         ))}
       </div>
+
+      <WorkQueue onGo={onGo} />
 
       <div className="ad-grid-2">
         <Card title="مبلغ سفارش‌های هفت روز اخیر (همه وضعیت‌ها)" icon={<BarChart3 width={14} height={14} />}>
