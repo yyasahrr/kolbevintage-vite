@@ -34,13 +34,16 @@ export function ProductsPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   useEscape(filtersOpen, () => setFiltersOpen(false));
   useScrollLock(filtersOpen);
-  const { categories } = useOps();
+  const ops = useOps();
+  const { categories } = ops;
 
   const collection = COLLECTIONS.find((c) => c.id === params.get("collection"))?.id ?? "all";
   const category = params.get("category") ?? "";
   const size = params.get("size") ?? "";
   const color = params.get("color") ?? "";
-  const sortParam = params.get("sort") ?? "featured";
+  // the owner's per-category default applies until the shopper picks a sort (decision 27)
+  const ownerSort = category ? ops.categorySort?.[category] : undefined;
+  const sortParam = params.get("sort") ?? ownerSort ?? "featured";
   const sort = (VALID_SORTS.has(sortParam) ? sortParam : "featured") as SortKey;
   const query = params.get("q") ?? "";
 

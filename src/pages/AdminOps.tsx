@@ -52,6 +52,7 @@ import {
   removeSmsTemplate,
   removeTryonPackage,
   saveCategory,
+  setCategorySort,
   saveLabel,
   saveMegaMenu,
   saveSizeSet,
@@ -290,6 +291,20 @@ export function CategoriesPanel() {
                   {c.garments.length.toLocaleString("fa-IR")} نوع قطعه · سایز: {ops.sizeSets.find((s) => s.id === c.sizeSetId)?.name ?? "—"}
                 </small>
                 <small className="ad-reset">{c.garments.join(" · ") || "بدون نوع"}</small>
+                <label className="ad-field" style={{ marginTop: 6 }}>
+                  ترتیب پیش‌فرض محصولات این دسته
+                  <select
+                    className="ad-select is-compact"
+                    value={ops.categorySort?.[c.name] ?? "featured"}
+                    onChange={(e) => setCategorySort(c.name, e.target.value as "featured" | "newest" | "price-asc" | "price-desc")}
+                  >
+                    <option value="featured">پیشنهاد ولور</option>
+                    <option value="newest">جدیدترین</option>
+                    <option value="price-asc">ارزان‌ترین</option>
+                    <option value="price-desc">گران‌ترین</option>
+                  </select>
+                  <small className="ad-hint">تا وقتی مشتری خودش مرتب‌سازی را عوض نکند، همین ترتیب می‌ماند.</small>
+                </label>
               </div>
               <div className="ad-product-actions">
                 <button type="button" className={cn("ad-icon", c.active && "is-on")} title="فعال/غیرفعال" aria-pressed={c.active} onClick={() => saveCategory({ ...c, active: !c.active })}>

@@ -236,6 +236,11 @@ export interface OpsState {
    * not greyed out.
    */
   features: { tryon: boolean; reviews: boolean; journal: boolean; wishlist: boolean };
+  /**
+   * default product order per category, chosen by the owner (decision 27);
+   * a shopper picking a sort still wins for that visit.
+   */
+  categorySort: Record<string, "featured" | "newest" | "price-asc" | "price-desc">;
   /** journal articles the owner rewrote in the block editor, by slug (decision 68) */
   journalBlocks: Record<string, import("@/data/journal").ArticleBlock[]>;
   /** first-run wizard: five steps, resumable, and it disappears once finished (decision 93) */
@@ -364,6 +369,7 @@ const DEFAULT: OpsState = {
   ],
   sizeGuides: {},
   features: { tryon: true, reviews: true, journal: true, wishlist: true },
+  categorySort: {},
   journalBlocks: {},
   setup: { done: false, step: 0 },
   launchChecks: {},
@@ -614,6 +620,9 @@ export const setTicketAssignee = (id: string, assignee: string) =>
 
 export const setSizeGuide = (categoryId: string, guide: OpsState["sizeGuides"][string]) =>
   patchOps({ sizeGuides: { ...cache.sizeGuides, [categoryId]: guide } });
+
+export const setCategorySort = (category: string, sort: OpsState["categorySort"][string]) =>
+  patchOps({ categorySort: { ...cache.categorySort, [category]: sort } });
 
 export const setJournalBlocks = (slug: string, blocks: import("@/data/journal").ArticleBlock[]) =>
   patchOps({ journalBlocks: { ...cache.journalBlocks, [slug]: blocks } });
