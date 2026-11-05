@@ -63,10 +63,16 @@ import {
   setLookImage,
   setReturnStatus,
   setTicketStatus,
+  setTicketDept,
+  setTicketPriority,
+  setTicketAssignee,
+  saveReplyTemplate,
+  removeReplyTemplate,
   addTicketMessage,
   unblockIp,
   useOps,
   type CategoryDef,
+  type Ticket,
   type CustomerLabel,
   type MegaMenuDef,
   type SizeSet,
@@ -1006,6 +1012,21 @@ export function TicketsPanel() {
   const [reply, setReply] = useState("");
   const [filter, setFilter] = useState("all");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  /** names a ticket can be assigned to; read from the staff list when the role allows it */
+  const [names, setNames] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const { api } = await import("@/lib/api");
+        const res = await api.get<{ staff: { name: string; active: boolean }[] }>("/api/admin/staff");
+        if (alive) setNames(res.staff.filter((s) => s.active).map((s) => s.name));
+      } catch {
+        // a role without staff:manage simply gets a free-form assignee field
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
   const togglePick = (id: string) => setPicked((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const list = ops.tickets.filter((t) => filter === "all" || t.status === filter);
 
@@ -1044,9 +1065,50 @@ export function TicketsPanel() {
                   {t.status === "open" ? "باز" : t.status === "pending" ? "منتظر پاسخ" : "بسته"}
                 </span>
                 <span className={cn("ad-pill", t.priority === "high" ? "is-cancelled" : "")}>{t.priority === "high" ? "فوری" : t.priority === "normal" ? "عادی" : "کم"}</span>
+                {t.assignee && <span className="ad-hint">{t.assignee}</span>}
               </button>
               {open === t.id && (
                 <div className="ad-ticket-body">
+                  <div className="ad-ticket-meta">
+                    <label className="ad-field">
+                      دستهٔ موضوعی
+                      <select
+                        className="ad-select"
+                        value={t.dept}
+                        onChange={(e) => setTicketDept(t.id, e.target.value as Ticket["dept"])}
+                      >
+                        <option value="order">سفارش</option>
+                        <option value="size">سایز</option>
+                        <option value="return">مرجوعی</option>
+                        <option value="other">سایر</option>
+                      </select>
+                    </label>
+                    <label className="ad-field">
+                      اولویت
+                      <select
+                        className="ad-select"
+                        value={t.priority}
+                        onChange={(e) => setTicketPriority(t.id, e.target.value as Ticket["priority"])}
+                      >
+                        <option value="low">کم</option>
+                        <option value="normal">عادی</option>
+                        <option value="high">فوری</option>
+                      </select>
+                    </label>
+                    <label className="ad-field">
+                      مسئول
+                      <select
+                        className="ad-select"
+                        value={t.assignee ?? ""}
+                        onChange={(e) => setTicketAssignee(t.id, e.target.value)}
+                      >
+                        <option value="">بدون تخصیص</option>
+                        {names.map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                   <ul>
                     {t.messages.map((m) => (
                       <li key={m.id} className={m.from === "staff" ? "is-staff" : "is-customer"}>
@@ -1055,6 +1117,20 @@ export function TicketsPanel() {
                       </li>
                     ))}
                   </ul>
+                  <div className="ad-filters" style={{ marginBlockEnd: 6 }}>
+                    <span className="ad-hint">قالب پاسخ:</span>
+                    {ops.replyTemplates.map((tpl) => (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        className="ad-chip"
+                        title={tpl.body}
+                        onClick={() => setReply((current) => (current ? `${current}\n${tpl.body}` : tpl.body))}
+                      >
+                        {tpl.name}
+                      </button>
+                    ))}
+                  </div>
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -1116,6 +1192,37 @@ export function ReturnsPanel() {
           </table>
         </div>
       )}
+
+      <Panel title="قالب‌های پاسخ">
+        <p className="ad-hint" style={{ marginTop: 0 }}>
+          متن‌های آماده‌ای که با یک کلیک در کادر پاسخ می‌نشینند؛ بعد از درج می‌توانی ویرایششان کنی.
+        </p>
+        {ops.replyTemplates.map((tpl) => (
+          <div key={tpl.id} className="ad-field">
+            <input
+              className="ad-input"
+              value={tpl.name}
+              aria-label="نام قالب"
+              onChange={(e) => saveReplyTemplate({ ...tpl, name: e.target.value })}
+            />
+            <textarea
+              className="ad-input"
+              rows={2}
+              value={tpl.body}
+              aria-label={`متن قالب ${tpl.name}`}
+              onChange={(e) => saveReplyTemplate({ ...tpl, body: e.target.value })}
+            />
+            <button type="button" className="ad-btn is-sm is-danger" onClick={() => removeReplyTemplate(tpl.id)}>حذف قالب</button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="ad-btn is-sm"
+          onClick={() => saveReplyTemplate({ id: `rt-${Math.random().toString(36).slice(2, 8)}`, name: "قالب تازه", body: "" })}
+        >
+          <Plus width={13} height={13} /> قالب تازه
+        </button>
+      </Panel>
     </>
   );
 }

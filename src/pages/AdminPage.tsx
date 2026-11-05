@@ -64,6 +64,7 @@ import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
 import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
+import { logSmsCampaign, removeSmsTemplate, saveSmsTemplate } from "@/state/ops";
 import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
@@ -539,7 +540,7 @@ export function AdminPage() {
                     </div>
                   ),
                 },
-                { id: "messages", label: "پیامک", node: <Messages /> },
+                { id: "messages", label: "پیامک", node: <SmsScreen /> },
                 { id: "tickets", label: "تیکت‌ها", node: <TicketsPanel /> },
                 { id: "reviews", label: "نظرات", node: <Reviews /> },
               ]}
@@ -1033,6 +1034,7 @@ function Reports() {
 
 function OrderPage({ orderId }: { orderId: string }) {
   const admin = useAdmin();
+  const ops = useOps();
   const navigate = useNavigate();
   const session = useAdminMe();
   const order = admin.orders.find((o) => o.id === orderId);
@@ -1120,8 +1122,18 @@ function OrderPage({ orderId }: { orderId: string }) {
             <p className="latin-track" dir="ltr">{order.phone}</p>
             <p className="latin-track" dir="ltr">{order.email}</p>
             <p>{order.address}</p>
-            <a className="ad-btn is-sm" href={`sms:${order.phone}?body=${encodeURIComponent(`سلام ${order.customer}، دربارهٔ سفارش ${order.id}…`)}`}>
-              <Send width={13} height={13} /> پیام به مشتری
+            <a
+              className="ad-btn is-sm"
+              href={`sms:${order.phone}?body=${encodeURIComponent(
+                // the text comes from the owner's template in the SMS screen, filled with this order's real status
+                fillTemplate(
+                  ops.smsTemplates.find((t) => t.id === ORDER_STATUS_SMS_ID)?.body ??
+                    "{{name}} عزیز، وضعیت سفارش {{order}} به «{{status}}» تغییر کرد. ولور",
+                  { name: order.customer, order: order.id, status: ORDER_STATUS_LABEL[order.status] ?? order.status },
+                ),
+              )}`}
+            >
+              <Send width={13} height={13} /> پیام وضعیت
             </a>
           </div>
 
@@ -2282,6 +2294,22 @@ function Customers() {
   const admin = useAdmin();
   const [openEmail, setOpenEmail] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  /* decision 45: filter by who they are *and* by what they bought */
+  const [city, setCity] = useState("");
+  const [tag, setTag] = useState("");
+  const [spend, setSpend] = useState<"any" | "one" | "repeat" | "high">("any");
+  const [campaign, setCampaign] = useState("");
+
+  // "high value" is the top half of the book, not a made-up number
+  const avgValue = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const o of admin.orders) {
+      const key = o.email || o.customer;
+      totals.set(key, (totals.get(key) ?? 0) + o.total);
+    }
+    const list = [...totals.values()].sort((a, b) => b - a);
+    return list.length ? list[Math.floor(list.length / 2)] : 0;
+  }, [admin.orders]);
 
   const rows = useMemo<CustomerRow[]>(() => {
     const map = new Map<string, CustomerRow>();
@@ -2297,9 +2325,17 @@ function Customers() {
     }
     let list = [...map.values()].sort((a, b) => b.total - a.total);
     const s = q.trim();
-    if (s) list = list.filter((r) => `${r.name} ${r.email} ${r.city}`.includes(s));
+    if (s) list = list.filter((r) => `${r.name} ${r.email} ${r.city} ${r.phone}`.includes(s));
+    if (city) list = list.filter((r) => r.city === city);
+    if (campaign) list = list.filter((r) => r.campaigns.includes(campaign));
+    if (tag) {
+      list = list.filter((r) => (admin.customers[r.email || r.name]?.tags ?? []).includes(tag));
+    }
+    if (spend === "one") list = list.filter((r) => r.orders === 1);
+    if (spend === "repeat") list = list.filter((r) => r.orders > 1);
+    if (spend === "high") list = list.filter((r) => r.total >= avgValue);
     return list;
-  }, [admin.orders, q]);
+  }, [admin.orders, q, city, tag, spend, campaign, admin.customers, avgValue]);
 
   const avgOrder = admin.orders.length ? Math.round(admin.orders.reduce((n, o) => n + o.total, 0) / admin.orders.length) : 0;
   const segments = [
@@ -2354,6 +2390,33 @@ function Customers() {
         ))}
       </div>
       <input className="ad-input ad-input-inline" value={q} onChange={(e) => setQ(e.target.value)} placeholder="جست‌وجوی مشتری…" aria-label="جست‌وجوی مشتری" />
+      <div className="ad-filters">
+        <select className="ad-select is-compact" value={city} onChange={(e) => setCity(e.target.value)} aria-label="شهر">
+          <option value="">همهٔ شهرها</option>
+          {[...new Set(admin.orders.map((o) => o.city).filter(Boolean))].map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select className="ad-select is-compact" value={tag} onChange={(e) => setTag(e.target.value)} aria-label="برچسب">
+          <option value="">همهٔ برچسب‌ها</option>
+          {Object.values(admin.customers).flatMap((c) => c.tags ?? []) .filter((t, i, all) => all.indexOf(t) === i)
+            .map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="ad-select is-compact" value={campaign} onChange={(e) => setCampaign(e.target.value)} aria-label="کمپین">
+          <option value="">همهٔ کمپین‌ها</option>
+          {[...new Set(admin.orders.map((o) => o.campaign).filter(Boolean))].map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select className="ad-select is-compact" value={spend} onChange={(e) => setSpend(e.target.value as typeof spend)} aria-label="سابقهٔ خرید">
+          <option value="any">همهٔ خریدها</option>
+          <option value="one">فقط یک‌بار خرید</option>
+          <option value="repeat">خرید تکرارشده</option>
+          <option value="high">بالای میانهٔ ارزش ({formatPrice(avgValue)})</option>
+        </select>
+        {(city || tag || campaign || spend !== "any" || q) && (
+          <button type="button" className="ad-btn is-sm" onClick={() => { setCity(""); setTag(""); setCampaign(""); setSpend("any"); setQ(""); }}>
+            پاک کردن فیلترها
+          </button>
+        )}
+        <span className="ad-hint">{fa(rows.length)} مشتری با این فیلتر</span>
+      </div>
       {rows.length === 0 ? (
         <Empty text="هنوز مشتری‌ای ثبت نشده. اولین سفارش را از صفحهٔ تسویه حساب بساز." />
       ) : (
@@ -3019,6 +3082,262 @@ function CodeModal({ initial, onClose }: { initial: Coupon; onClose: () => void 
    messages / reviews
    ===================================================================== */
 
+
+/* =====================================================================
+   SMS (decisions 46 + 72)
+
+   The shop has no SMS provider wired to the server, so this screen never
+   claims a send. It writes the template, fills it per order/customer and hands
+   the finished text to the phone's SMS app (sms: link) or the clipboard, and
+   records what was prepared. When a provider is connected the same template
+   feeds the server-side sender — that part is not pretending to exist today.
+   ===================================================================== */
+
+const ORDER_STATUS_SMS_ID = "order-status";
+
+const SMS_STATUS_LABEL: Record<OrderStatus, string> = {
+  pending: "در انتظار پرداخت",
+  processing: "در حال آماده‌سازی",
+  shipped: "ارسال شد",
+  done: "تحویل شد",
+  cancelled: "لغو شد",
+  exception: "در حال بررسی مالی",
+};
+
+function fillTemplate(body: string, values: Record<string, string>) {
+  return body.replace(/{{\s*(\w+)\s*}}/g, (_match, key: string) => values[key] ?? "");
+}
+
+function SmsPanel() {
+  const admin = useAdmin();
+  const ops = useOps();
+  const [tab, setTab] = useState<"templates" | "single" | "bulk">("templates");
+  const [orderId, setOrderId] = useState(admin.orders[0]?.id ?? "");
+  const [audience, setAudience] = useState<"all" | string>("all");
+  const [bulkBody, setBulkBody] = useState("");
+  const [bulkName, setBulkName] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [prepared, setPrepared] = useState<{ id: string; name: string; body: string; audience: string; recipients: number } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const statusTemplate =
+    ops.smsTemplates.find((t) => t.id === ORDER_STATUS_SMS_ID)?.body ??
+    "{{name}} عزیز، وضعیت سفارش {{order}} به «{{status}}» تغییر کرد. ولور";
+
+  const order = admin.orders.find((o) => o.id === orderId) ?? admin.orders[0];
+  const orderText = order
+    ? fillTemplate(statusTemplate, {
+        name: order.customer,
+        order: order.id,
+        status: SMS_STATUS_LABEL[order.status] ?? order.status,
+      })
+    : "";
+
+  const taggedCustomers = [...new Set(admin.orders.map((o) => o.email))];
+  const audienceList = audience === "all" ? taggedCustomers : taggedCustomers.filter((email) => admin.customers[email]?.tags?.includes(audience));
+  const bulkText = fillTemplate(bulkBody, { name: "مشتری", store: admin.settings.name });
+
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  const prepareBulk = () => {
+    if (!bulkText.trim() || !audienceList.length || !confirmed) return;
+    const campaign = {
+      id: `sms-${uid()}`,
+      at: Date.now(),
+      name: bulkName.trim() || "پیام گروهی",
+      body: bulkText,
+      audience: audience === "all" ? "همهٔ مشتریان" : audience,
+      recipients: audienceList.length,
+      sent: 0,
+      status: "prepared" as const,
+    };
+    logSmsCampaign(campaign);
+    setPrepared({ id: campaign.id, name: campaign.name, body: campaign.body, audience: campaign.audience, recipients: campaign.recipients });
+    setConfirmed(false);
+    setBulkName("");
+  };
+
+  return (
+    <>
+      <PageHead
+        title="پیامک"
+        sub="متن آماده می‌شود و با اپ پیامک گوشی یا کپی/پیست فرستاده می‌شود؛ تا وقتی درگاه پیامک به سرور وصل نشود، هیچ ارسالی از سرور انجام نمی‌شود و پنل هم ادعایش نمی‌کند."
+      />
+      <div className="ad-filters">
+        {([["templates", "متن‌های آماده"], ["single", "پیام یک سفارش"], ["bulk", "پیام گروهی"]] as const).map(([id, label]) => (
+          <button key={id} type="button" className={cn("ad-chip", tab === id && "is-on")} onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </div>
+
+      {tab === "templates" && (
+        <>
+          <Card title="متن وضعیت سفارش" icon={<Send width={14} height={14} />}>
+            <label className="ad-field">
+              متن پیام (متغیرها: <code dir="ltr">{"{{name}} {{order}} {{status}}"}</code>)
+              <textarea
+                className="ad-input"
+                rows={4}
+                value={statusTemplate}
+                onChange={(e) =>
+                  saveSmsTemplate({ id: ORDER_STATUS_SMS_ID, name: "وضعیت سفارش", body: e.target.value })
+                }
+                aria-label="متن پیام وضعیت سفارش"
+              />
+              <small className="ad-hint">
+                همین متن در صفحهٔ هر سفارش با نام مشتری و وضعیت واقعی پر می‌شود؛ چیزی از خودش نمی‌سازد.
+              </small>
+            </label>
+          </Card>
+          <Card title="متن‌های آمادهٔ دیگر" icon={<ClipboardList width={14} height={14} />}>
+            {ops.smsTemplates.filter((t) => t.id !== ORDER_STATUS_SMS_ID).map((t) => (
+              <div key={t.id} className="ad-field">
+                <input className="ad-input" value={t.name} aria-label="نام متن" onChange={(e) => saveSmsTemplate({ ...t, name: e.target.value })} />
+                <textarea
+                  className="ad-input"
+                  rows={2}
+                  value={t.body}
+                  aria-label={`متن ${t.name}`}
+                  onChange={(e) => saveSmsTemplate({ ...t, body: e.target.value })}
+                />
+                <button type="button" className="ad-btn is-sm is-danger" onClick={() => removeSmsTemplate(t.id)}>حذف</button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="ad-btn is-sm"
+              onClick={() => saveSmsTemplate({ id: `sms-${uid()}`, name: "متن تازه", body: "" })}
+            >
+              <Plus width={13} height={13} /> متن تازه
+            </button>
+          </Card>
+        </>
+      )}
+
+      {tab === "single" && (
+        <Card title="پیام برای یک سفارش" icon={<Send width={14} height={14} />}>
+          {admin.orders.length === 0 ? (
+            <Empty text="سفارشی نیست." />
+          ) : (
+            <>
+              <label className="ad-field">
+                سفارش
+                <select className="ad-select" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
+                  {admin.orders.map((o) => (
+                    <option key={o.id} value={o.id}>{o.id} — {o.customer} ({ORDER_STATUS_LABEL[o.status]})</option>
+                  ))}
+                </select>
+              </label>
+              <p className="ad-field-label">متن آماده</p>
+              <p className="ad-note-text">{orderText}</p>
+              <div className="ad-actions">
+                <a className="ad-btn is-sm is-primary" href={`sms:${order?.phone ?? ""}?body=${encodeURIComponent(orderText)}`}>
+                  <Send width={13} height={13} /> باز کردن اپ پیامک
+                </a>
+                <button type="button" className="ad-btn is-sm" onClick={() => void copy(orderText)}>
+                  {copied ? "کپی شد" : "کپی متن"}
+                </button>
+                {order?.tracking && <span className="ad-hint">کد رهگیری: <b dir="ltr">{order.tracking}</b></span>}
+              </div>
+            </>
+          )}
+        </Card>
+      )}
+
+      {tab === "bulk" && (
+        <Card title="پیام گروهی" icon={<Users width={14} height={14} />}>
+          <div className="ad-two">
+            <label className="ad-field">
+              نام این ارسال
+              <input className="ad-input" value={bulkName} onChange={(e) => setBulkName(e.target.value)} placeholder="اطلاع جشنوارهٔ پاییز" />
+            </label>
+            <label className="ad-field">
+              مخاطبان
+              <select className="ad-select" value={audience} onChange={(e) => setAudience(e.target.value)}>
+                <option value="all">همهٔ مشتریان با سفارش</option>
+                {ops.labels.map((label) => (
+                  <option key={label.id} value={label.id}>برچسب: {label.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="ad-field">
+            متن پیام
+            <textarea
+              className="ad-input"
+              rows={4}
+              value={bulkBody}
+              onChange={(e) => setBulkBody(e.target.value)}
+              placeholder="مشتری عزیز، جشنوارهٔ پاییز شروع شد…"
+            />
+          </label>
+          <p className="ad-hint">
+            {fa(audienceList.length)} گیرندهٔ واجد شرایط. ارسال گروهی فقط با تأیید صریح ثبت می‌شود.
+          </p>
+          <label className="ad-check">
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            تأیید می‌کنم این متن برای {fa(audienceList.length)} نفر آماده شود
+          </label>
+          <div className="ad-actions">
+            <button
+              type="button"
+              className="ad-btn is-primary"
+              disabled={!confirmed || !bulkText.trim() || !audienceList.length}
+              onClick={prepareBulk}
+            >
+              <Send width={13} height={13} /> آماده‌سازی و ثبت
+            </button>
+          </div>
+          {prepared && (
+            <div className="ad-note-add">
+              <p className="ad-note-text">{prepared.body}</p>
+              <div className="ad-actions">
+                <button type="button" className="ad-btn is-sm" onClick={() => void copy(prepared.body)}>
+                  {copied ? "کپی شد" : "کپی متن برای اپ پیامک"}
+                </button>
+                <span className="ad-hint">
+                  برای {fa(prepared.recipients)} نفر آماده شد. تا اتصال درگاه پیامک، ارسال دستی از گوشی انجام می‌شود.
+                </span>
+              </div>
+            </div>
+          )}
+          <p className="ad-hint">
+            تاریخچهٔ آماده‌سازی‌ها پایین همین صفحه است؛ تعداد «ارسال‌شده» تا وقتی درگاه تأیید نکند صفر می‌ماند.
+          </p>
+        </Card>
+      )}
+
+      {ops.smsCampaigns.length > 0 && (
+        <Card title="تاریخچهٔ پیام‌های آماده‌شده">
+          <div className="ad-table-wrap">
+            <table className="ad-table">
+              <thead><tr><th>زمان</th><th>نام</th><th>مخاطب</th><th>گیرنده</th><th>وضعیت</th></tr></thead>
+              <tbody>
+                {ops.smsCampaigns.map((c) => (
+                  <tr key={c.id}>
+                    <td>{timeAgo(c.at)}</td>
+                    <td>{c.name}</td>
+                    <td>{c.audience}</td>
+                    <td className="ad-num">{fa(c.recipients)}</td>
+                    <td>{c.status === "sent" ? `ارسال‌شده (${fa(c.sent)})` : "آماده — ارسال دستی"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </>
+  );
+}
+
 function Messages() {
   const submissions = useSubmissions();
   const [open, setOpen] = useState<string | null>(null);
@@ -3078,6 +3397,19 @@ function Messages() {
           </table>
         </div>
       )}
+    </>
+  );
+}
+
+function SmsScreen() {
+  const [tab, setTab] = useState<"sms" | "forms">("sms");
+  return (
+    <>
+      <div className="ad-filters">
+        <button type="button" className={cn("ad-chip", tab === "sms" && "is-on")} onClick={() => setTab("sms")}>پیامک</button>
+        <button type="button" className={cn("ad-chip", tab === "forms" && "is-on")} onClick={() => setTab("forms")}>پیام‌های فرم‌ها</button>
+      </div>
+      {tab === "sms" ? <SmsPanel /> : <Messages />}
     </>
   );
 }

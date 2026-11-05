@@ -87,7 +87,16 @@ export interface SmsCampaign {
   body: string;
   audience: string;
   recipients: number;
+  /** 0 until a real provider confirms delivery — the panel never claims a send */
   sent: number;
+  /** "prepared" = text is ready and handed to the phone's SMS app */
+  status?: "prepared" | "sent";
+}
+
+export interface ReplyTemplate {
+  id: string;
+  name: string;
+  body: string;
 }
 
 export interface CashbackTxn {
@@ -135,6 +144,8 @@ export interface Ticket {
   status: "open" | "pending" | "closed";
   priority: "low" | "normal" | "high";
   messages: TicketMsg[];
+  /** who inside the shop owns this ticket (decision 47) */
+  assignee?: string;
 }
 
 export interface ReturnReq {
@@ -204,6 +215,12 @@ export interface OpsState {
   labels: CustomerLabel[];
   smsTemplates: SmsTemplate[];
   smsCampaigns: SmsCampaign[];
+  /** canned answers the support desk can drop into a reply (decision 29) */
+  replyTemplates: ReplyTemplate[];
+  /** per-category size guide the product page shows (decision 56) */
+  sizeGuides: Record<string, { note: string; rows: { size: string; chest: string; waist: string; hips: string }[] }>;
+  /** search preview + the editable 404 copy (decisions 64 + 66) */
+  seo: { title: string; description: string; notFoundTitle: string; notFoundText: string };
   cashbackRate: number;
   cashbackTxns: CashbackTxn[];
   tryonPackages: TryOnPackage[];
@@ -313,6 +330,18 @@ const DEFAULT: OpsState = {
     { id: "s3", name: "جشنواره", body: "{{name}} عزیز، جشنوارهٔ پاییزه شروع شد — ۱۵٪ روی خرید بالای ۱۵۰ تومان." },
   ],
   smsCampaigns: [],
+  replyTemplates: [
+    { id: "rt1", name: "اطلاع ارسال", body: "سفارش شما بسته‌بندی شد و تا ۴۸ ساعت آینده به پست تحویل می‌شود. کد رهگیری پس از ثبت، پیامک می‌شود." },
+    { id: "rt2", name: "راهنمای سایز", body: "برای انتخاب دقیق سایز، جدول اندازهٔ همین محصول را در صفحهٔ محصول ببینید؛ اگر بین دو سایز بودید، سایز بزرگ‌تر راحت‌تر است." },
+    { id: "rt3", name: "پیگیری مرجوعی", body: "درخواست مرجوعی شما ثبت شد. پس از دریافت بسته و کنترل کیفیت، طی ۷۲ ساعت کاری تعیین وضعیت می‌شود." },
+  ],
+  sizeGuides: {},
+  seo: {
+    title: "ولور | پوشاک آمادهٔ زنانه — تهران",
+    description: "پالتو، بافت و کیف چرم دست‌دوز؛ ساخت محدود در آتلیهٔ تهران با ارسال سراسری و مرجوعی ۱۴ روزه.",
+    notFoundTitle: "این صفحه پیدا نشد",
+    notFoundText: "ممکن است نشانی عوض شده باشد. از منوی بالا یا جست‌وجو دوباره شروع کن.",
+  },
   cashbackRate: 5,
   cashbackTxns: [],
   tryonPackages: [
@@ -539,6 +568,22 @@ export const removeLabel = (id: string) => patchOps({ labels: cache.labels.filte
 export const saveSmsTemplate = (t: SmsTemplate) =>
   patchOps({ smsTemplates: cache.smsTemplates.some((x) => x.id === t.id) ? cache.smsTemplates.map((x) => (x.id === t.id ? t : x)) : [...cache.smsTemplates, t] });
 export const removeSmsTemplate = (id: string) => patchOps({ smsTemplates: cache.smsTemplates.filter((t) => t.id !== id) });
+export const saveReplyTemplate = (t: ReplyTemplate) =>
+  patchOps({
+    replyTemplates: cache.replyTemplates.some((x) => x.id === t.id)
+      ? cache.replyTemplates.map((x) => (x.id === t.id ? t : x))
+      : [...cache.replyTemplates, t],
+  });
+export const removeReplyTemplate = (id: string) => patchOps({ replyTemplates: cache.replyTemplates.filter((t) => t.id !== id) });
+
+export const setTicketAssignee = (id: string, assignee: string) =>
+  patchOps({ tickets: cache.tickets.map((t) => (t.id === id ? { ...t, assignee: assignee || undefined } : t)) });
+
+export const setSizeGuide = (categoryId: string, guide: OpsState["sizeGuides"][string]) =>
+  patchOps({ sizeGuides: { ...cache.sizeGuides, [categoryId]: guide } });
+
+export const setSeo = (patchSeo: Partial<OpsState["seo"]>) => patchOps({ seo: { ...cache.seo, ...patchSeo } });
+
 export const logSmsCampaign = (c: SmsCampaign) => patchOps({ smsCampaigns: [c, ...cache.smsCampaigns].slice(0, 60) });
 
 /* ---------------- cashback ---------------- */
@@ -569,6 +614,10 @@ export const removeTryonPackage = (id: string) => patchOps({ tryonPackages: cach
 /* ---------------- tickets & returns ---------------- */
 export const addTicketMessage = (ticketId: string, msg: Omit<TicketMsg, "id" | "at">) =>
   patchOps({ tickets: cache.tickets.map((t) => (t.id === ticketId ? { ...t, messages: [...t.messages, { ...msg, id: Math.random().toString(36).slice(2, 9), at: Date.now() }], status: msg.from === "staff" ? "pending" : "open" } : t)) });
+export const setTicketDept = (id: string, dept: Ticket["dept"]) =>
+  patchOps({ tickets: cache.tickets.map((t) => (t.id === id ? { ...t, dept } : t)) });
+export const setTicketPriority = (id: string, priority: Ticket["priority"]) =>
+  patchOps({ tickets: cache.tickets.map((t) => (t.id === id ? { ...t, priority } : t)) });
 export const setTicketStatus = (id: string, status: Ticket["status"]) =>
   patchOps({ tickets: cache.tickets.map((t) => (t.id === id ? { ...t, status } : t)) });
 export const createTicket = (t: Omit<Ticket, "id" | "at" | "messages" | "status"> & { body: string; author?: string }) => {
