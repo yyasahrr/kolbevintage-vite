@@ -118,7 +118,7 @@ function signedCsrfValid(token: string): boolean {
  * adds `X-Forwarded-Proto: https`. Either one means a `SameSite=Lax` cookie
  * will be dropped, so the cookies below switch to `SameSite=None; Secure`.
  */
-function crossSite(req: FastifyRequest): boolean {
+export function isCrossSite(req: FastifyRequest): boolean {
   const forwarded = req.headers["x-forwarded-proto"];
   const proto = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.protocol;
   if (proto === "https") return true;
@@ -127,7 +127,7 @@ function crossSite(req: FastifyRequest): boolean {
 }
 
 export function cookieSecurity(req: FastifyRequest): { secure: boolean; sameSite: "none" | "lax" } {
-  const https = crossSite(req);
+  const https = isCrossSite(req);
   return https ? { secure: true, sameSite: "none" } : { secure: false, sameSite: "lax" };
 }
 

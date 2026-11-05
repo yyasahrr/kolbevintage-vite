@@ -1767,3 +1767,42 @@ test("the visit beacon records a page view without a CSRF pair", async () => {
   const views = (await (await fetch(`${base}/api/public/page-views?path=${path}`)).json()) as Json;
   assert.equal(views.views, 1);
 });
+
+test("a cross-site login returns the session so the panel still works without cookies", async () => {
+  const { token } = (await (await fetch(`${base}/api/csrf`)).json()) as { token: string };
+  const login = await fetch(`${base}/api/admin/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-csrf-token": token, "sec-fetch-site": "cross-site" },
+    body: JSON.stringify({ passcode: "1234" }),
+  });
+  assert.equal(login.status, 200);
+  const body = (await login.json()) as Json;
+  assert.ok(typeof body.sessionToken === "string" && body.sessionToken.length > 10, "the token comes back for cross-site logins");
+
+  // no cookie at all — only the header
+  const me = await fetch(`${base}/api/admin/me`, { headers: { "x-session-token": body.sessionToken } });
+  assert.equal(me.status, 200);
+  assert.equal(((await me.json()) as Json).authenticated, true);
+
+  // and it stops working the moment it is logged out
+  const out = await fetch(`${base}/api/admin/logout`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-csrf-token": token, "x-session-token": body.sessionToken },
+    body: "{}",
+  });
+  assert.equal(out.status, 200);
+  const after = await fetch(`${base}/api/admin/me`, { headers: { "x-session-token": body.sessionToken } });
+  assert.equal(((await after.json()) as Json).authenticated, false);
+});
+
+test("a same-site login keeps the session in the cookie only", async () => {
+  const { token } = (await (await fetch(`${base}/api/csrf`)).json()) as { token: string };
+  const login = await fetch(`${base}/api/admin/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-csrf-token": token },
+    body: JSON.stringify({ passcode: "1234" }),
+  });
+  assert.equal(login.status, 200);
+  const body = (await login.json()) as Json;
+  assert.equal(body.sessionToken, undefined, "no token in the body when the cookie path works");
+});

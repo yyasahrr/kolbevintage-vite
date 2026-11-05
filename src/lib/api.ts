@@ -40,6 +40,36 @@ function csrfToken(): string {
 let memToken = "";
 let tokenPending: Promise<string> | null = null;
 
+/**
+ * The session, when the browser will not keep our cookie.
+ *
+ * A framed preview on another origin can drop `kv_session` entirely: the login
+ * then answers 200 while every later call is a stranger's. In that case the
+ * server hands the token back in the body (only for cross-site requests) and
+ * the client sends it as `x-session-token`. It lives in this tab only — never
+ * in localStorage — and is thrown away on logout.
+ */
+const SESSION_KEY = "kv_session_token";
+let sessionToken = (() => {
+  try {
+    return sessionStorage.getItem(SESSION_KEY) ?? "";
+  } catch {
+    return "";
+  }
+})();
+
+export function setSessionToken(token: string | null) {
+  sessionToken = token ?? "";
+  try {
+    if (sessionToken) sessionStorage.setItem(SESSION_KEY, sessionToken);
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* private mode — the in-memory copy is still used */
+  }
+}
+
+export const hasSessionToken = () => Boolean(sessionToken);
+
 async function fetchCsrfToken(): Promise<string> {
   try {
     const res = await fetch(`${BASE}/api/csrf`, { credentials: "include", cache: "no-store" });
@@ -72,6 +102,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
     if (token && isWrite) headers.set("x-csrf-token", token);
+    if (sessionToken) headers.set("x-session-token", sessionToken);
     return fetch(`${BASE}${path}`, { ...init, headers, credentials: "include" });
   };
 
@@ -90,6 +121,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const text = await res.text();
   const data = text ? safeJson(text) : null;
+
+  // the server includes `sessionToken` only for cross-site logins; keep it
+  const issued = (data as { sessionToken?: unknown } | null)?.sessionToken;
+  if (typeof issued === "string" && issued) setSessionToken(issued);
+  // and a logout must not leave a usable header behind
+  if (path.endsWith("/logout")) setSessionToken(null);
+
   if (!res.ok) {
     const payload = data as { error?: string; message?: string; code?: string; details?: unknown } | null;
     const message = payload?.message ?? payload?.error ?? `خطای سرور (${res.status})`;
@@ -139,7 +177,10 @@ export async function uploadImage(file: File): Promise<string> {
       method: "POST",
       body: form,
       credentials: "include",
-      headers: token ? { "x-csrf-token": token } : undefined,
+      headers: {
+        ...(token ? { "x-csrf-token": token } : {}),
+        ...(sessionToken ? { "x-session-token": sessionToken } : {}),
+      },
     });
     if (!res.ok) throw new Error(String(res.status));
     const data = (await res.json()) as { url?: string };

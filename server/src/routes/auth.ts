@@ -1,7 +1,8 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { query } from "../db";
 import { getDocument } from "../seed";
 import { hashPassword, newOtp, verifyPassword } from "../security";
+import { isCrossSite } from "../http/security";
 import {
   createSession,
   destroySession,
@@ -43,9 +44,20 @@ async function findCustomer(email: string) {
   return res.rows[0] ?? null;
 }
 
-async function startCustomerSession(reply: FastifyReply, email: string) {
+/**
+ * The session token is also handed back in the body when the request comes from
+ * another origin (the framed preview), because a browser that refuses our
+ * cookie would otherwise "log in" and stay a stranger. The client keeps it in
+ * memory and sends it as `x-session-token`; the cookie path is unchanged.
+ */
+function sessionBody(req: FastifyRequest, token: string): { sessionToken?: string } {
+  return isCrossSite(req) ? { sessionToken: token } : {};
+}
+
+async function startCustomerSession(req: FastifyRequest, reply: FastifyReply, email: string) {
   const session = await createSession("customer", email);
   setSessionCookie(reply, session.token, session.expires);
+  return sessionBody(req, session.token);
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -114,8 +126,8 @@ export async function authRoutes(app: FastifyInstance) {
       );
       customer = created.rows[0];
     }
-    await startCustomerSession(reply, email);
-    return { ok: true, message: "خوش آمدی!", customer: publicCustomer(customer) };
+    const extra = await startCustomerSession(req, reply, email);
+    return { ok: true, message: "خوش آمدی!", customer: publicCustomer(customer), ...extra };
   });
 
   app.post<{ Body: { email?: string; password?: string } }>("/api/auth/login", async (req, reply) => {
@@ -125,8 +137,8 @@ export async function authRoutes(app: FastifyInstance) {
     if (!customer || !verifyPassword(password, customer.password_hash)) {
       return reply.code(401).send({ ok: false, message: "حسابی با این ایمیل و رمز پیدا نشد." });
     }
-    await startCustomerSession(reply, email);
-    return { ok: true, message: "خوش آمدی!", customer: publicCustomer(customer) };
+    const extra = await startCustomerSession(req, reply, email);
+    return { ok: true, message: "خوش آمدی!", customer: publicCustomer(customer), ...extra };
   });
 
   app.post<{ Body: { name?: string; email?: string; phone?: string; password?: string } }>(
@@ -152,8 +164,8 @@ export async function authRoutes(app: FastifyInstance) {
          values ($1, $2, $3, $4, $5, '[]'::jsonb) returning *`,
         [email, name, phone, hashPassword(password), JSON.stringify(DEMO_SIZE)],
       );
-      await startCustomerSession(reply, email);
-      return { ok: true, message: "حساب ساخته شد.", customer: publicCustomer(created.rows[0]) };
+      const extra = await startCustomerSession(req, reply, email);
+      return { ok: true, message: "حساب ساخته شد.", customer: publicCustomer(created.rows[0]), ...extra };
     },
   );
 
@@ -255,6 +267,7 @@ export async function authRoutes(app: FastifyInstance) {
       message: "وارد پنل شدی.",
       subject,
       role: role.rows[0] ? { id: role.rows[0].id, name: role.rows[0].name } : null,
+      ...sessionBody(req, session.token),
     };
   });
 

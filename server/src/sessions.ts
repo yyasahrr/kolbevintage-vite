@@ -43,8 +43,19 @@ export function clearSessionCookie(reply: FastifyReply) {
   reply.clearCookie(COOKIE, { path: "/" });
 }
 
+/** the token from the cookie, or from a header when the browser keeps no cookies */
+export function sessionToken(req: FastifyRequest): string | null {
+  const fromCookie = req.cookies?.[COOKIE];
+  if (fromCookie) return fromCookie;
+  const header = req.headers["x-session-token"];
+  if (typeof header === "string" && header.trim()) return header.trim();
+  const auth = req.headers.authorization;
+  if (typeof auth === "string" && auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
+  return null;
+}
+
 export async function readSession(req: FastifyRequest): Promise<Session | null> {
-  const token = req.cookies?.[COOKIE];
+  const token = sessionToken(req);
   if (!token) return null;
   const res = await query<{ kind: SessionKind; subject: string }>(
     "select kind, subject from sessions where token = $1 and expires_at > now()",
@@ -55,7 +66,7 @@ export async function readSession(req: FastifyRequest): Promise<Session | null> 
 }
 
 export async function destroySession(req: FastifyRequest, reply: FastifyReply) {
-  const token = req.cookies?.[COOKIE];
+  const token = sessionToken(req);
   if (token) await query("delete from sessions where token = $1", [token]);
   clearSessionCookie(reply);
 }
