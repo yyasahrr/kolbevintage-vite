@@ -84,7 +84,7 @@ import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsP
 import { CommercePanel } from "./AdminCommercePanel";
 import { StaffPanel } from "./AdminRbac";
 import { loadAdminMe, invalidateAdminMe, useAdminMe } from "@/state/session";
-import { ChangelogPanel, IssueButton, IssueInbox, LaunchBanner, LaunchChecklist, ManualPanel, SetupWizard } from "@/pages/AdminLaunch";
+import { ChangelogPanel, IssueButton, IssueInbox, LaunchBanner, LaunchChecklist, ManualPanel, PurgePanel, SetupWizard } from "@/pages/AdminLaunch";
 import { can, permissionForScreen, firstAllowedScreen } from "@/admin/rbac";
 import "@/styles/admin.css";
 
@@ -135,6 +135,7 @@ type Tab =
   | "launch"
   | "manual"
   | "changelog"
+  | "purge"
   | "issues"
   /* grouped areas — six sidebar entries, each one nests its screens */
   | "sales"
@@ -218,6 +219,7 @@ const TABS: NavItem[] = [
       { id: "launch", label: "چک‌لیست انتشار" },
       { id: "manual", label: "راهنمای فارسی" },
       { id: "changelog", label: "سابقهٔ تغییرات" },
+      { id: "purge", label: "پاک‌سازی داده" },
       { id: "issues", label: "گزارش مشکل" },
     ],
   },
@@ -604,6 +606,7 @@ export function AdminPage() {
                 { id: "analytics", label: "آمار بازدید", node: <AnalyticsPanel /> },
                 { id: "health", label: "سلامت سیستم", node: <HealthPanel /> },
                 { id: "backup", label: "پشتیبان‌گیری", node: <BackupPanel /> },
+                { id: "purge", label: "پاک‌سازی داده", node: <PurgePanel /> },
                 { id: "settings", label: "تنظیمات", node: <StoreSettings onBack={() => navigate("/")} /> },
                 { id: "launch", label: "چک‌لیست انتشار", node: <LaunchChecklist /> },
                 { id: "manual", label: "راهنمای فارسی", node: <ManualPanel /> },

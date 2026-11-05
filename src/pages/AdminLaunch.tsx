@@ -280,6 +280,154 @@ export function LaunchChecklist() {
 /* 3. changelog (decision 94) + manual (decision 95)                   */
 /* ------------------------------------------------------------------ */
 
+
+/* ------------------------------------------------------------------ */
+/* clearing the demo shop (decisions 92 + 98)                          */
+/* guarded by the server; this screen only offers the honest path      */
+/* ------------------------------------------------------------------ */
+
+interface PurgePreview {
+  phrase: string;
+  counts: Record<string, number>;
+  rows: number;
+  lastBackupAt: string | null;
+  lastBackupAgeMinutes: number | null;
+  backupFreshEnough: boolean;
+  freshWindowMinutes: number;
+}
+
+const TABLE_LABEL: Record<string, string> = {
+  products: "محصول", product_variants: "واریانت", product_images: "تصویر محصول",
+  product_complements: "مکمل", orders: "سفارش", order_lines: "ردیف سفارش",
+  carts: "سبد", cart_lines: "ردیف سبد", checkout_sessions: "جلسهٔ پرداخت",
+  payment_attempts: "تلاش پرداخت", refunds: "بازپرداخت", exchange_payments: "تبدیل",
+  fulfillment_events: "رویداد ارسال", outbox_events: "رویداد صف", customers: "مشتری",
+  coupons: "کد تخفیف", price_rules: "قانون قیمت", stock_reservations: "رزرو موجودی",
+  inventory_movements: "حرکت انبار", inventory_adjustments: "اصلاح انبار",
+};
+
+export function PurgePanel() {
+  const [preview, setPreview] = useState<PurgePreview | null>(null);
+  const [error, setError] = useState("");
+  const [phrase, setPhrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ rows: number } | null>(null);
+
+  const load = async () => {
+    try {
+      const { api } = await import("@/lib/api");
+      setPreview(await api.get<PurgePreview>("/api/admin/maintenance/purge-preview"));
+      setError("");
+    } catch {
+      setPreview(null);
+      setError("پیش‌نمایش خوانده نشد؛ دسترسی تنظیمات یا اتصال سرور را بررسی کن.");
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const takeBackup = async () => {
+    setBusy(true);
+    try {
+      const { api } = await import("@/lib/api");
+      await api.post("/api/admin/backups", {});
+      await load();
+    } catch {
+      setError("پشتیبان گرفته نشد؛ بدون پشتیبان پاک‌سازی انجام نمی‌شود.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <LHead
+        title="پاک‌سازی دادهٔ نمایشی"
+        sub="همان کاری که اسکریپت `npm run clear-demo` می‌کند، از داخل پنل و با همان شرط‌ها. آخرین قدم پیش از ورود محصولات واقعی."
+      />
+      <LCard title="چه چیزی پاک می‌شود" icon={<X width={14} height={14} />}>
+        {error && <p className="ad-hint is-warn">{error}</p>}
+        {!preview ? (
+          <p className="ad-hint">در حال خواندن از سرور…</p>
+        ) : (
+          <>
+            <p className="ad-hint" style={{ marginTop: 0 }}>
+              {preview.rows === 0
+                ? "همین حالا هیچ داده‌ای نیست؛ چیزی برای پاک کردن نمانده."
+                : `${preview.rows.toLocaleString("fa-IR")} ردیف در ${Object.keys(preview.counts).length.toLocaleString("fa-IR")} جدول.`}
+            </p>
+            <ul className="ad-mini-list">
+              {Object.entries(preview.counts).map(([table, n]) => (
+                <li key={table}><span>{TABLE_LABEL[table] ?? table}</span><b>{n.toLocaleString("fa-IR")}</b></li>
+              ))}
+            </ul>
+            <p className="ad-hint">
+              کارکنان، نقش‌ها و تنظیمات فروشگاه دست نمی‌خورند؛ فقط کاتالوگ، سفارش‌ها، سبدها و مشتریان.
+            </p>
+          </>
+        )}
+      </LCard>
+
+      {preview && (
+        <LCard title="شرط‌ها" icon={<CheckCircle2 width={14} height={14} />}>
+          <p className={preview.backupFreshEnough ? "ad-note-ok" : "ad-hint is-warn"}>
+            {preview.backupFreshEnough
+              ? `پشتیبان ${preview.lastBackupAgeMinutes === 0 ? "همین حالا" : `${preview.lastBackupAgeMinutes} دقیقه پیش`} گرفته شده — شرط پشتیبان برقرار است.`
+              : preview.lastBackupAt
+                ? `آخرین پشتیبان ${preview.lastBackupAgeMinutes} دقیقه پیش است؛ شرط، پشتیبانِ کمتر از ${preview.freshWindowMinutes} دقیقه است.`
+                : "هیچ پشتیبانی گرفته نشده؛ اول پشتیبان بگیر."}
+          </p>
+          <div className="ad-actions">
+            <button type="button" className="ad-btn is-sm" disabled={busy} onClick={() => void takeBackup()}>
+              <BadgeCheck width={13} height={13} /> {busy ? "در حال پشتیبان‌گیری…" : "گرفتن پشتیبان تازه"}
+            </button>
+            <button type="button" className="ad-btn is-sm" onClick={() => void load()}>به‌روزرسانی وضعیت</button>
+          </div>
+
+          <label className="ad-field">
+            برای تأیید، این عبارت را عیناً بنویس: <b>{preview.phrase}</b>
+            <input
+              className="ad-input"
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+              placeholder={preview.phrase}
+              aria-label="عبارت تأیید پاک‌سازی"
+            />
+          </label>
+
+          <div className="ad-actions">
+            <button
+              type="button"
+              className="ad-btn is-sm is-danger"
+              disabled={busy || phrase.trim() !== preview.phrase || !preview.backupFreshEnough || preview.rows === 0}
+              onClick={async () => {
+                if (!window.confirm("همهٔ محصولات، سفارش‌ها، سبدها و مشتریان پاک می‌شوند. مطمئنی؟")) return;
+                setBusy(true);
+                try {
+                  const { api } = await import("@/lib/api");
+                  const res = await api.post<{ ok: boolean; removed: Record<string, number> }>("/api/admin/maintenance/purge-demo", { confirm: phrase.trim() });
+                  setResult({ rows: Object.values(res.removed).reduce((n, c) => n + c, 0) });
+                  setPhrase("");
+                  await load();
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "پاک‌سازی انجام نشد.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <X width={13} height={13} /> پاک‌سازی نهایی
+            </button>
+            {result && <span className="ad-note-ok">پاک شد — {result.rows.toLocaleString("fa-IR")} ردیف حذف شد و در گزارش فعالیت ثبت شد.</span>}
+          </div>
+        </LCard>
+      )}
+    </>
+  );
+}
+
 export function ChangelogPanel() {
   return (
     <>
