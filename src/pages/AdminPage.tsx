@@ -1903,6 +1903,10 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
   const [garment, setGarment] = useState<GarmentKind>(product?.garment ?? "accessory");
   const [price, setPrice] = useState(product?.price ?? 100);
   const [compareAt, setCompareAt] = useState(product?.compareAt ?? 0);
+  // optional cost price; with it the panel can show a real margin (decision 38)
+  const [cost, setCost] = useState(
+    product ? (getAdmin().productEdits[product.id]?.cost ?? admin.customProducts.find((c) => c.id === product.id)?.cost ?? 0) : 0,
+  );
   const [description, setDescription] = useState(product?.description ?? "");
   const [colors, setColors] = useState(product?.colors ?? [{ id: "c1", name: "مشکی", hex: "#16130f" }]);
   const [sizes, setSizes] = useState(product?.sizes ?? [{ id: "one-size", label: "یک سایز" }]);
@@ -2044,6 +2048,7 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
         : Object.fromEntries(Object.entries(stock).filter(([, v]) => v > 0)),
       lowStockThreshold: lowStock > 0 ? lowStock : undefined,
       badges,
+      cost: cost > 0 ? cost : undefined,
     };
     if (custom) {
       updateCustomProduct(custom.id, payload);
@@ -2282,9 +2287,16 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
                     ? `این قیمت ${fa(Math.round(((compareAt - price) / compareAt) * 100))}٪ زیر قیمت قبلی است.`
                     : "اگر قیمت قبل را پر کنی، درصد تخفیف همین‌جا محاسبه و در کارت محصول نشان داده می‌شود."}
                 </p>
+                <label className="ad-field">
+                  قیمت خرید (اختیاری)
+                  <input className="ad-input" type="number" min={0} value={cost || ""} onChange={(e) => setCost(Number(e.target.value) || 0)} placeholder="فقط برای محاسبهٔ سود؛ جای دیگری نمایش داده نمی‌شود" />
+                </label>
                 <p className="ad-hint">
-                  درصد سود به «قیمت خرید» نیاز دارد که هنوز در داده‌ها نیست؛ وقتی قیمت خرید ثبت شود، همین‌جا
-                  نمایش داده می‌شود. تا آن موقع عددی نشان نمی‌دهیم.
+                  {cost > 0 && price > 0
+                    ? cost >= price
+                      ? `با این قیمت خرید، روی هر فروش ${formatPrice(cost - price)} ضرر می‌کنی.`
+                      : `حاشیهٔ سود: ${fa(Math.round(((price - cost) / price) * 100))}٪ قیمت فروش — ${formatPrice(price - cost)} روی هر قطعه.`
+                    : "قیمت خرید را پر کن تا حاشیهٔ سود همین‌جا حساب شود؛ درصد تخفیف بالاتر مستقل از آن است."}
                 </p>
                 <div className="ad-field">
                   <span className="ad-field-label">برچسب روی کارت محصول</span>

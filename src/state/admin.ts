@@ -131,6 +131,8 @@ export interface CustomProduct {
   lowStockThreshold?: number;
   /** owner-chosen labels, shown on the product card (decision 58) */
   badges?: string[];
+  /** what the piece cost the shop, so a margin can be shown (decision 38) */
+  cost?: number;
 }
 
 /**
@@ -155,6 +157,8 @@ export interface ProductEdit {
   lowStockThreshold?: number;
   /** owner-chosen labels, shown on the product card (decision 58) */
   badges?: string[];
+  /** what the piece cost the shop, so a margin can be shown (decision 38) */
+  cost?: number;
 }
 
 export const GARMENT_LABEL: Record<string, string> = {
