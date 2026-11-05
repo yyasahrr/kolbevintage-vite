@@ -14,7 +14,7 @@ export interface CatalogProduct extends Product {
   care: string;
   fit: string;
   origin: string;
-  badge?: "جدید" | "پرفروش" | "آخرین موجودی" | "تخفیف";
+  badge?: "جدید" | "پرفروش" | "آخرین موجودی" | "تخفیف" | "پیشنهاد سردبیر" | "حراج";
 }
 
 interface Detail {
@@ -227,7 +227,7 @@ const customToCatalog = (cp: CustomProduct): CatalogProduct => {
     care: "دستورالعمل روی برچسب محصول",
     fit: "منطبق با راهنمای سایز",
     origin: "آتلیهٔ ولور",
-    badge: cp.featured ? "پرفروش" : "جدید",
+    badge: (cp.badges?.[0] as CatalogProduct["badge"] | undefined) ?? (cp.featured ? "پرفروش" : "جدید"),
     lookId: look.id,
     lookName: "محصول آتلیه",
     lookSlug: look.id,
@@ -242,11 +242,14 @@ const customToCatalog = (cp: CustomProduct): CatalogProduct => {
 const withEdit = (p: CatalogProduct): CatalogProduct => {
   const edit = getAdmin().productEdits[p.id];
   if (!edit) return p;
+  const ownerBadge = edit.badges?.[0] as CatalogProduct["badge"] | undefined;
   return {
     ...p,
     ...edit,
     description: edit.description ?? p.description,
     stock: edit.stock ? { ...p.stock, ...edit.stock } : p.stock,
+    // an owner-chosen label replaces the automatic one (decision 58)
+    badge: ownerBadge ?? p.badge,
   };
 };
 

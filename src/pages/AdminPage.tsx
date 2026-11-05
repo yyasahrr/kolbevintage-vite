@@ -20,6 +20,7 @@ import {
   Lock,
   LogOut,
   Megaphone,
+  MessageSquare,
   Sparkles,
   Bell,
   Package,
@@ -63,7 +64,7 @@ import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
 import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
-import { type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
+import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
 import { resolveImg } from "@/builder/stock";
@@ -1709,6 +1710,9 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
   const [lowStock, setLowStock] = useState<number>(
     () => admin.productEdits[product?.id ?? ""]?.lowStockThreshold ?? custom?.lowStockThreshold ?? 0,
   );
+  const [badges, setBadges] = useState<string[]>(
+    () => admin.productEdits[product?.id ?? ""]?.badges ?? custom?.badges ?? [],
+  );
   const [images, setImages] = useState<ProductImage[]>(() => (product ? [...productImagesOf(product.id)] : []));
   const [picked, setPicked] = useState<string[]>(() => (product ? [...complementsOf(product.id)] : []));
   const [compQuery, setCompQuery] = useState("");
@@ -1839,6 +1843,7 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
         ? { ...stock }
         : Object.fromEntries(Object.entries(stock).filter(([, v]) => v > 0)),
       lowStockThreshold: lowStock > 0 ? lowStock : undefined,
+      badges,
     };
     if (custom) {
       updateCustomProduct(custom.id, payload);
@@ -2081,6 +2086,31 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
                   درصد سود به «قیمت خرید» نیاز دارد که هنوز در داده‌ها نیست؛ وقتی قیمت خرید ثبت شود، همین‌جا
                   نمایش داده می‌شود. تا آن موقع عددی نشان نمی‌دهیم.
                 </p>
+                <div className="ad-field">
+                  <span className="ad-field-label">برچسب روی کارت محصول</span>
+                  <div className="ad-tags">
+                    {PRODUCT_BADGES.map((badge) => {
+                      const on = badges.includes(badge);
+                      return (
+                        <button
+                          key={badge}
+                          type="button"
+                          className={cn("ad-chip", on && "is-on")}
+                          aria-pressed={on}
+                          onClick={() =>
+                            setBadges((list) => (on ? list.filter((b) => b !== badge) : [...list, badge]))
+                          }
+                        >
+                          {badge}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <small className="ad-hint">
+                    کارت محصول فقط برچسب اول این فهرست را نشان می‌دهد؛ اگر هیچ‌کدام را انتخاب نکنی، برچسب خودکار
+                    (تخفیف/آخرین موجودی/جدید) می‌ماند.
+                  </small>
+                </div>
                 <label className="ad-field">
                   آستانهٔ «کم‌موجود» این محصول (۰ = همان آستانهٔ فروشگاه)
                   <input className="ad-input" type="number" min={0} value={lowStock || 0} onChange={(e) => setLowStock(Number(e.target.value) || 0)} />
@@ -3054,29 +3084,92 @@ function Messages() {
 
 function Reviews() {
   const admin = useAdmin();
+  const session = useAdminMe();
+  const [replying, setReplying] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
   const approved = admin.reviews.filter((r) => r.approved);
-  const avg = approved.length ? approved.reduce((n, r) => n + r.rating, 0) / approved.length : 0;
+  // a review without a star is not counted in the average (decision 59)
+  const rated = approved.filter((r) => r.rating > 0);
+  const avg = rated.length ? rated.reduce((n, r) => n + r.rating, 0) / rated.length : 0;
   return (
     <>
-      <PageHead title="نظرات مشتریان" sub={`${fa(approved.length)} نظر تأییدشده · میانگین ${avg ? avg.toFixed(1).replace(".", "/") : "—"}`} />
+      <PageHead
+        title="نظرات مشتریان"
+        sub={`${fa(approved.length)} نظر تأییدشده · ${fa(rated.length)} نظر ستاره‌دار · میانگین ${avg ? avg.toFixed(1).replace(".", "/") : "—"}`}
+      />
       <div className="ad-reviews">
         {admin.reviews.map((r) => (
           <article key={r.id} className={cn("ad-review", !r.approved && "is-pending")}>
             <header>
-              <span className="ad-stars">{"★".repeat(r.rating)}<i>{"★".repeat(5 - r.rating)}</i></span>
+              {r.rating > 0 ? (
+                <span className="ad-stars">{"★".repeat(r.rating)}<i>{"★".repeat(5 - r.rating)}</i></span>
+              ) : (
+                <span className="ad-stars is-none" title="مشتری ستاره نداده">بدون امتیاز</span>
+              )}
               <b>{r.author}</b>
               <small>{timeAgo(r.at)}</small>
               <span className={cn("ad-pill", r.approved ? "is-done" : "is-pending")}>{r.approved ? "تأییدشده" : "در انتظار"}</span>
             </header>
             <p className="ad-review-product">{r.product}</p>
             <p className="ad-review-text">{r.text}</p>
-            <footer>
-              <button type="button" className="ad-btn is-sm" onClick={() => setReviewApproved(r.id, !r.approved)}>
+            {r.reply && (
+              <div className="ad-review-reply">
+                <b>پاسخ فروشگاه</b>
+                <p>{r.reply.text}</p>
+                <small>{r.reply.by} · {timeAgo(r.reply.at)}</small>
+              </div>
+            )}
+            {replying === r.id ? (
+              <div className="ad-note-add">
+                <textarea
+                  className="ad-input"
+                  rows={3}
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  placeholder="پاسخ عمومی فروشگاه؛ زیر همین نظر در صفحهٔ محصول دیده می‌شود."
+                  aria-label="متن پاسخ"
+                />
+                <div className="ad-actions">
+                  <button
+                    type="button"
+                    className="ad-btn is-sm is-primary"
+                    disabled={!replyText.trim()}
+                    onClick={() => {
+                      setReviewReply(r.id, replyText, session.me?.staff?.name ?? "فروشگاه");
+                      setReplying(null);
+                      setReplyText("");
+                    }}
+                  >
+                    <Save width={13} height={13} /> ثبت پاسخ
+                  </button>
+                  <button type="button" className="ad-btn is-sm" onClick={() => { setReplying(null); setReplyText(""); }}>انصراف</button>
+                </div>
+              </div>
+            ) : (
+              <footer>
+                <button
+                  type="button"
+                  className="ad-btn is-sm"
+                  onClick={() => { setReplying(r.id); setReplyText(r.reply?.text ?? ""); }}
+                >
+                  <MessageSquare width={13} height={13} /> {r.reply ? "ویرایش پاسخ" : "پاسخ"}
+                </button>
+                {r.reply && (
+                  <button
+                    type="button"
+                    className="ad-btn is-sm"
+                    onClick={() => setReviewReply(r.id, "", session.me?.staff?.name ?? "فروشگاه")}
+                  >
+                    حذف پاسخ
+                  </button>
+                )}
+                <button type="button" className="ad-btn is-sm" onClick={() => setReviewApproved(r.id, !r.approved)}>
                 {r.approved ? <XCircle width={13} height={13} /> : <CheckCircle2 width={13} height={13} />}
                 {r.approved ? "لغو تأیید" : "تأیید"}
               </button>
               <button type="button" className="ad-btn is-sm is-danger" onClick={() => removeReview(r.id)}><Trash2 width={13} height={13} /> حذف</button>
-            </footer>
+              </footer>
+            )}
           </article>
         ))}
         {admin.reviews.length === 0 && <Empty text="نظری ثبت نشده." />}

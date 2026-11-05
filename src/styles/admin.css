@@ -3096,3 +3096,13 @@
 .ad-order-grip{ color:#9b9184; letter-spacing:-2px; font-size:12px; user-select:none }
 .ad-order-index{ font-size:11px; color:#8b8175; font-variant-numeric:tabular-nums; min-width:14px }
 .ad-order-label{ flex:1; font-size:12.5px }
+
+/* ---------- review replies (decision 70) ---------- */
+.ad-review-reply{
+  margin-block-start: 8px; padding: 9px 11px; border-radius: 10px;
+  background: rgba(37,99,235,.06); border-inline-start: 2px solid rgba(37,99,235,.35);
+}
+.ad-review-reply b{ font-size:11px; color:#1e40af }
+.ad-review-reply p{ margin:4px 0 2px; font-size:12px; line-height:1.85 }
+.ad-review-reply small{ font-size:10px; opacity:.6 }
+.ad-stars.is-none{ font-size:10.5px; opacity:.55 }

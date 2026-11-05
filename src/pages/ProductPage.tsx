@@ -15,7 +15,7 @@ import { COLLECTIONS, complementProducts, getProduct, liveGetProduct, relatedPro
 import { ProductGallery } from "@/components/ProductGallery";
 import { SmartSizeGuide } from "@/components/SmartSizeGuide";
 import { useAuth } from "@/state/auth";
-import { useAdmin } from "@/state/admin";
+import { submitReview, useAdmin } from "@/state/admin";
 import { useOps, requestTryon, tryonBalance, type TryOnPackage } from "@/state/ops";
 import { formatPrice, formatRial, stockOf } from "@/data/looks";
 import { useCart } from "@/state/cart";
@@ -30,7 +30,15 @@ export function ProductPage() {
   // subscribe to the admin store so edits, new products and complements render live
   useAdmin();
   const product = liveGetProduct(productId);
+  const admin = useAdmin();
   const { add, toggleWish, isWished, setCartOpen } = useCart();
+
+  // approved reviews for this product; a review without a star is not averaged (decisions 59 + 70)
+  const reviews = admin.reviews.filter((r) => r.approved && r.product === product?.name);
+  const ratedReviews = reviews.filter((r) => r.rating > 0);
+  const reviewAvg = ratedReviews.length
+    ? ratedReviews.reduce((sum, r) => sum + r.rating, 0) / ratedReviews.length
+    : 0;
 
   const [colorId, setColorId] = useState(product?.colors[0]?.id ?? "");
   const [sizeId, setSizeId] = useState(product?.sizes[0]?.id ?? "");
@@ -173,12 +181,24 @@ export function ProductPage() {
             </p>
             <span className="h-1 w-1 rounded-full bg-clay" />
             <div className="flex items-center gap-1 text-[11px] text-ink-70">
-              <div className="flex">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Star key={i} className="h-3 w-3 fill-ink text-ink" />
-                ))}
-              </div>
-              <span className="text-ink-45">۴.۸ · ۲۳ نظر</span>
+              {reviews.length > 0 ? (
+                <>
+                  <div className="flex" aria-hidden>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Star
+                        key={i}
+                        className={cn("h-3 w-3", reviewAvg && i < Math.round(reviewAvg) ? "fill-ink text-ink" : "fill-none text-ink-45/40")}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-ink-45">
+                    {reviewAvg ? reviewAvg.toFixed(1).replace(".", "٫") : "بدون امتیاز"} ·{" "}
+                    {reviews.length.toLocaleString("fa-IR")} نظر
+                  </span>
+                </>
+              ) : (
+                <span className="text-ink-45">اولین نظر را تو بنویس</span>
+              )}
             </div>
           </div>
 
@@ -393,6 +413,54 @@ export function ProductPage() {
         </div>
       </div>
 
+
+      {/* ---------------- reviews (decisions 59 + 70) ---------------- */}
+      <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
+        <SectionHeading
+          eyebrow="تجربهٔ خریداران"
+          title="نظرها"
+          description={
+            reviews.length
+              ? `${reviews.length.toLocaleString("fa-IR")} نظر تأییدشده برای این محصول. پاسخ فروشگاه زیر همان نظر نوشته می‌شود.`
+              : "هنوز نظری برای این محصول تأیید نشده است."
+          }
+        />
+        <div className="mt-5 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+          <ul className="grid gap-3">
+            {reviews.map((review) => (
+              <li key={review.id} className="rounded-[var(--radius-lg)] border border-line/60 p-4">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-45">
+                  {review.rating > 0 ? (
+                    <span className="flex" aria-label={`${review.rating} از ۵ ستاره`}>
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Star key={i} className={cn("h-3 w-3", i < review.rating ? "fill-ink text-ink" : "fill-none text-ink-45/40")} />
+                      ))}
+                    </span>
+                  ) : (
+                    <span>بدون امتیاز</span>
+                  )}
+                  <b className="text-ink">{review.author}</b>
+                  <span>{new Date(review.at).toLocaleDateString("fa-IR")}</span>
+                </div>
+                <p className="mt-2 text-[12.5px] leading-[1.95] text-ink-70">{review.text}</p>
+                {review.reply && (
+                  <div className="mt-3 rounded-[var(--radius-md)] bg-[#f2ede5] p-3">
+                    <b className="text-[10.5px] text-ink">پاسخ فروشگاه</b>
+                    <p className="mt-1 text-[12px] leading-[1.9] text-ink-70">{review.reply.text}</p>
+                  </div>
+                )}
+              </li>
+            ))}
+            {reviews.length === 0 && (
+              <li className="rounded-[var(--radius-lg)] border border-dashed border-line/70 p-5 text-[12px] text-ink-45">
+                وقتی نظرها تأیید شوند همین‌جا با پاسخ فروشگاه نمایش داده می‌شوند.
+              </li>
+            )}
+          </ul>
+          <ReviewForm product={product.name} />
+        </div>
+      </section>
+
       {/* ---------------- related ---------------- */}
       <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
         <SectionHeading
@@ -518,6 +586,99 @@ function TryOnSheet({ product, onClose }: { product: NonNullable<ReturnType<type
           </button>
         </footer>
       </div>
+    </div>
+  );
+}
+
+/* =====================================================================
+   The customer writes a review; the owner decides whether it goes live.
+   The star is optional (decision 59) — a customer may simply describe the fit.
+   ===================================================================== */
+
+function ReviewForm({ product }: { product: string }) {
+  const auth = useAuth();
+  const admin = useAdmin();
+  const [rating, setRating] = useState(0);
+  const [text, setText] = useState("");
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  if (!auth.account) {
+    return (
+      <div className="rounded-[var(--radius-lg)] border border-line/60 p-4 text-[12px] leading-[1.9] text-ink-45">
+        برای نوشتن نظر وارد حساب خودت شو. نظرها پس از تأیید فروشگاه منتشر می‌شوند.
+      </div>
+    );
+  }
+
+  if (sent) {
+    return (
+      <div className="rounded-[var(--radius-lg)] border border-line/60 p-4 text-[12px] leading-[1.9] text-ink-70">
+        نظرت ثبت شد و بعد از تأیید فروشگاه منتشر می‌شود. ممنون که تجربه‌ات را نوشتی.
+        <button
+          type="button"
+          className="mt-2 block text-[11px] underline underline-offset-4"
+          onClick={() => { setSent(false); setText(""); setRating(0); }}
+        >
+          نوشتن نظر دیگر
+        </button>
+      </div>
+    );
+  }
+
+  const submit = () => {
+    const account = auth.account;
+    if (!account) return;
+    if (text.trim().length < 8) {
+      setError("کمی بیشتر بنویس (حداقل ۸ نویسه).");
+      return;
+    }
+    // a review always lands as pending; nothing appears on the shop before the owner approves it
+    submitReview({
+      product,
+      author: account.name || account.email,
+      rating,
+      text: text.trim(),
+    });
+    setError("");
+    setSent(true);
+    void admin;
+  };
+
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-line/60 p-4">
+      <p className="text-[12px] font-medium text-ink">نظر تو</p>
+      <div className="mt-2 flex items-center gap-1.5" role="radiogroup" aria-label="امتیاز (اختیاری)">
+        {Array.from({ length: 5 }).map((_, i) => {
+          const value = i + 1;
+          return (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={rating === value}
+              aria-label={`${value} ستاره`}
+              className="tap p-0.5"
+              onClick={() => setRating(rating === value ? 0 : value)}
+            >
+              <Star className={cn("h-4 w-4", value <= rating ? "fill-ink text-ink" : "fill-none text-ink-45/50")} />
+            </button>
+          );
+        })}
+        <span className="text-[10.5px] text-ink-45">{rating ? `${rating} از ۵` : "بدون امتیاز (اختیاری)"}</span>
+      </div>
+      <textarea
+        className="mt-2 w-full rounded-[var(--radius-md)] border border-line/70 bg-transparent p-2.5 text-[12.5px] leading-[1.9] outline-none focus:border-ink/40"
+        rows={4}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="از جنس پارچه، اندازه و دوخت بنویس…"
+        aria-label="متن نظر"
+      />
+      {error && <p className="mt-1 text-[11px] text-ember">{error}</p>}
+      <button type="button" onClick={submit} className={buttonStyles("solid", "sm", "mt-2 w-full")}>
+        ثبت نظر برای تأیید
+      </button>
     </div>
   );
 }

@@ -93,10 +93,13 @@ export interface Review {
   id: string;
   product: string;
   author: string;
+  /** 0 means the customer left a review without a star (decision 59) */
   rating: number;
   text: string;
   at: number;
   approved: boolean;
+  /** the store's public answer, written from the panel (decision 70) */
+  reply?: { text: string; at: number; by: string };
 }
 
 /* ---------------- catalogue extensions ---------------- */
@@ -120,6 +123,8 @@ export interface CustomProduct {
   createdAt: number;
   /** this product's own low-stock line, overriding the store-wide one (decision 32) */
   lowStockThreshold?: number;
+  /** owner-chosen labels, shown on the product card (decision 58) */
+  badges?: string[];
 }
 
 /**
@@ -142,6 +147,8 @@ export interface ProductEdit {
   stock?: StockMap;
   /** this product's own low-stock line, overriding the store-wide one (decision 32) */
   lowStockThreshold?: number;
+  /** owner-chosen labels, shown on the product card (decision 58) */
+  badges?: string[];
 }
 
 export const GARMENT_LABEL: Record<string, string> = {
@@ -498,6 +505,21 @@ export const setOrderStatus = (id: string, status: OrderStatus) =>
 export const removeOrder = (id: string) => patch({ orders: cache.orders.filter((o) => o.id !== id) });
 
 /* ---------------- reviews / looks ---------------- */
+/** a customer review always lands as "pending": the owner decides what the shop shows */
+export const submitReview = (review: Omit<Review, "id" | "at" | "approved">) =>
+  patch({
+    reviews: [
+      { ...review, id: `r${Math.random().toString(36).slice(2, 9)}`, at: Date.now(), approved: false },
+      ...cache.reviews,
+    ],
+  });
+
+export const setReviewReply = (id: string, text: string, by: string) =>
+  patch({
+    reviews: cache.reviews.map((r) =>
+      r.id === id ? { ...r, reply: text.trim() ? { text: text.trim(), at: Date.now(), by } : undefined } : r,
+    ),
+  });
 export const setReviewApproved = (id: string, approved: boolean) =>
   patch({ reviews: cache.reviews.map((r) => (r.id === id ? { ...r, approved } : r)) });
 export const removeReview = (id: string) => patch({ reviews: cache.reviews.filter((r) => r.id !== id) });
@@ -554,6 +576,16 @@ export const resetProductEdit = (id: string) => {
   patch({ productEdits: next });
 };
 export const productEditOf = (id: string) => cache.productEdits[id];
+
+/* ---------------- product labels (decision 58) ---------------- */
+export const PRODUCT_BADGES = ["جدید", "پیشنهاد سردبیر", "حراج", "پرفروش"] as const;
+export type ProductBadge = (typeof PRODUCT_BADGES)[number];
+
+/** the first label the owner set wins, so the card never shows a pile of chips */
+export const badgesOf = (productId: string): string[] =>
+  cache.productEdits[productId]?.badges ??
+  cache.customProducts.find((p) => p.id === productId)?.badges ??
+  [];
 
 /* ---------------- low stock line (decision 32) ---------------- */
 export const lowStockLine = (settings: StoreSettings = cache.settings) =>
