@@ -28,5 +28,16 @@ export const config = {
    * money movement stays blocked.
    */
   superadminPasscode: process.env.SUPERADMIN_PASSCODE ?? "",
+  /**
+   * Review mode: the panel opens with no passcode and the API treats the caller
+   * as the owner. It exists because a framed preview can lose every cookie, and
+   * an owner who cannot look at their own panel cannot review anything. It is
+   * off unless `PANEL_OPEN_ACCESS=1`, and it must never be set in production —
+   * the panel shows a banner while it is on.
+   */
+  get panelOpenAccess() {
+    // read on every access, so a test (or a restart-free toggle) sees the truth
+    return process.env.PANEL_OPEN_ACCESS === "1";
+  },
   sessionDays: 30,
 };

@@ -1795,7 +1795,7 @@ test("a cross-site login returns the session so the panel still works without co
   assert.equal(((await after.json()) as Json).authenticated, false);
 });
 
-test("a same-site login keeps the session in the cookie only", async () => {
+test("every login hands the session back, so a lost cookie is not a lost login", async () => {
   const { token } = (await (await fetch(`${base}/api/csrf`)).json()) as { token: string };
   const login = await fetch(`${base}/api/admin/login`, {
     method: "POST",
@@ -1804,5 +1804,44 @@ test("a same-site login keeps the session in the cookie only", async () => {
   });
   assert.equal(login.status, 200);
   const body = (await login.json()) as Json;
-  assert.equal(body.sessionToken, undefined, "no token in the body when the cookie path works");
+  assert.ok(typeof body.sessionToken === "string" && body.sessionToken.length > 10);
+
+  // the header alone is enough — the cookie is not required anywhere
+  const me = await fetch(`${base}/api/admin/me`, { headers: { "x-session-token": body.sessionToken } });
+  assert.equal(((await me.json()) as Json).authenticated, true);
+});
+
+test("review mode opens the panel without a passcode, and only when asked to", async () => {
+  try {
+    process.env.PANEL_OPEN_ACCESS = "1";
+
+    const me = (await (await fetch(`${base}/api/admin/me`)).json()) as Json;
+    assert.equal(me.authenticated, true, "review mode reports the owner");
+    assert.equal(me.openAccess, true, "and says so out loud");
+    assert.ok(me.permissions.length > 20, "with the full permission set");
+
+    // a write that normally needs a session now goes through
+    const settings = (await (await fetch(`${base}/api/commerce/admin/settings`)).json()) as Json;
+    const { token } = (await (await fetch(`${base}/api/csrf`)).json()) as { token: string };
+    const write = await fetch(`${base}/api/commerce/admin/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-csrf-token": token },
+      body: JSON.stringify(settings),
+    });
+    assert.equal(write.status, 200, await write.clone().text());
+  } finally {
+    delete process.env.PANEL_OPEN_ACCESS;
+  }
+
+  // and with the flag gone the same request is refused again
+  const closed = (await (await fetch(`${base}/api/admin/me`)).json()) as Json;
+  assert.equal(closed.authenticated, false);
+  assert.equal(closed.openAccess, false);
+  const { token } = (await (await fetch(`${base}/api/csrf`)).json()) as { token: string };
+  const refused = await fetch(`${base}/api/commerce/admin/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json", "x-csrf-token": token },
+    body: JSON.stringify({ shippingFlat: 12 }),
+  });
+  assert.equal(refused.status, 401);
 });

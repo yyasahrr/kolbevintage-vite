@@ -73,7 +73,7 @@ import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
 import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
 import { addLog, logSmsCampaign, removeSmsTemplate, resetJournalBlocks, saveSmsTemplate, setFeature, setJournalBlocks, setSeo, setSizeGuide } from "@/state/ops";
-import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
+import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, openPanelForReview, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
 import { resolveImg } from "@/builder/stock";
@@ -315,6 +315,16 @@ export function AdminPage() {
   const admin = useAdmin();
   const session = useAdminMe();
   const { permissions, offline } = session;
+
+  /* Review mode (PANEL_OPEN_ACCESS=1) is decided by the server, not by us: when
+     it says so, the passcode gate steps aside instead of asking for a password
+     the server would not check anyway. */
+  useEffect(() => {
+    if (session.me?.openAccess && !unlocked) {
+      openPanelForReview();
+      setUnlocked(true);
+    }
+  }, [session.me?.openAccess, unlocked]);
   const [navCollapsed, setNavCollapsed] = useState(() => {
     try {
       return localStorage.getItem("kv_admin_nav") === "1";
@@ -520,6 +530,13 @@ export function AdminPage() {
         {navOpen && <div className="ad-nav-scrim" onClick={() => setNavOpen(false)} aria-hidden />}
 
         <main className="ad-main">
+          {session.me?.openAccess && (
+            <p className="ad-banner is-warn" role="status">
+              حالت بررسی: پنل بدون رمز باز است و هر درخواست به‌عنوان مالک فروشگاه پذیرفته می‌شود
+              (<code>PANEL_OPEN_ACCESS=1</code>). برای برگشتن به احراز هویت، این متغیر را بردار و سرور را دوباره
+              راه بینداز.
+            </p>
+          )}
           {offline && (
             <p className="ad-banner is-warn" role="status">
               حالت محلی: سرور پاسخ نداد، پس نقش و مجوزها در دسترس نیستند و تغییرات فقط در همین مرورگر می‌مانند.

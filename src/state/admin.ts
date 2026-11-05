@@ -763,6 +763,15 @@ export function unlockAdmin(code: string) {
   }
   return true;
 }
+/** review mode: the server already said the caller is the owner */
+export function openPanelForReview() {
+  try {
+    sessionStorage.setItem(SESSION, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
 export function lockAdmin() {
   try {
     sessionStorage.removeItem(SESSION);

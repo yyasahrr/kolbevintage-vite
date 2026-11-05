@@ -26,6 +26,8 @@ export interface AdminMe {
   permissions: Permission[];
   /** "offline" = the API never answered; permissions are local-only */
   mode: "server" | "offline";
+  /** review mode: the server opens the panel without a passcode */
+  openAccess?: boolean;
   error?: string;
 }
 
@@ -54,7 +56,7 @@ export async function loadAdminMe(force = false): Promise<AdminMe> {
   inflight = api
     .get<Omit<AdminMe, "mode">>("/api/admin/me")
     .then((me) => {
-      const next: AdminMe = { ...me, permissions: me.permissions ?? [], mode: "server" };
+      const next: AdminMe = { ...me, permissions: me.permissions ?? [], mode: "server", openAccess: Boolean(me.openAccess) };
       cache = next;
       return next;
     })

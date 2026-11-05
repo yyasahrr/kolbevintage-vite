@@ -54,8 +54,12 @@ export function sessionToken(req: FastifyRequest): string | null {
   return null;
 }
 
+/** the owner the review mode acts as (no passcode, no session row) */
+export const REVIEW_SESSION: Session = { kind: "admin", subject: "review-owner", token: "review-mode" };
+
 export async function readSession(req: FastifyRequest): Promise<Session | null> {
   const token = sessionToken(req);
+  if (!token && config.panelOpenAccess) return REVIEW_SESSION;
   if (!token) return null;
   const res = await query<{ kind: SessionKind; subject: string }>(
     "select kind, subject from sessions where token = $1 and expires_at > now()",

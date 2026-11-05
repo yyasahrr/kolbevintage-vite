@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { config } from "../config";
 import type { FastifyInstance } from "fastify";
 import { query } from "../db";
 import { readSession } from "../sessions";
@@ -44,7 +45,15 @@ export async function rbacRoutes(app: FastifyInstance) {
   app.get("/api/admin/me", async (req) => {
     const session = await readSession(req);
     if (session?.kind !== "admin") {
-      return { authenticated: false, subject: null, role: null, permissions: [], catalogue: PERMISSIONS, groups: PERMISSION_GROUPS };
+      return {
+        authenticated: false,
+        subject: null,
+        role: null,
+        permissions: [],
+        catalogue: PERMISSIONS,
+        groups: PERMISSION_GROUPS,
+        openAccess: config.panelOpenAccess,
+      };
     }
     const staffRow = await query(
       `select s.id, s.name, s.subject, r.id as role_id, r.name as role_name, r.permissions
@@ -57,10 +66,12 @@ export async function rbacRoutes(app: FastifyInstance) {
       authenticated: true,
       subject: session.subject,
       staff: me ? { id: me.id, name: me.name, roleId: me.role_id, roleName: me.role_name } : null,
-      role: me?.role_id ?? null,
-      permissions: cleanPermissions(me?.permissions),
+      role: config.panelOpenAccess ? "owner" : me?.role_id ?? null,
+      permissions: config.panelOpenAccess ? [...PERMISSIONS] : cleanPermissions(me?.permissions),
       catalogue: PERMISSIONS,
       groups: PERMISSION_GROUPS,
+      // review mode: the panel says so and opens without a passcode
+      openAccess: config.panelOpenAccess,
     };
   });
 
