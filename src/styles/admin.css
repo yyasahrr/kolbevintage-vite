@@ -3413,3 +3413,576 @@
 .ad-widget-card .ad-btn {
   flex: 0 0 auto;
 }
+
+/* =====================================================================
+   Panel craft pass (owner review, 2026-11-05)
+   ---------------------------------------------------------------------
+   The panel grew screen by screen, so spacing was decided per screen: some
+   screens were a grid with a 14px gap, others a bare fragment whose children
+   touched each other, and a few carried inline `marginTop: -4` patches. This
+   block defines one rhythm and one set of boxes, and every screen below (reports,
+   returns, cashback, product form) is laid out on it. Nothing here changes data
+   or behaviour: it is spacing, alignment, borders and focus states only.
+   ===================================================================== */
+
+.ad-app {
+  --ad-stack: 14px;
+  --ad-stack-lg: 20px;
+  --ad-pad-card: 14px;
+  --ad-radius-box: 14px;
+  --ad-line-soft: rgba(27, 24, 21, 0.08);
+}
+
+/* ---------- 1. one vertical rhythm, everywhere ---------- */
+/* a bare fragment of panels used to collapse to a single touching column */
+.ad-main > * + *,
+.ad-group-body > * + *,
+.ad-panel-adm > * + * {
+  margin-top: var(--ad-stack);
+}
+.ad-panel-adm,
+.ad-group-body {
+  display: block;
+  min-width: 0;
+}
+.ad-head {
+  margin-bottom: 0;
+  gap: 14px;
+  align-items: flex-end;
+}
+.ad-head h2 {
+  font-size: 19px;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+}
+.ad-head p {
+  margin-top: 6px;
+  max-width: 52ch;
+  line-height: 1.9;
+}
+.ad-head-actions {
+  gap: 8px;
+  align-items: center;
+}
+
+/* ---------- 2. toolbar + filters as one control strip ---------- */
+.ad-toolbar {
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--ad-line-soft);
+  border-radius: var(--ad-radius-box);
+  background: var(--ad-surface);
+}
+.ad-toolbar .ad-input {
+  max-width: 300px;
+}
+.ad-filters {
+  gap: 6px;
+}
+.ad-filters + .ad-filters {
+  margin-top: 8px;
+}
+
+/* ---------- 3. tables: calmer cells, a header that reads ---------- */
+.ad-table th {
+  padding: 10px 12px;
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  backdrop-filter: blur(6px);
+}
+.ad-table td {
+  padding: 11px 12px;
+}
+.ad-table th:first-child,
+.ad-table td:first-child {
+  padding-inline-start: 14px;
+}
+.ad-table th:last-child,
+.ad-table td:last-child {
+  padding-inline-end: 14px;
+}
+.ad-table .ad-money,
+.ad-table .ad-num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.ad-table th.ad-sort-th,
+.ad-table th button.ad-sort {
+  font: inherit;
+  color: inherit;
+}
+.ad-table-wrap {
+  border: 1px solid var(--ad-line-soft);
+  border-radius: var(--ad-radius-box);
+  background: var(--ad-surface);
+  overflow: auto;
+}
+
+/* ---------- 4. forms: label, control, hint — one distance each ---------- */
+.ad-field {
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.ad-field > .ad-input,
+.ad-field > .ad-select,
+.ad-field > textarea {
+  margin-top: 0;
+}
+.ad-input,
+.ad-select {
+  min-height: 38px;
+  padding: 8px 11px;
+  line-height: 1.7;
+}
+textarea.ad-input {
+  min-height: 74px;
+  resize: vertical;
+  line-height: 1.9;
+}
+.ad-two,
+.ad-three {
+  gap: 0 12px;
+}
+.ad-field-label {
+  margin: 16px 0 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.ad-form-col > .ad-field-label:first-child,
+.ad-form-col > p:first-child {
+  margin-top: 0;
+}
+.ad-hint {
+  margin: 0 0 10px;
+  line-height: 1.95;
+}
+.ad-hint + .ad-field-label {
+  margin-top: 14px;
+}
+
+/* ---------- 5. product form: no more ragged indentation ---------- */
+.ad-modal-body {
+  padding: 16px;
+  display: block;
+}
+.ad-modal-body > * + * {
+  margin-top: 14px;
+}
+.ad-modal-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ad-line-soft);
+  overflow-x: auto;
+  scrollbar-width: none;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ad-surface);
+}
+.ad-modal-tabs::-webkit-scrollbar {
+  display: none;
+}
+.ad-form-grid {
+  gap: 18px 22px;
+  align-items: start;
+}
+.ad-form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+.ad-form-col > .ad-field:last-child,
+.ad-form-col > .ad-two:last-child {
+  margin-bottom: 0;
+}
+.ad-form-preview {
+  margin: 0;
+}
+.ad-form-preview .ad-preview-thumb {
+  max-width: 240px;
+  border-radius: var(--ad-radius-box);
+  margin-inline-start: 0;
+}
+.ad-color-row {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ad-color-row input[type="color"] {
+  width: 44px;
+  height: 38px;
+  border-radius: 10px;
+}
+.ad-color-row .ad-icon {
+  flex: none;
+}
+.ad-size-pool {
+  gap: 6px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+.ad-size-pool .ad-input {
+  max-width: 150px;
+}
+.ad-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+/* ---------- 6. bulk bar: a real control surface, not a black ribbon ---------- */
+.ad-bulkbar {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--ad-radius-box);
+  box-shadow: 0 12px 30px -18px rgba(20, 17, 14, 0.6);
+}
+.ad-bulkbar .ad-check {
+  white-space: nowrap;
+}
+.ad-bulkbar .ad-actions {
+  gap: 6px;
+}
+
+/* ---------- 7. select-all cell ---------- */
+.ad-check-cell {
+  width: 34px;
+  padding-inline-start: 12px !important;
+  padding-inline-end: 0 !important;
+}
+.ad-checkbox {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--ad-ink);
+  vertical-align: middle;
+  cursor: pointer;
+}
+.ad-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10.5px;
+  color: var(--ad-muted);
+  white-space: nowrap;
+}
+
+/* ---------- 8. returns screen ---------- */
+.ad-return-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (min-width: 720px) {
+  .ad-return-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.ad-stat {
+  border: 1px solid var(--ad-line-soft);
+  border-radius: var(--ad-radius-box);
+  background: var(--ad-surface);
+  padding: 12px 14px;
+  min-width: 0;
+}
+.ad-stat b {
+  display: block;
+  font-size: 18px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.ad-stat span {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--ad-muted);
+}
+.ad-stat small {
+  display: block;
+  margin-top: 6px;
+  font-size: 9.5px;
+  color: var(--ad-muted);
+}
+.ad-returns {
+  display: grid;
+  gap: 10px;
+}
+.ad-return {
+  border: 1px solid var(--ad-line-soft);
+  border-radius: var(--ad-radius-box);
+  background: var(--ad-surface);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+.ad-return.is-muted {
+  background: var(--ad-surface-2);
+}
+.ad-return-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ad-return-top b {
+  font-size: 12.5px;
+}
+.ad-return-top .ad-spacer {
+  flex: 1;
+}
+.ad-return-meta {
+  display: grid;
+  gap: 6px 18px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  font-size: 11px;
+  color: var(--ad-muted);
+}
+.ad-return-meta span {
+  display: block;
+}
+.ad-return-meta b {
+  color: var(--ad-ink);
+  font-weight: 600;
+}
+.ad-return-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+.ad-return-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--ad-surface-2);
+}
+.ad-return-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ad-pill.is-flat {
+  background: transparent;
+  border: 1px solid var(--ad-line-soft);
+  color: var(--ad-muted);
+}
+
+/* ---------- 9. cashback ladder ---------- */
+.ad-ladder {
+  display: grid;
+  gap: 8px;
+}
+.ad-ladder-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--ad-line-soft);
+  border-radius: 12px;
+  background: var(--ad-surface);
+}
+@media (max-width: 640px) {
+  .ad-ladder-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.ad-ladder-row .ad-field {
+  margin-bottom: 0;
+}
+.ad-ladder-note {
+  font-size: 10px;
+  color: var(--ad-muted);
+  padding-top: 4px;
+}
+.ad-ladder-preview {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.ad-ladder-preview div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--ad-surface-2);
+}
+.ad-ladder-preview b {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 10. reports ---------- */
+.ad-report {
+  display: grid;
+  gap: var(--ad-stack);
+}
+.ad-report-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (min-width: 900px) {
+  .ad-report-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.ad-report-kpi {
+  border: 1px solid var(--ad-line-soft);
+  border-radius: var(--ad-radius-box);
+  background: var(--ad-surface);
+  padding: 14px;
+}
+.ad-report-kpi b {
+  display: block;
+  font-size: 19px;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.ad-report-kpi span {
+  display: block;
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--ad-muted);
+}
+.ad-report-kpi small {
+  display: block;
+  margin-top: 8px;
+  font-size: 9.5px;
+  color: var(--ad-muted);
+}
+.ad-report-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 170px;
+  padding: 10px 2px 0;
+}
+.ad-report-chart .ad-bar {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+.ad-report-chart .ad-bar-fill {
+  width: 100%;
+  border-radius: 6px 6px 3px 3px;
+  background: linear-gradient(180deg, rgba(140, 74, 47, 0.85), rgba(140, 74, 47, 0.35));
+  min-height: 3px;
+  transition: filter 160ms ease-out;
+}
+.ad-report-chart .ad-bar:hover .ad-bar-fill {
+  filter: brightness(1.12);
+}
+.ad-report-chart .ad-bar small {
+  font-size: 9px;
+  color: var(--ad-muted);
+  white-space: nowrap;
+  transform: rotate(-32deg);
+  transform-origin: center;
+}
+.ad-report-grid {
+  display: grid;
+  gap: var(--ad-stack);
+}
+@media (min-width: 900px) {
+  .ad-report-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.ad-rank {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--ad-surface-2);
+  font-size: 9.5px;
+  color: var(--ad-muted);
+  margin-inline-end: 6px;
+}
+
+/* ---------- 11. dark theme keeps the same boxes ---------- */
+.ad-app[data-ad-theme="dark"] .ad-table-wrap,
+.ad-app[data-ad-theme="dark"] .ad-toolbar,
+.ad-app[data-ad-theme="dark"] .ad-stat,
+.ad-app[data-ad-theme="dark"] .ad-return,
+.ad-app[data-ad-theme="dark"] .ad-report-kpi,
+.ad-app[data-ad-theme="dark"] .ad-ladder-row {
+  background: var(--ad-surface);
+  border-color: var(--ad-border);
+}
+
+/* ---------- 12. reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ad-report-chart .ad-bar-fill {
+    transition: none;
+  }
+}
+
+/* ---------- studio: reachable from the rail and the header ---------- */
+.ad-nav-studio {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(27, 24, 21, 0.08);
+  display: grid;
+  gap: 2px;
+}
+.ad-nav-studio-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: #8a8175;
+}
+.ad-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  color: var(--ad-ink);
+  text-decoration: none;
+}
+.ad-nav-link:hover {
+  background: rgba(27, 24, 21, 0.05);
+}
+.ad-studio-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #6f675c;
+  background: #f7f3ed;
+}
+.ad-banner + .ad-banner,
+.ad-banner + .ad-group-body {
+  margin-top: var(--ad-stack);
+}

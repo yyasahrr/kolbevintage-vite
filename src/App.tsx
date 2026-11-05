@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { CartProvider } from "@/state/cart";
 import { ThemeProvider } from "@/theme/ThemeProvider";
@@ -19,7 +19,7 @@ import { CheckoutPage } from "@/pages/CheckoutPage";
 import { PaymentReturnPage } from "@/pages/PaymentReturnPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { AdminPage } from "@/pages/AdminPage";
-import { adminUnlocked } from "@/state/admin";
+import { adminUnlocked, openPanelForReview } from "@/state/admin";
 import { StyleBuilderPage } from "@/pages/StyleBuilderPage";
 import { BuilderApp } from "@/builder/BuilderApp";
 import { CorePageSlot, PublishedPage, SiteShell } from "@/builder/SiteIntegration";
@@ -143,10 +143,48 @@ function SiteRoutes() {
   );
 }
 
-/** the page studio is an owner tool — a visitor never reaches it (decision 73) */
+/**
+ * the page studio is an owner tool — a visitor never reaches it (decision 73).
+ *
+ * It used to trust the panel's local unlock flag only, which lives in
+ * sessionStorage: opening #/builder in a fresh tab (or in the review iframe) found
+ * no flag, bounced to /admin, and the owner concluded the studio did not exist.
+ * The guard now asks the server who the caller is and accepts an authenticated
+ * owner even without the local flag.
+ */
 function AdminOnly({ children }: { children: React.ReactNode }) {
-  if (!adminUnlocked()) return <Navigate to="/admin" replace />;
-  return <>{children}</>;
+  const [gate, setGate] = useState<"open" | "check" | "blocked">(() => (adminUnlocked() ? "open" : "check"));
+
+  useEffect(() => {
+    if (gate !== "check") return;
+    let alive = true;
+    void import("@/state/session").then(({ loadAdminMe }) =>
+      loadAdminMe(true)
+        .then((me) => {
+          if (!alive) return;
+          if (me.authenticated) {
+            openPanelForReview();
+            setGate("open");
+          } else {
+            setGate("blocked");
+          }
+        })
+        .catch(() => {
+          if (alive) setGate("blocked");
+        }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [gate]);
+
+  if (gate === "open") return <>{children}</>;
+  if (gate === "blocked") return <Navigate to="/admin" replace />;
+  return (
+    <div className="ad-studio-gate" role="status">
+      در حال بررسی دسترسی به استودیو…
+    </div>
+  );
 }
 
 export default function App() {

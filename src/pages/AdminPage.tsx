@@ -7,6 +7,7 @@ import {
   Bot,
   Check,
   CheckCircle2,
+  CheckSquare,
   ClipboardList,
   CreditCard,
   Download as DIcon,
@@ -264,7 +265,8 @@ function GroupShell({
           </button>
         ))}
       </div>
-      {active.node}
+      {/* one stacking context per screen: bare fragments used to touch each other */}
+      <div className="ad-group-body">{active.node}</div>
     </div>
   );
 }
@@ -486,6 +488,10 @@ export function AdminPage() {
         </span>
         <OpsBell onGo={(next) => setTab(next)} />
         <SyncBadge />
+        <Link to="/builder" className="ad-btn is-sm is-primary" aria-label="صفحه‌ساز استودیو" title="استودیو صفحه‌ساز">
+          <LayoutTemplate width={14} height={14} />
+          <span className="ad-top-btn-label">استودیو</span>
+        </Link>
         <Link to="/" className="ad-btn is-sm" aria-label="مشاهده سایت">
           <Store width={14} height={14} />
           <span className="ad-top-btn-label">سایت</span>
@@ -521,6 +527,25 @@ export function AdminPage() {
                 </button>
               );
             })}
+            {/* the page studio is a real tool, not a hidden route: it gets its own block on
+                the rail so the owner cannot miss it (they never found the dashboard shortcut) */}
+            <div className="ad-nav-studio">
+              <span className="ad-nav-studio-head">
+                <Sparkles width={12} height={12} /> استودیو
+              </span>
+              <Link to="/builder" className="ad-nav-link" onClick={() => setNavOpen(false)}>
+                <LayoutTemplate width={15} height={15} />
+                <span>صفحه‌ساز و لندینگ</span>
+              </Link>
+              <Link to="/style-builder" className="ad-nav-link" onClick={() => setNavOpen(false)}>
+                <Palette width={15} height={15} />
+                <span>استایل‌بیلدر</span>
+              </Link>
+              <Link to="/" className="ad-nav-link" onClick={() => setNavOpen(false)}>
+                <Store width={15} height={15} />
+                <span>دیدن فروشگاه</span>
+              </Link>
+            </div>
             <div className="ad-nav-foot">
               <p>{admin.settings.name}</p>
               <small>{admin.settings.tagline}</small>
@@ -1495,6 +1520,17 @@ function Orders() {
       (!needle || `${o.id} ${o.customer} ${o.phone} ${o.email} ${o.city}`.includes(needle)),
   );
 
+  /* select-all over exactly the rows the owner is looking at */
+  const pickedHere = list.filter((o) => picked.has(o.id)).length;
+  const allHerePicked = list.length > 0 && pickedHere === list.length;
+  const toggleAllHere = () =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (allHerePicked) list.forEach((o) => next.delete(o.id));
+      else list.forEach((o) => next.add(o.id));
+      return next;
+    });
+
   const csv = () =>
     download(
       "orders.csv",
@@ -1557,6 +1593,9 @@ function Orders() {
         <button type="button" className="ad-btn is-sm" onClick={saveView}>
           <Plus width={12} height={12} /> ذخیرهٔ نمای فعلی
         </button>
+        <button type="button" className="ad-btn is-sm" onClick={toggleAllHere} disabled={list.length === 0}>
+          <CheckSquare width={12} height={12} /> {allHerePicked ? "برداشتن انتخاب" : `انتخاب همهٔ ${fa(list.length)}`}
+        </button>
       </div>
       <div className="ad-filters">
         {(["all", "pending", "processing", "shipped", "done", "cancelled", "exception"] as const).map((f) => (
@@ -1572,7 +1611,18 @@ function Orders() {
           <table className="ad-table">
             <thead>
               <tr>
-                <th aria-label="انتخاب" />
+                <th className="ad-check-cell">
+                  <input
+                    type="checkbox"
+                    className="ad-checkbox"
+                    checked={allHerePicked}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allHerePicked && pickedHere > 0;
+                    }}
+                    onChange={toggleAllHere}
+                    aria-label="انتخاب همهٔ سفارش‌های این فهرست"
+                  />
+                </th>
                 <th>شناسه</th>
                 <th>مشتری</th>
                 <th>اقلام</th>
@@ -1771,6 +1821,18 @@ function Products() {
     setSelected(new Set());
   };
 
+  /* select-all: the header box takes the page, the toolbar takes every match */
+  const visiblePicked = rows.filter((p) => selected.has(p.id)).length;
+  const allVisiblePicked = rows.length > 0 && visiblePicked === rows.length;
+  const toggleVisible = () =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisiblePicked) rows.forEach((p) => next.delete(p.id));
+      else rows.forEach((p) => next.add(p.id));
+      return next;
+    });
+  const selectEveryMatch = () => setSelected(new Set(sorted.map((p) => p.id)));
+
   return (
     <>
       <PageHead
@@ -1790,6 +1852,15 @@ function Products() {
             <button key={c.id} type="button" className={cn("ad-chip", cat === c.id && "is-on")} onClick={() => setCat(c.id)}>{c.short}</button>
           ))}
         </div>
+        <button
+          type="button"
+          className="ad-btn is-sm"
+          onClick={selectEveryMatch}
+          disabled={sorted.length === 0}
+          title="همهٔ نتیجه‌ها را انتخاب کن، نه فقط همین صفحه"
+        >
+          <CheckSquare width={12} height={12} /> انتخاب همهٔ {fa(sorted.length)}
+        </button>
       </div>
 
       {selected.size > 0 && (
@@ -1829,7 +1900,19 @@ function Products() {
         <table className="ad-table ad-products-table">
           <thead>
             <tr>
-              <th aria-label="انتخاب" />
+              <th className="ad-check-cell">
+                <input
+                  type="checkbox"
+                  className="ad-checkbox"
+                  checked={allVisiblePicked}
+                  ref={(el) => {
+                    if (el) el.indeterminate = !allVisiblePicked && visiblePicked > 0;
+                  }}
+                  onChange={toggleVisible}
+                  aria-label="انتخاب همهٔ ردیف‌های این صفحه"
+                  title="انتخاب ردیف‌های این صفحه"
+                />
+              </th>
               <th><button type="button" className="ad-sort" onClick={() => sortBy("name")}>محصول{sortMark("name")}</button></th>
               <th><button type="button" className="ad-sort" onClick={() => sortBy("category")}>دسته{sortMark("category")}</button></th>
               <th>تنوع</th>
@@ -2640,6 +2723,17 @@ function Customers() {
     return list;
   }, [admin.orders, q, city, tag, spend, campaign, admin.customers, avgValue]);
 
+  /* select-all over the filtered customer list, not the whole book */
+  const pickedHere = rows.filter((r) => pickedCustomers.has(r.email || r.name)).length;
+  const allHerePicked = rows.length > 0 && pickedHere === rows.length;
+  const toggleAllHere = () =>
+    setPickedCustomers((prev) => {
+      const next = new Set(prev);
+      if (allHerePicked) rows.forEach((r) => next.delete(r.email || r.name));
+      else rows.forEach((r) => next.add(r.email || r.name));
+      return next;
+    });
+
   const avgOrder = admin.orders.length ? Math.round(admin.orders.reduce((n, o) => n + o.total, 0) / admin.orders.length) : 0;
   const segments = [
     { label: "کل مشتریان", value: fa(rows.length) },
@@ -2719,6 +2813,9 @@ function Customers() {
           </button>
         )}
         <span className="ad-hint">{fa(rows.length)} مشتری با این فیلتر</span>
+        <button type="button" className="ad-btn is-sm" onClick={toggleAllHere} disabled={rows.length === 0}>
+          <CheckSquare width={12} height={12} /> {allHerePicked ? "برداشتن انتخاب" : `انتخاب همهٔ ${fa(rows.length)}`}
+        </button>
       </div>
       {rows.length > 0 && (
         <div className="ad-bulkbar" role="region" aria-label="برچسب گروهی مشتریان">
@@ -2781,7 +2878,23 @@ function Customers() {
       ) : (
         <div className="ad-table-wrap">
           <table className="ad-table">
-            <thead><tr><th aria-label="انتخاب" /><th>مشتری</th><th>تماس</th><th>شهر</th><th>سفارش</th><th>ارزش خرید</th><th>آخرین</th><th>برچسب</th></tr></thead>
+            <thead>
+              <tr>
+                <th className="ad-check-cell">
+                  <input
+                    type="checkbox"
+                    className="ad-checkbox"
+                    checked={allHerePicked}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allHerePicked && pickedHere > 0;
+                    }}
+                    onChange={toggleAllHere}
+                    aria-label="انتخاب همهٔ مشتریان این فهرست"
+                  />
+                </th>
+                <th>مشتری</th><th>تماس</th><th>شهر</th><th>سفارش</th><th>ارزش خرید</th><th>آخرین</th><th>برچسب</th>
+              </tr>
+            </thead>
             <tbody>
               {rows.map((r) => {
                 const meta = admin.customers[r.email || r.name] ?? { tags: [], note: "" };

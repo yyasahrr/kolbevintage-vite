@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { formatJalaliDateTime } from "@/utils/date";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  ArrowRight,
   Copy,
   Download,
   ExternalLink,
@@ -104,6 +105,7 @@ export function Dashboard() {
           <span style={{ flex: 1 }} />
           <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => { void doImport(e.target.files?.[0]); e.target.value = ""; }} />
           <button type="button" className="ebd-btn" onClick={() => fileRef.current?.click()}><Upload width={14} height={14} /> ایمپورت JSON</button>
+          <Link to="/admin" className="ebd-btn"><ArrowRight width={14} height={14} /> بازگشت به پنل</Link>
           <Link to="/" className="ebd-btn"><ExternalLink width={14} height={14} /> بازگشت به سایت</Link>
           <button type="button" className="ebd-btn is-primary" onClick={() => setCreating("page")}><Plus width={14} height={14} /> ساخت جدید</button>
         </div>
