@@ -20,7 +20,7 @@
     "audit:mobile": "node scripts/mobile-audit.mjs",
     "audit:purge": "node scripts/purge-dryrun.mjs",
     "audit:widgets": "node scripts/widget-audit.mjs",
-    "audit": "npm run audit:contrast && npm run audit:mobile && npm run audit:widgets && npm run lint:ui && npm run lint:responsive && npm run lint:classes",
+    "audit": "npm run audit:contrast && npm run audit:mobile && npm run audit:widgets && npm run lint:ui && npm run lint:responsive && npm run lint:classes && npm run audit:routes",
     "test:rbac": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/rbac.test.ts",
     "restore": "node --import tsx scripts/restore-backup.mjs",
     "clear-demo": "node --import tsx scripts/clear-demo-data.mjs",
@@ -31,7 +31,8 @@
     "lint:responsive": "node scripts/responsive-audit.mjs",
     "lint:classes": "node scripts/class-audit.mjs",
     "smoke:panel": "tsx scripts/panel-smoke.mjs",
-    "audit:a11y": "tsx scripts/a11y-audit.mjs"
+    "audit:a11y": "tsx scripts/a11y-audit.mjs",
+    "audit:routes": "node scripts/routing-audit.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
