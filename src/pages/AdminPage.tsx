@@ -63,18 +63,18 @@ import { ProductMediaEditor } from "@/components/ProductMediaEditor";
 import { adminLogin, adminLogout, ApiError } from "@/lib/api";
 import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
-import { useDialogFocus } from "@/hooks/useOverlay";
+import { useDialogFocus, useEscape } from "@/hooks/useOverlay";
 import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
 import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
 import { addLog, logSmsCampaign, removeSmsTemplate, resetJournalBlocks, saveSmsTemplate, setFeature, setJournalBlocks, setSeo, setSizeGuide } from "@/state/ops";
-import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, openPanelForReview, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
+import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, openPanelForReview, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
 import { resolveImg } from "@/builder/stock";
 import { useCart as useNotifyCart } from "@/state/cart";
-import type { AdminState, Campaign, DiscountRule, OrderStatus, RuleType, Scope } from "@/state/admin";
+import type { Campaign, DiscountRule, OrderStatus, RuleType, Scope } from "@/state/admin";
 import type { GarmentKind, ProductImage } from "@/types";
 import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, AnalyticsPanel, BackupPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
 import { CashbackPanel } from "./AdminCashback";
@@ -88,6 +88,7 @@ import { can, permissionForScreen, firstAllowedScreen } from "@/admin/rbac";
 import "@/styles/admin.css";
 import "@/styles/admin-shell.css";
 import { Dashboard as OverviewDashboard } from "@/admin/Dashboard";
+import { OrdersList } from "@/admin/OrdersList";
 
 /* =====================================================================
    helpers
@@ -380,7 +381,8 @@ export function AdminPage() {
   // ⌘K / Ctrl+K — the only global shortcut in the panel
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      const target = e.target as HTMLElement | null;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !target?.matches("input, textarea, select, [contenteditable=true]")) {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
@@ -519,7 +521,7 @@ export function AdminPage() {
 
         <main className="ad-main">
           {import.meta.env.VITE_DEMO_MODE === "1" && (
-            <p className="ad-banner is-warn" role="status">داده‌های آزمایشی (Demo) — این محیط برای بررسی است و به فروشگاه واقعی متصل نیست.</p>
+            <p className="ad-banner is-warn shell-demo-banner" role="status">محیط آزمایشی · داده‌ها به فروشگاه واقعی متصل نیستند.</p>
           )}
           {session.me?.openAccess && (
             <p className="ad-banner is-warn" role="status">
@@ -549,7 +551,7 @@ export function AdminPage() {
           {group === "sales" && !orderId && (
             <GroupShell
               sections={[
-                { id: "orders", label: "سفارش‌ها", node: <Orders /> },
+                { id: "orders", label: "سفارش‌ها", node: <OrdersList /> },
                 { id: "campaigns", label: "تخفیف و کمپین", node: <Campaigns /> },
                 { id: "commerce", label: "پرداخت و مالی", node: <CommercePanel /> },
                 { id: "returns", label: "مرجوعی‌ها", node: <ReturnsPanel /> },
@@ -671,6 +673,8 @@ function CommandPalette({
 }) {
   const [q, setQ] = useState("");
   const [cursor, setCursor] = useState(0);
+  const paletteRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(true, paletteRef);
 
   const items = useMemo(() => {
     const flat = tabs.flatMap((t) => [
@@ -689,6 +693,7 @@ function CommandPalette({
   // the palette owns the keyboard while it is open
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!(e.target instanceof HTMLInputElement)) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setCursor((c) => Math.min(c + 1, items.length - 1));
@@ -708,6 +713,8 @@ function CommandPalette({
     <div className="ad-palette-scrim" role="presentation" onClick={onClose}>
       <div
         className="ad-palette"
+        ref={paletteRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label="جست‌وجوی سریع بخش‌های پنل"
@@ -716,7 +723,6 @@ function CommandPalette({
         <div className="ad-palette-input">
           <Search width={15} height={15} />
           <input
-            autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="بخش مورد نظر…"
@@ -867,7 +873,7 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
 function SyncBadge() {
   const sync = useSyncStatus();
   const map = {
-    online: { cls: "is-online", label: sync.lastSaved ? "ذخیره شد" : "متصل به سرور" },
+    online: { cls: "is-online", label: import.meta.env.VITE_DEMO_MODE === "1" ? "سرور آزمایشی" : sync.lastSaved ? "ذخیره شد" : "متصل به سرور" },
     connecting: { cls: "is-connecting", label: "اتصال به سرور…" },
     offline: { cls: "is-offline", label: "فقط مرورگر" },
   } as const;
@@ -1450,252 +1456,6 @@ function OrderPage({ orderId }: { orderId: string }) {
 /* =====================================================================
    orders
    ===================================================================== */
-
-function Orders() {
-  const admin = useAdmin();
-  const [open, setOpen] = useState<string | null>(null);
-  const [filter, setFilter] = useState<OrderStatus | "all">("all");
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const togglePick = (id: string) => setPicked((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-
-  /* saved views: a named filter the owner can come back to (decision 16) */
-  const [query, setQuery] = useState("");
-  const [views, setViews] = useState<{ name: string; filter: OrderStatus | "all"; query: string }[]>(() => {
-    try {
-      const raw = localStorage.getItem("kv_order_views");
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-  const persistViews = (next: { name: string; filter: OrderStatus | "all"; query: string }[]) => {
-    setViews(next);
-    try {
-      localStorage.setItem("kv_order_views", JSON.stringify(next));
-    } catch {
-      /* private mode */
-    }
-  };
-  const saveView = () => {
-    const name = window.prompt("نام این نما؟", filter === "all" ? "همه" : ORDER_STATUS_LABEL[filter]);
-    if (!name?.trim()) return;
-    persistViews([...views.filter((v) => v.name !== name.trim()), { name: name.trim(), filter, query }]);
-  };
-
-  const needle = query.trim();
-  const list = admin.orders.filter(
-    (o) =>
-      (filter === "all" || o.status === filter) &&
-      (!needle || `${o.id} ${o.customer} ${o.phone} ${o.email} ${o.city}`.includes(needle)),
-  );
-
-  /* select-all over exactly the rows the owner is looking at */
-  const pickedHere = list.filter((o) => picked.has(o.id)).length;
-  const allHerePicked = list.length > 0 && pickedHere === list.length;
-  const toggleAllHere = () =>
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (allHerePicked) list.forEach((o) => next.delete(o.id));
-      else list.forEach((o) => next.add(o.id));
-      return next;
-    });
-
-  const csv = () =>
-    download(
-      "orders.csv",
-      "\uFEFF" +
-        [["شناسه", "زمان", "مشتری", "ایمیل", "شهر", "تخفیف", "کل", "وضعیت"],
-          ...admin.orders.map((o) => [o.id, new Date(o.at).toLocaleString("fa-IR"), o.customer, o.email, o.city, fa(o.discountTotal), o.total, ORDER_STATUS_LABEL[o.status]])]
-          .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"),
-      "text/csv",
-    );
-
-  return (
-    <>
-      <PageHead
-        title="سفارش‌ها"
-        sub={`${fa(admin.orders.length)} سفارش ثبت‌شده. روی هر ردیف بزن تا جزئیات باز شود.`}
-        actions={
-          <>
-            <button type="button" className="ad-btn is-sm" onClick={csv}><DIcon width={13} height={13} /> خروجی CSV</button>
-          </>
-        }
-      />
-      {picked.size > 0 && (
-        <div className="ad-bulkbar" role="region" aria-label="عملیات گروهی سفارش">
-          <b>{fa(picked.size)} سفارش</b>
-          <div className="ad-actions">
-            <button type="button" className="ad-btn is-sm" onClick={() => { picked.forEach((id) => setOrderStatus(id, "processing")); setPicked(new Set()); }}>آماده‌سازی</button>
-            <button type="button" className="ad-btn is-sm" onClick={() => { picked.forEach((id) => setOrderStatus(id, "shipped")); setPicked(new Set()); }}>ارسال</button>
-            <button type="button" className="ad-btn is-sm" onClick={() => { picked.forEach((id) => setOrderStatus(id, "done")); setPicked(new Set()); }}>تحویل</button>
-            <button type="button" className="ad-btn is-sm" onClick={() => printLabels(admin.orders.filter((o) => picked.has(o.id)))}>چاپ لیبل</button>
-            <button type="button" className="ad-btn is-sm" onClick={() => printInvoices(admin.orders.filter((o) => picked.has(o.id)))}>فاکتور A4</button>
-            <button type="button" className="ad-btn is-sm" onClick={() => setPicked(new Set())}>لغو</button>
-          </div>
-        </div>
-      )}
-      <div className="ad-toolbar">
-        <input
-          className="ad-input"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="شناسه، نام، موبایل یا شهر…"
-          aria-label="جست‌وجوی سفارش"
-        />
-        <select
-          className="ad-input is-compact"
-          value=""
-          aria-label="نمای ذخیره‌شده"
-          onChange={(e) => {
-            const v = views.find((x) => x.name === e.target.value);
-            if (v) {
-              setFilter(v.filter);
-              setQuery(v.query);
-            }
-          }}
-        >
-          <option value="">نمای ذخیره‌شده…</option>
-          {views.map((v) => (
-            <option key={v.name} value={v.name}>{v.name}</option>
-          ))}
-        </select>
-        <button type="button" className="ad-btn is-sm" onClick={saveView}>
-          <Plus width={12} height={12} /> ذخیرهٔ نمای فعلی
-        </button>
-        <button type="button" className="ad-btn is-sm" onClick={toggleAllHere} disabled={list.length === 0}>
-          <CheckSquare width={12} height={12} /> {allHerePicked ? "برداشتن انتخاب" : `انتخاب همهٔ ${fa(list.length)}`}
-        </button>
-      </div>
-      <div className="ad-filters">
-        {(["all", "pending", "processing", "shipped", "done", "cancelled", "exception"] as const).map((f) => (
-          <button key={f} type="button" className={cn("ad-chip", filter === f && "is-on")} onClick={() => setFilter(f)}>
-            {f === "all" ? "همه" : ORDER_STATUS_LABEL[f]}
-          </button>
-        ))}
-      </div>
-      {list.length === 0 ? (
-        <Empty text="سفارشی با این فیلتر نیست." />
-      ) : (
-        <div className="ad-table-wrap">
-          <table className="ad-table">
-            <thead>
-              <tr>
-                <th className="ad-check-cell">
-                  <span className="ad-sr">انتخاب همه</span>
-                  <input
-                    type="checkbox"
-                    className="ad-checkbox"
-                    checked={allHerePicked}
-                    ref={(el) => {
-                      if (el) el.indeterminate = !allHerePicked && pickedHere > 0;
-                    }}
-                    onChange={toggleAllHere}
-                    aria-label="انتخاب همهٔ سفارش‌های این فهرست"
-                  />
-                </th>
-                <th>شناسه</th>
-                <th>مشتری</th>
-                <th>اقلام</th>
-                <th>زمان</th>
-                <th>ارسال</th>
-                <th>پرداخت</th>
-                <th>تخفیف</th>
-                <th>کل</th>
-                <th>وضعیت</th>
-                <th><span className="ad-sr">عملیات</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((o) => (
-                <OrderRow key={o.id} o={o} open={open === o.id} picked={picked.has(o.id)} onPick={() => togglePick(o.id)} onToggle={() => setOpen(open === o.id ? null : o.id)} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
-  );
-}
-
-function OrderRow({ o, open, onToggle, picked, onPick }: { o: AdminState["orders"][number]; open: boolean; onToggle: () => void; picked: boolean; onPick: () => void }) {
-  return (
-    <>
-      <tr className={cn(open && "is-open")} onClick={onToggle}>
-        <td><input type="checkbox" className="ad-checkbox" checked={picked} onChange={(e) => { e.stopPropagation(); onPick(); }} aria-label={`انتخاب سفارش ${o.id}`} /></td>
-        <td dir="ltr">
-          <Link to={`/admin/sales/orders/${encodeURIComponent(o.id)}`} className="ad-link" onClick={(e) => e.stopPropagation()}>
-            {o.id}
-          </Link>
-        </td>
-        <td>{o.customer}<small>{o.city}</small></td>
-        <td className="ad-num">{fa(o.lines.reduce((n, l) => n + l.qty, 0))}</td>
-        <td>{timeAgo(o.at)}</td>
-        <td>{o.shipping === "express" ? "پیشتاز" : "پست"}</td>
-        <td className="latin-track" dir="ltr">{o.gateway ?? "—"}</td>
-        <td>{o.discountTotal > 0 ? `− ${formatPrice(o.discountTotal)}` : "—"}</td>
-        <td className="ad-money">{formatPrice(o.total)}</td>
-        <td>
-          <select value={o.status} aria-label="وضعیت سفارش" onClick={(e) => e.stopPropagation()} onChange={(e) => setOrderStatus(o.id, e.target.value as OrderStatus)} className={cn("ad-select", `is-${o.status}`)}>
-            {(Object.keys(ORDER_STATUS_LABEL) as OrderStatus[]).map((s) => (
-              <option key={s} value={s}>{ORDER_STATUS_LABEL[s]}</option>
-            ))}
-          </select>
-        </td>
-        <td>
-          <button type="button" className="ad-icon" aria-label="حذف سفارش" onClick={(e) => { e.stopPropagation(); removeOrder(o.id); }}>
-            <Trash2 width={13} height={13} />
-          </button>
-        </td>
-      </tr>
-      {open && (
-        <tr className="ad-detail-row">
-          <td colSpan={11}>
-            <div className="ad-detail">
-              <div className="ad-detail-col">
-                <h4>اقلام</h4>
-                <ul>
-                  {o.lines.map((l, i) => (
-                    <li key={i}>
-                      <span>{l.name}</span>
-                      <em>{l.color} · {l.size} × {fa(l.qty)}</em>
-                      <b>{formatPrice(l.price * l.qty)}</b>
-                    </li>
-                  ))}
-                </ul>
-                {o.discounts.length > 0 && (
-                  <>
-                    <h4>تخفیف‌های اعمال‌شده</h4>
-                    <ul>
-                      {o.discounts.map((d, i) => (
-                        <li key={i}><span>{d.name}</span><b className="text-emerald-700">{d.amount > 0 ? `− ${formatPrice(d.amount)}` : "ارسال رایگان"}</b></li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </div>
-              <div className="ad-detail-col">
-                <h4>مشتری و ارسال</h4>
-                <p>{o.email || "—"}</p>
-                <p dir="ltr">{o.phone || "—"}</p>
-                <p>{o.address || "—"}</p>
-                <p>{o.shipping === "express" ? "ارسال سریع" : "ارسال استاندارد"} · {o.gateway ?? "—"}</p>
-                {o.campaign && <p>جشنواره: <b>{o.campaign}</b></p>}
-                {o.coupon && <p>کد: <b dir="ltr">{o.coupon}</b></p>}
-                <div className="ad-sums">
-                  <span>جمع اقلام <b>{formatPrice(o.subtotal)}</b></span>
-                  <span>تخفیف <b>− {formatPrice(o.discountTotal)}</b></span>
-                  <span>ارسال <b>{o.shippingCost === 0 ? "رایگان" : formatPrice(o.shippingCost)}</b></span>
-                  <span className="is-total">کل <b>{formatPrice(o.total)}</b></span>
-                </div>
-              </div>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
 
 /* =====================================================================
    products (with add/edit)
@@ -3020,6 +2780,13 @@ function OpsBell({ onGo }: { onGo: (tab: Tab) => void }) {
   const ops = useOps();
   const session = useAdminMe();
   const [open, setOpen] = useState(false);
+  const bellTriggerRef = useRef<HTMLButtonElement>(null);
+  const bellPopupRef = useRef<HTMLDivElement>(null);
+  const closeBell = () => {
+    if (bellPopupRef.current?.contains(document.activeElement)) bellTriggerRef.current?.focus();
+    setOpen(false);
+  };
+  useEscape(open, closeBell);
   const [serverOrders, setServerOrders] = useState<{ id: string; status: string; createdAt: string }[] | null>(null);
   const [failedPayments, setFailedPayments] = useState<number | null>(null);
   const [liveError, setLiveError] = useState("");
@@ -3109,6 +2876,7 @@ function OpsBell({ onGo }: { onGo: (tab: Tab) => void }) {
     <div className="ad-bell">
       <button
         type="button"
+        ref={bellTriggerRef}
         className={cn("ad-btn is-sm", total > 0 && "is-attention")}
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -3121,11 +2889,11 @@ function OpsBell({ onGo }: { onGo: (tab: Tab) => void }) {
       </button>
       {open && (
         <>
-          <div className="ad-bell-scrim" onClick={() => setOpen(false)} aria-hidden />
-          <div className="ad-bell-pop" role="dialog" aria-label="اعلان‌های عملیاتی">
+          <div className="ad-bell-scrim" onClick={closeBell} aria-hidden />
+          <div ref={bellPopupRef} className="ad-bell-pop" role="dialog" aria-label="اعلان‌های عملیاتی">
             <div className="ad-bell-head">
               <b>اعلان‌های عملیاتی</b>
-              <button type="button" className="ad-icon" aria-label="بستن" onClick={() => setOpen(false)}>
+              <button type="button" className="ad-icon" aria-label="بستن" onClick={closeBell}>
                 <X width={14} height={14} />
               </button>
             </div>
@@ -3135,17 +2903,17 @@ function OpsBell({ onGo }: { onGo: (tab: Tab) => void }) {
               </p>
             )}
             {total === 0 && <p className="ad-bell-empty">کاری برای انجام نیست.</p>}
-            {notices.map((n) => (
+            <div className="shell-notice-list">{notices.map((n) => (
               <button
                 key={n.id}
                 type="button"
                 className="ad-bell-row"
                 onClick={() => {
                   onGo(n.to);
-                  setOpen(false);
+                  closeBell();
                 }}
               >
-                <span className={cn("ad-bell-dot", n.count > 0 && "is-on")} />
+                <span className="shell-notice-icon">{n.id === "orders" ? <ShoppingBag size={16} /> : n.id === "stock" ? <Package size={16} /> : n.id === "payments" ? <CreditCard size={16} /> : <MessageSquare size={16} />}</span>
                 <span className="ad-bell-main">
                   <b>{n.label}</b>
                   <small>{n.hint}</small>
@@ -3153,7 +2921,7 @@ function OpsBell({ onGo }: { onGo: (tab: Tab) => void }) {
                 </span>
                 <em>{fa(n.count)}</em>
               </button>
-            ))}
+            ))}</div>
             <p className="ad-bell-foot">هر ۶۰ ثانیه از سرور تازه می‌شود.</p>
           </div>
         </>

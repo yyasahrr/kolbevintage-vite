@@ -9,7 +9,7 @@
 .dash-note { margin: -8px 0 0; color: var(--ad-muted); font-size: 11px; }
 .dash-metrics { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 12px; }
 .dash-metric, .dash-panel, .dash-state { min-width: 0; border: 1px solid var(--ad-line); border-radius: 12px; background: var(--ad-surface); }
-.dash-metric { grid-column: span 3; display: grid; grid-template-columns: 36px minmax(0,1fr); align-content: start; column-gap: 12px; row-gap: 4px; padding: 16px; }
+.dash-metric { grid-column: span 3; display: grid; grid-template-columns: 36px minmax(0,1fr); align-content: start; column-gap: 12px; row-gap: 4px; padding: 12px; }
 .dash-metric-icon, .dash-placeholder-icon, .dash-queue-icon { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 8px; color: var(--ad-brand); background: color-mix(in srgb, var(--ad-brand) 10%, var(--ad-surface)); }
 .dash-metric-icon { grid-row: span 3; }
 .dash-metric-label { color: var(--ad-muted-2); font-size: 12px; }

@@ -16,7 +16,7 @@ import { createPanelDom } from "./lib/panel-dom.mjs";
 /** [hash, expected data-screen, selector that must exist] */
 const ROUTES = [
   ["#/admin", null, ".dash"],
-  ["#/admin/sales/orders", "orders", ".ad-head"],
+  ["#/admin/sales/orders", "orders", ".ord"],
   ["#/admin/stock/products", "products", ".ad-table, .ad-empty"],
   ["#/admin/sales/returns", "returns", ".ad-head"],
   ["#/admin/sales/cashback", "cashback", ".ad-ladder, .ad-form-grid, .ad-card"],

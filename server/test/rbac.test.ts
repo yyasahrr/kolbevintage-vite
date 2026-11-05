@@ -429,3 +429,23 @@ test("dashboard aggregates the chosen interval and enforces both permissions", a
     await query("delete from orders where id in ('dash-recent','dash-old')");
   }
 });
+
+test("orders list enforces view permission and supports server filters and pagination", async () => {
+  const anon = makeClient();
+  assert.equal((await anon.get("/api/admin/orders-list")).status, 401);
+  const { client } = await staffWith(["dashboard:view"], "no-orders", "no-orders", "948314");
+  assert.equal((await client.get("/api/admin/orders-list")).status, 403);
+  assert.equal((await client.get("/api/admin/orders-list/kv-test-list-1")).status, 403);
+  const admin = owner(); await admin.login(OWNER_PASSCODE);
+  await query("insert into orders (id,created_at,customer,status,payment_status,fulfillment_status,total,currency,data) values ('kv-test-list-1', now(), 'آزمون اختصاصی', 'paid', 'settled', 'unfulfilled', 1234, 'IRT', '{}'), ('kv-test-list-2', now() - interval '1 day', 'آزمون اختصاصی', 'cancelled', 'unpaid', 'unfulfilled', 456, 'IRT', '{}')");
+  try {
+    const res = await admin.get("/api/admin/orders-list?q=kv-test-list&payment=settled&sort=amount&dir=desc&page=1");
+    assert.equal(res.status, 200); assert.equal(res.body.total, 1); assert.equal(res.body.orders[0].id, "kv-test-list-1");
+    assert.equal("email" in res.body.orders[0], false);
+    assert.equal((await admin.get("/api/admin/orders-list?q=kv-test-list&page=2")).body.orders.length, 0);
+    assert.equal((await admin.get("/api/admin/orders-list?sort=bad")).status, 400);
+    const detail = await admin.get("/api/admin/orders-list/kv-test-list-1");
+    assert.equal(detail.status, 200); assert.equal(detail.body.order.id, "kv-test-list-1"); assert.equal("data" in detail.body.order, false);
+    assert.equal((await admin.get("/api/admin/orders-list/does-not-exist")).status, 404);
+  } finally { await query("delete from orders where id in ('kv-test-list-1','kv-test-list-2')"); }
+});
