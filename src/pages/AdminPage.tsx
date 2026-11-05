@@ -568,6 +568,9 @@ export function AdminPage() {
         {navOpen && <div className="ad-nav-scrim" onClick={() => setNavOpen(false)} aria-hidden />}
 
         <main className="ad-main">
+          {import.meta.env.VITE_DEMO_MODE === "1" && (
+            <p className="ad-banner is-warn" role="status">داده‌های آزمایشی (Demo) — این محیط برای بررسی است و به فروشگاه واقعی متصل نیست.</p>
+          )}
           {session.me?.openAccess && (
             <p className="ad-banner is-warn" role="status">
               حالت بررسی: پنل بدون رمز باز است و هر درخواست به‌عنوان مالک فروشگاه پذیرفته می‌شود
@@ -1001,7 +1004,7 @@ function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
 
   const kpis: { icon: typeof Gauge; label: string; value: string; sub: string; to: Tab }[] = [
     { icon: ShoppingBag, label: "سفارش‌ها", value: fa(admin.orders.length), sub: `${fa(admin.orders.filter((o) => o.status === "pending").length)} در انتظار`, to: "orders" },
-    { icon: TrendingUp, label: "درآمد", value: formatPrice(revenue), sub: "از ابتدا · بدون سفارش لغوشده", to: "orders" },
+    { icon: TrendingUp, label: "مبلغ سفارش‌ها", value: formatPrice(revenue), sub: "از ابتدا · بدون لغوشده؛ نه فروش وصول‌شده", to: "orders" },
     { icon: Users, label: "مشتریان", value: fa(customers), sub: "بر اساس سفارش‌ها", to: "crm" },
     { icon: Warehouse, label: "ارزش انبار", value: formatPrice(stockValue), sub: `${fa(outCount)} ناموجود · ${fa(lowCount)} کم‌موجود`, to: "inventory" },
     { icon: Megaphone, label: "جشنواره فعال", value: fa(campaignsOn), sub: `${fa(admin.rules.filter((r) => r.active).length)} قانون تخفیف`, to: "campaigns" },
@@ -1050,7 +1053,7 @@ function DashboardBody({ onGo }: { onGo: (t: Tab) => void }) {
       </div>
 
       <div className="ad-grid-2">
-        <Card title="فروش هفت روز اخیر" icon={<BarChart3 width={14} height={14} />}>
+        <Card title="مبلغ سفارش‌های هفت روز اخیر (همه وضعیت‌ها)" icon={<BarChart3 width={14} height={14} />}>
           {admin.orders.length === 0 ? (
             <Empty text="هنوز سفارشی ثبت نشده. اولین سفارش واقعی با یک خرید از فروشگاه ساخته می‌شود." />
           ) : (
