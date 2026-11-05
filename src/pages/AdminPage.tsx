@@ -3425,6 +3425,38 @@ function SmsPanel() {
   const [confirmed, setConfirmed] = useState(false);
   const [prepared, setPrepared] = useState<{ id: string; name: string; body: string; audience: string; recipients: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  /** what the server says about the provider — the only source for "can we send?" */
+  const [provider, setProvider] = useState<{ configured: boolean; sender: string } | null>(null);
+  const [sendState, setSendState] = useState<{ busy: boolean; ok?: boolean; text?: string }>({ busy: false });
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; sent: number; failed: number } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const { api } = await import("@/lib/api");
+        const res = await api.get<{ configured: boolean; sender: string }>("/api/admin/sms/status");
+        if (alive) setProvider(res);
+      } catch {
+        if (alive) setProvider(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const sendFromServer = async (to: string, body: string) => {
+    setSendState({ busy: true });
+    try {
+      const { api } = await import("@/lib/api");
+      const res = await api.post<{ ok: boolean; messageId: string | null }>("/api/admin/sms", { to, body });
+      setSendState({ busy: false, ok: true, text: res.messageId ? `ارسال شد — شناسهٔ درگاه ${res.messageId}` : "ارسال شد." });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ارسال ناموفق بود.";
+      setSendState({ busy: false, ok: false, text: message });
+      return false;
+    }
+  };
 
   const statusTemplate =
     ops.smsTemplates.find((t) => t.id === ORDER_STATUS_SMS_ID)?.body ??
@@ -3544,14 +3576,31 @@ function SmsPanel() {
               <p className="ad-field-label">متن آماده</p>
               <p className="ad-note-text">{orderText}</p>
               <div className="ad-actions">
-                <a className="ad-btn is-sm is-primary" href={`sms:${order?.phone ?? ""}?body=${encodeURIComponent(orderText)}`}>
-                  <Send width={13} height={13} /> باز کردن اپ پیامک
+                <button
+                  type="button"
+                  className="ad-btn is-sm is-primary"
+                  disabled={!provider?.configured || sendState.busy || !order?.phone}
+                  title={provider?.configured ? "" : "درگاه پیامک تنظیم نشده است"}
+                  onClick={() => void sendFromServer(order?.phone ?? "", orderText)}
+                >
+                  <Send width={13} height={13} /> {sendState.busy ? "در حال ارسال…" : "ارسال از سرور"}
+                </button>
+                <a className="ad-btn is-sm" href={`sms:${order?.phone ?? ""}?body=${encodeURIComponent(orderText)}`}>
+                  باز کردن اپ پیامک
                 </a>
                 <button type="button" className="ad-btn is-sm" onClick={() => void copy(orderText)}>
                   {copied ? "کپی شد" : "کپی متن"}
                 </button>
                 {order?.tracking && <span className="ad-hint">کد رهگیری: <b dir="ltr">{order.tracking}</b></span>}
               </div>
+              <p className="ad-hint">
+                {provider === null
+                  ? "وضعیت درگاه خوانده نشد."
+                  : provider.configured
+                    ? `درگاه پیامک وصل است${provider.sender ? ` (شمارهٔ فرستنده ${provider.sender})` : ""}.`
+                    : "درگاه پیامک تنظیم نشده؛ دکمهٔ ارسال از سرور عمداً خاموش است. متن را می‌توانی با اپ پیامک گوشی بفرستی."}
+              </p>
+              {sendState.text && <p className={sendState.ok ? "ad-note-ok" : "ad-hint is-warn"}>{sendState.text}</p>}
             </>
           )}
         </Card>
@@ -3595,12 +3644,55 @@ function SmsPanel() {
             <button
               type="button"
               className="ad-btn is-primary"
-              disabled={!confirmed || !bulkText.trim() || !audienceList.length}
+              disabled={!confirmed || !bulkText.trim() || !audienceList.length || bulkProgress !== null}
               onClick={prepareBulk}
             >
               <Send width={13} height={13} /> آماده‌سازی و ثبت
             </button>
+            <button
+              type="button"
+              className="ad-btn is-sm"
+              disabled={!provider?.configured || !confirmed || !bulkText.trim() || !audienceList.length || bulkProgress !== null}
+              title={provider?.configured ? "" : "درگاه پیامک تنظیم نشده است"}
+              onClick={async () => {
+                const list = audienceList;
+                setBulkProgress({ done: 0, sent: 0, failed: 0 });
+                let sent = 0;
+                let failed = 0;
+                for (const email of list) {
+                  const phone = admin.orders.find((o) => o.email === email)?.phone ?? "";
+                  try {
+                    const { api } = await import("@/lib/api");
+                    await api.post("/api/admin/sms", { to: phone, body: bulkText });
+                    sent += 1;
+                  } catch {
+                    failed += 1;
+                  }
+                  setBulkProgress({ done: sent + failed, sent, failed });
+                }
+                // only a real 2xx count lands in the history
+                logSmsCampaign({
+                  id: `sms-${uid()}`,
+                  at: Date.now(),
+                  name: bulkName.trim() || "پیام گروهی",
+                  body: bulkText,
+                  audience: audience === "all" ? "همهٔ مشتریان" : audience,
+                  recipients: list.length,
+                  sent,
+                  status: "sent",
+                });
+                setConfirmed(false);
+                setBulkName("");
+              }}
+            >
+              <Send width={13} height={13} /> ارسال از سرور
+            </button>
           </div>
+          {bulkProgress && (
+            <p className="ad-hint">
+              {fa(bulkProgress.done)} از {fa(audienceList.length)} پردازش شد — موفق {fa(bulkProgress.sent)}، ناموفق {fa(bulkProgress.failed)}.
+            </p>
+          )}
           {prepared && (
             <div className="ad-note-add">
               <p className="ad-note-text">{prepared.body}</p>
