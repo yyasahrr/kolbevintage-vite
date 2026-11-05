@@ -52,9 +52,13 @@ const FILES = [
  * docs/DESIGN.md.
  */
 const SCALE = {
-  space: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40, 44, 48, 56, 64],
-  font: [8, 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28],
-  radius: [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 999],
+  // the rhythm, not a catalogue of accidents. 4px base, one 2px hairline step, and the
+  // three big stops the shell actually uses.
+  // 1px is a hairline between stacked rows; 32/40/48/64 are page-bottom clearance only.
+  space: [0, 1, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32, 40, 48, 64],
+  // eight steps. 16 survives alone for iOS form fields (below that, focus zooms the page).
+  font: [9, 10, 11, 12, 13, 15, 16, 19, 22],
+  radius: [2, 4, 6, 8, 10, 12, 14, 18, 999],
 };
 
 const CHECKS = {

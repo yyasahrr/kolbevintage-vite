@@ -293,7 +293,7 @@ export function CommercePanel() {
       />
 
       {message && (
-        <p className="ad-hint" style={{ marginBottom: 10, color: message.ok ? undefined : "var(--ember, #b45309)" }}>
+        <p className="ad-hint" style={{ marginBottom: 10, color: message.ok ? undefined : "var(--ad-warn)" }}>
           {message.text}
         </p>
       )}
@@ -650,7 +650,7 @@ export function CommercePanel() {
             </div>
           </div>
 
-          <hr className="ad-divider" style={{ margin: "14px 0" }} />
+          <hr className="ad-divider" />
           <h4 style={{ margin: "0 0 6px", fontSize: 13 }}>سیاست مالی کش‌بک (تصویب ۲۰۲۶-۱۱-۰۴)</h4>
           <p className="ad-hint">
             کش‌بک هر سفارش فقط برای سفارش‌های <b>بعدی همان مشتری</b> قابل استفاده است، <b>قابل برداشت نقدی نیست</b>

@@ -113,3 +113,36 @@ is narrow the unit wraps to a second line. An ellipsised price is a wrong price.
 Chart axes have a floor: a column narrower than its label turns the axis into a smear, so
 the column has `min-width: 34px` and the chart scrolls horizontally instead of compressing.
 Labels wrap at their space («۱۲ آبان» on two lines) rather than rotating into the neighbour.
+
+## The palette is a contract, not a mood
+
+Every colour the panel paints text with is a token, because a literal is what turned
+seven near-identical greys into a palette nobody could reason about — and left every one
+of them light-theme coloured in dark mode.
+
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--ad-ink` | `#1b1815` | `#f3ede3` | body text, headings |
+| `--ad-muted` | `#6f675c` | `#a99d8d` | captions, hints, table heads — **clears 4.5:1 on every surface** |
+| `--ad-muted-2` | `#554e44` | `#d8cfc2` | figures, labels, values — clears 7:1 |
+| `--ad-line-soft` / `--ad-line` / `--ad-line-strong` | 6 / 10 / 16 % ink | 8 / 12 / 20 % white | hairlines, dividers, card borders |
+| `--ad-danger` / `--ad-ok` / `--ad-warn` | `#9c2f22` / `#2f6f4e` / `#8a5a12` | lightened | status text, with `-bg` tints |
+| `--ad-gold` / `--ad-brand` / `--ad-info` | `#c98a2b` / `#8c4a2f` / `#2563eb` | lightened | accents |
+
+The rule: **if it is text, it comes from a token; if it is a token, it is measured.**
+`npm run audit:contrast` reads the stylesheet, not a copy of the palette, and fails on any
+literal `color:` that cannot clear AA on either the light page or the dark chrome.
+
+## The scale, and how it is enforced
+
+- **Type: eight steps** — 9, 10, 11, 12, 13, 15, 19, 22. 16 exists only for iOS form
+  fields, because a smaller value makes Safari zoom on focus and never zoom back.
+- **Line height: 1.75 base** for Persian, 1.3 for single-line chrome (pills, chips,
+  badges), 1.55 inside dense tables. `normal` (~1.25) put the descenders of one line on the
+  ascenders of the next, which is most of the panel before this pass.
+- **Space: 4px rhythm** — 1 (hairline), 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, plus 32/40/48/64
+  for page-bottom clearance only.
+- **Radii: six steps** — 2, 4, 6, 8, 10, 12, 14, 18, 999.
+
+`npm run lint:ui` refuses any value outside those sets, and `npm run lint:classes` refuses
+any `ad-*` class in the JSX that has no rule in the stylesheet.

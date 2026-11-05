@@ -968,7 +968,7 @@ export function CrmPanel() {
             <button key={t.id} type="button" className="ad-chip" onClick={() => setBody(t.body)}>{t.name}</button>
           ))}
         </div>
-        {sent && <p className="ad-hint" style={{ color: "#2f6f4e", marginTop: 8 }}>{sent}</p>}
+        {sent && <p className="ad-hint" style={{ color: "var(--ad-ok)", marginTop: 8 }}>{sent}</p>}
       </Panel>
 
       <Panel title="قالب‌های پیامک" action={<button type="button" className="ad-btn is-sm" onClick={() => setTemplate({ id: `t-${Date.now().toString(36)}`, name: "", body: "" })}><Plus width={13} height={13} /> قالب جدید</button>}>
