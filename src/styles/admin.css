@@ -3938,7 +3938,7 @@ textarea.ad-input {
 .ad-app[data-ad-theme="dark"] .ad-report-kpi,
 .ad-app[data-ad-theme="dark"] .ad-ladder-row {
   background: var(--ad-surface);
-  border-color: var(--ad-border);
+  border-color: rgba(247, 243, 237, 0.16);
 }
 
 /* ---------- 12. reduced motion ---------- */
