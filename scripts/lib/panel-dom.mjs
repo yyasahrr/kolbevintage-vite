@@ -22,6 +22,9 @@ function installGlobals(window) {
   globalThis.Element = window.Element;
   globalThis.Node = window.Node;
   globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+  // React's legacy input-value fallback probes these IE APIs in jsdom. They are
+  // never used by real browsers; no-ops keep the DOM audit focused on the UI.
+  Object.assign(window.HTMLElement.prototype, { attachEvent() {}, detachEvent() {} });
   globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
   globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
   const media = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });

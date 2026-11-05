@@ -1,12 +1,10 @@
-import { fileToDataUrl } from "@/builder/ControlsUI";
-
 /* =====================================================================
    Thin API client for the KolbeVintage backend.
    All URLs are relative so the same build works behind the Vite proxy
    (dev) and behind Fastify in production.
    ===================================================================== */
 
-const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
+const BASE = (import.meta.env?.VITE_API_BASE as string | undefined) ?? "";
 
 export class ApiError extends Error {
   status: number;
@@ -15,9 +13,35 @@ export class ApiError extends Error {
   details?: unknown;
   constructor(message: string, status: number, code?: string, details?: unknown) {
     super(message);
+    this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.details = details;
+  }
+}
+
+export const isRequestCancellation = (error: unknown) =>
+  error instanceof ApiError && error.code === "request_cancelled";
+
+function transportError(error: unknown): ApiError {
+  if (error instanceof ApiError) return error;
+  if ((error instanceof DOMException && error.name === "AbortError") || (error instanceof Error && error.name === "AbortError")) {
+    return new ApiError("درخواست لغو شد.", 0, "request_cancelled", error);
+  }
+  return new ApiError("اتصال به سرور برقرار نشد.", 0, "network_error", error);
+}
+
+/** A fetch-compatible adapter must still honour the native Response contract. */
+function assertResponse(value: unknown): asserts value is Response {
+  const candidate = value as Partial<Response> | null | undefined;
+  if (
+    !candidate ||
+    typeof candidate.ok !== "boolean" ||
+    typeof candidate.status !== "number" ||
+    typeof candidate.text !== "function" ||
+    typeof candidate.clone !== "function"
+  ) {
+    throw new ApiError("آداپتور شبکه پاسخ معتبری برنگرداند.", 0, "invalid_response", value);
   }
 }
 
@@ -72,7 +96,8 @@ export const hasSessionToken = () => Boolean(sessionToken);
 
 async function fetchCsrfToken(): Promise<string> {
   try {
-    const res = await fetch(`${BASE}/api/csrf`, { credentials: "include", cache: "no-store" });
+    const res: unknown = await fetch(`${BASE}/api/csrf`, { credentials: "include", cache: "no-store" });
+    assertResponse(res);
     if (!res.ok) return "";
     const data = (await res.json()) as { token?: string };
     memToken = typeof data?.token === "string" ? data.token : "";
@@ -98,54 +123,76 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const isWrite = method !== "GET" && method !== "HEAD";
 
-  const send = async (token: string) => {
+  const send = async (token: string): Promise<Response> => {
     const headers = new Headers(init.headers);
     if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
     if (token && isWrite) headers.set("x-csrf-token", token);
     if (sessionToken) headers.set("x-session-token", sessionToken);
-    return fetch(`${BASE}${path}`, { ...init, headers, credentials: "include" });
+    const response: unknown = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "include" });
+    assertResponse(response);
+    return response;
   };
 
-  let token = isWrite ? await ensureCsrfToken() : "";
-  let res = await send(token);
+  let res: Response;
+  try {
+    const token = isWrite ? await ensureCsrfToken() : "";
+    res = await send(token);
 
-  // a stale token (server restarted, cookie rotated) is worth exactly one retry
-  if (isWrite && res.status === 403) {
-    const peek = await res.clone().text();
-    if (peek.includes("csrf_token_invalid")) {
-      memToken = "";
-      token = await fetchCsrfToken();
-      if (token) res = await send(token);
+    // a stale token (server restarted, cookie rotated) is worth exactly one retry
+    if (isWrite && res.status === 403) {
+      const peek = await res.clone().text();
+      if (peek.includes("csrf_token_invalid")) {
+        memToken = "";
+        const freshToken = await fetchCsrfToken();
+        if (freshToken) res = await send(freshToken);
+      }
     }
+  } catch (error) {
+    throw transportError(error);
   }
 
-  const text = await res.text();
-  const data = text ? safeJson(text) : null;
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (error) {
+    throw transportError(error);
+  }
+  const parsed = parseJson(text);
+  const data = parsed.data;
 
   // the server includes `sessionToken` only for cross-site logins; keep it
-  const issued = (data as { sessionToken?: unknown } | null)?.sessionToken;
+  const issued = typeof data === "object" && data !== null ? (data as { sessionToken?: unknown }).sessionToken : undefined;
   if (typeof issued === "string" && issued) setSessionToken(issued);
   // and a logout must not leave a usable header behind
   if (path.endsWith("/logout")) setSessionToken(null);
 
   if (!res.ok) {
-    const payload = data as { error?: string; message?: string; code?: string; details?: unknown } | null;
-    const message = payload?.message ?? payload?.error ?? `خطای سرور (${res.status})`;
-    throw new ApiError(message, res.status, payload?.code, payload?.details);
+    const payload = typeof data === "object" && data !== null
+      ? data as { error?: unknown; message?: unknown; code?: unknown; details?: unknown }
+      : null;
+    const fallback = typeof data === "string" && data ? data : `خطای سرور (${res.status})`;
+    const message = typeof payload?.message === "string" ? payload.message : typeof payload?.error === "string" ? payload.error : fallback;
+    throw new ApiError(message, res.status, typeof payload?.code === "string" ? payload.code : undefined, payload?.details);
   }
+  if (text && !parsed.ok) {
+    throw new ApiError("پاسخ سرور JSON معتبری ندارد.", res.status, "malformed_response", text.slice(0, 500));
+  }
+  // 204 and other empty successful responses intentionally remain null. Each
+  // endpoint validator decides whether null is meaningful or a missing payload.
   return data as T;
 }
 
-function safeJson(text: string): unknown {
+function parseJson(text: string): { ok: boolean; data: unknown } {
+  if (!text) return { ok: true, data: null };
   try {
-    return JSON.parse(text);
+    return { ok: true, data: JSON.parse(text) as unknown };
   } catch {
-    return text;
+    return { ok: false, data: text };
   }
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string, init: RequestInit = {}) => request<T>(path, { ...init, method: "GET" }),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
@@ -188,7 +235,9 @@ export async function uploadImage(file: File): Promise<string> {
     markApiOnline(true);
     return data.url;
   } catch {
-    // offline / static build — keep the image inline as before
+    // offline / static build — keep the image inline as before. The image
+    // editor is loaded only on this fallback, not with every API consumer.
+    const { fileToDataUrl } = await import("@/builder/ControlsUI");
     return fileToDataUrl(file, 1200);
   }
 }

@@ -63,7 +63,7 @@ import { ProductMediaEditor } from "@/components/ProductMediaEditor";
 import { adminLogin, adminLogout, ApiError } from "@/lib/api";
 import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
-import { useDialogFocus, useEscape } from "@/hooks/useOverlay";
+import { useDialogFocus, useEscape, useScrollLock } from "@/hooks/useOverlay";
 import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
@@ -89,6 +89,7 @@ import "@/styles/admin.css";
 import "@/styles/admin-shell.css";
 import { Dashboard as OverviewDashboard } from "@/admin/Dashboard";
 import { OrdersList } from "@/admin/OrdersList";
+import { AdminNavMenu, useExpandedNavigationGroup } from "@/admin/AdminNavigation";
 
 /* =====================================================================
    helpers
@@ -243,31 +244,15 @@ const GROUP_CHILDREN: Partial<Record<Tab, Tab[]>> = Object.fromEntries(
 function GroupShell({
   sections,
   value,
-  onChange,
 }: {
   sections: { id: Tab; label: string; node: React.ReactNode }[];
   value: Tab;
-  onChange: (id: Tab) => void;
 }) {
   const active = sections.find((s) => s.id === value) ?? sections[0];
   return (
     /* data-screen is what makes "the URL asked for X and the panel painted Y" testable */
     <div data-screen={active.id} data-screen-requested={value}>
-      <div className="ad-chips mb-4" role="tablist" aria-label="بخش‌های این گروه">
-        {sections.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            role="tab"
-            aria-selected={active.id === s.id}
-            className={cn("ad-chip", active.id === s.id && "is-on")}
-            onClick={() => onChange(s.id)}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-      {/* one stacking context per screen: bare fragments used to touch each other */}
+      {/* Child routes live in the shared sidebar, not in a second page-level menu. */}
       <div className="ad-group-body">{active.node}</div>
     </div>
   );
@@ -327,6 +312,7 @@ export function AdminPage() {
   const [navOpen, setNavOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   useDialogFocus(navOpen, navRef);
+  useScrollLock(navOpen);
   useEffect(() => {
     const media = window.matchMedia("(min-width: 900px)");
     const closeOnDesktop = () => { if (media.matches) setNavOpen(false); };
@@ -354,6 +340,7 @@ export function AdminPage() {
     }
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   /* owner's panel palette; the shop's own theme is a different decision (5 vs 9) */
   const [adTheme, setAdTheme] = useState<"light" | "dark">(() => {
     try {
@@ -384,9 +371,13 @@ export function AdminPage() {
       const target = e.target as HTMLElement | null;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !target?.matches("input, textarea, select, [contenteditable=true]")) {
         e.preventDefault();
+        // A modal sheet owns its keyboard context; never stack the palette on it.
+        if (document.querySelector(".ord-overlay, .ad-modal-bg")) return;
         setPaletteOpen((v) => !v);
+        setNavOpen(false);
+        setNotificationsOpen(false);
       }
-      if (e.key === "Escape") { setPaletteOpen(false); setNavOpen(false); }
+      if (e.key === "Escape") { setPaletteOpen(false); setNavOpen(false); setNotificationsOpen(false); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -425,16 +416,17 @@ export function AdminPage() {
     window.scrollTo(0, 0);
   }, [tab]);
 
-  if (!unlocked) return <Gate onUnlock={() => setUnlocked(true)} />;
-
-  // a grouped area is active when the group itself or one of its screens is selected
+  // Active ancestry and accordion expansion are related only when the route
+  // changes. A user can still collapse the group containing the current page.
   const groupIds = Object.keys(GROUP_CHILDREN) as Tab[];
   const group = groupIds.includes(tab)
     ? tab
     : (groupIds.find((g) => GROUP_CHILDREN[g]!.includes(tab)) ?? null);
+  const [expandedGroup, setExpandedGroup] = useExpandedNavigationGroup(group);
 
+  if (!unlocked) return <Gate onUnlock={() => setUnlocked(true)} />;
 
-  const badges: Partial<Record<Tab, number>> = {
+  const badges: Record<string, number> = {
     orders: admin.orders.filter((o) => o.status === "pending").length,
     reviews: admin.reviews.filter((r) => !r.approved).length,
     messages: 0,
@@ -444,16 +436,23 @@ export function AdminPage() {
   return (
     <div className="ad-app" data-ad-theme={adTheme}>
       <header className="ad-top">
-        <button type="button" className="ad-burger" aria-label="باز کردن منوی پنل" aria-controls="admin-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>
+        <button type="button" className="ad-burger" aria-label="باز کردن منوی پنل" aria-controls="admin-navigation" aria-expanded={navOpen} onClick={() => { setPaletteOpen(false); setNotificationsOpen(false); setNavOpen(true); }}>
           <Layers width={18} height={18} />
         </button>
         <span className="shell-mobile-brand">کلبه وینتیج</span>
-        <button type="button" className="ad-btn is-sm ad-cmd-trigger" onClick={() => setPaletteOpen(true)} aria-label="جست‌وجوی بخش‌های پنل (Ctrl+K)">
+        <button type="button" className="ad-btn is-sm ad-cmd-trigger" onClick={() => { setNavOpen(false); setNotificationsOpen(false); setPaletteOpen(true); }} aria-label="جست‌وجوی بخش‌های پنل (Ctrl+K)">
           <Search width={16} height={16} /><span className="shell-search-label">جست‌وجوی بخش‌ها</span><kbd className="ad-kbd" dir="ltr">Ctrl K</kbd>
         </button>
         <div className="ad-top-spacer" />
         <SyncBadge />
-        <OpsBell onGo={(next) => setTab(next)} />
+        <OpsBell
+          open={notificationsOpen}
+          onOpenChange={(open) => {
+            setNotificationsOpen(open);
+            if (open) { setPaletteOpen(false); setNavOpen(false); }
+          }}
+          onGo={(next) => { setTab(next); setNavOpen(false); }}
+        />
         <button type="button" className="ad-btn is-sm" onClick={() => setAdTheme(adTheme === "dark" ? "light" : "dark")} aria-pressed={adTheme === "dark"} aria-label={adTheme === "dark" ? "روشن کردن پنل" : "تیره کردن پنل"} title={adTheme === "dark" ? "پنل روشن" : "پنل تیره"}>
           {adTheme === "dark" ? <Sun width={16} height={16} /> : <Moon width={16} height={16} />}
         </button>
@@ -472,26 +471,22 @@ export function AdminPage() {
             {!session.ready && !offline && (
               <p className="ad-nav-loading" aria-busy="true">در حال خواندن سطح دسترسی…</p>
             )}
-            {navTabs.map((t) => {
-              const kids = GROUP_CHILDREN[t.id as Tab];
-              const isOn = tab === t.id || (kids ? kids.includes(tab) : false);
-              const badge = kids
-                ? kids.reduce((n, k) => n + (badges[k] ?? 0), 0)
-                : (badges[t.id] ?? 0);
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  className={cn("ad-nav-item", isOn && "is-on")}
-                  title={t.label} aria-label={t.label} aria-current={isOn ? "page" : undefined}
-                  onClick={() => { setTab(t.children?.[0]?.id ?? t.id); setNavOpen(false); }}
-                >
-                  <t.icon width={15} height={15} />
-                  <span>{t.label}</span>
-                  {badge ? <em>{fa(badge)}</em> : null}
-                </button>
-              );
-            })}
+            <AdminNavMenu
+              items={navTabs}
+              activeRoute={tab}
+              expandedGroup={expandedGroup}
+              getPath={(id) => SCREEN_PATH[id] ?? "/admin"}
+              badges={badges}
+              onToggleGroup={(id) => {
+                if (navCollapsed) {
+                  setNavCollapsed(false);
+                  setExpandedGroup(id as Tab);
+                  return;
+                }
+                setExpandedGroup((current) => current === id ? null : id as Tab);
+              }}
+              onNavigate={() => setNavOpen(false)}
+            />
             {/* the page studio is a real tool, not a hidden route: it gets its own block on
                 the rail so the owner cannot miss it (they never found the dashboard shortcut) */}
             <div className="ad-nav-studio">
@@ -560,7 +555,6 @@ export function AdminPage() {
                 { id: "reports", label: "گزارش‌ها", node: <Reports /> },
               ]}
               value={tab}
-              onChange={setTab}
             />
           )}
           {group === "stock" && (
@@ -572,7 +566,6 @@ export function AdminPage() {
                 { id: "media", label: "تصاویر", node: <MediaPanel /> },
               ]}
               value={tab}
-              onChange={setTab}
             />
           )}
           {group === "experience" && (
@@ -587,7 +580,6 @@ export function AdminPage() {
                 { id: "forms", label: "فرم‌ها", node: <FormsPanel /> },
               ]}
               value={tab}
-              onChange={setTab}
             />
           )}
           {group === "people" && (
@@ -609,7 +601,6 @@ export function AdminPage() {
                 { id: "reviews", label: "نظرات", node: <Reviews /> },
               ]}
               value={tab}
-              onChange={setTab}
             />
           )}
           {group === "system" && (
@@ -631,7 +622,6 @@ export function AdminPage() {
                 { id: "staff", label: "کارکنان و نقش‌ها", node: <StaffPanel /> },
               ]}
               value={tab}
-              onChange={setTab}
             />
           )}
             </>
@@ -675,15 +665,16 @@ function CommandPalette({
   const [cursor, setCursor] = useState(0);
   const paletteRef = useRef<HTMLDivElement>(null);
   useDialogFocus(true, paletteRef);
+  useScrollLock(true);
 
   const items = useMemo(() => {
-    const flat = tabs.flatMap((t) => [
-      { id: t.id, label: t.label, group: null as string | null, icon: t.icon },
-      ...(t.children ?? []).map((c) => ({ id: c.id, label: c.label, group: t.label, icon: t.icon })),
-    ]);
+    const flat = tabs.flatMap((t) => t.children?.length
+      ? t.children.map((c) => ({ id: c.id, label: c.label, group: t.label, icon: t.icon }))
+      : [{ id: t.id, label: t.label, group: null as string | null, icon: t.icon }],
+    );
     const needle = q.trim();
     if (!needle) return flat;
-    return flat.filter((item) => item.label.includes(needle) || String(item.id).includes(needle.toLowerCase()));
+    return flat.filter((item) => item.label.includes(needle) || item.group?.includes(needle) || String(item.id).includes(needle.toLowerCase()));
   }, [tabs, q]);
 
   useEffect(() => {
@@ -2775,16 +2766,15 @@ interface OpsNotice {
   live: boolean;
 }
 
-function OpsBell({ onGo }: { onGo: (tab: Tab) => void }) {
+function OpsBell({ open, onOpenChange, onGo }: { open: boolean; onOpenChange: (open: boolean) => void; onGo: (tab: Tab) => void }) {
   const admin = useAdmin();
   const ops = useOps();
   const session = useAdminMe();
-  const [open, setOpen] = useState(false);
   const bellTriggerRef = useRef<HTMLButtonElement>(null);
   const bellPopupRef = useRef<HTMLDivElement>(null);
   const closeBell = () => {
     if (bellPopupRef.current?.contains(document.activeElement)) bellTriggerRef.current?.focus();
-    setOpen(false);
+    onOpenChange(false);
   };
   useEscape(open, closeBell);
   const [serverOrders, setServerOrders] = useState<{ id: string; status: string; createdAt: string }[] | null>(null);
@@ -2881,7 +2871,7 @@ function OpsBell({ onGo }: { onGo: (tab: Tab) => void }) {
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={total > 0 ? `${fa(total)} اعلان عملیاتی` : "اعلان عملیاتی نداریم"}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => onOpenChange(!open)}
       >
         <Bell width={14} height={14} />
         <span className="ad-top-btn-label">اعلان‌ها</span>

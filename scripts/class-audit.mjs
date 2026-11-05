@@ -10,7 +10,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const SHEETS = ["src/styles/admin.css", "src/builder/builder.css", "src/styles/index.css"];
+const SHEETS = ["src/styles/admin.css", "src/styles/admin-shell.css", "src/builder/builder.css", "src/styles/index.css"];
 
 const defined = new Set();
 for (const sheet of SHEETS) {

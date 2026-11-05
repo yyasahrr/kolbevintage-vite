@@ -16,14 +16,19 @@ export function useEscape(open: boolean, onClose: () => void) {
   }, [open, onClose]);
 }
 
-/** Locks the page behind an overlay and restores the previous value on close. */
+/** Reference-counted so switching between overlays cannot unlock the page early. */
+let scrollLocks = 0;
+let overflowBeforeLock = "";
+
 export function useScrollLock(open: boolean) {
   useEffect(() => {
     if (!open) return;
-    const previous = document.body.style.overflow;
+    if (scrollLocks === 0) overflowBeforeLock = document.body.style.overflow;
+    scrollLocks += 1;
     document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = previous;
+      scrollLocks = Math.max(0, scrollLocks - 1);
+      if (scrollLocks === 0) document.body.style.overflow = overflowBeforeLock;
     };
   }, [open]);
 }
@@ -35,7 +40,9 @@ export function useDialogFocus(open: boolean, ref: import("react").RefObject<HTM
     if (!open || !dialog) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const selector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(selector)).filter((el) => el.getClientRects().length > 0);
+    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(selector)).filter((el) =>
+      el.tabIndex >= 0 && !el.closest("[inert]") && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden",
+    );
     (focusable()[0] ?? dialog).focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Tab") return;

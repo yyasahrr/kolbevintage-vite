@@ -52,7 +52,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { q?: string; status?: string; payment?: string; fulfillment?: string; from?: string; to?: string; sort?: string; dir?: string; page?: string } }>("/api/admin/orders-list", async (req, reply) => {
     await requirePermission(req, "orders:view");
     const { q = "", status = "", payment = "", fulfillment = "", from = "", to = "", sort = "date", dir = "desc" } = req.query;
-    const statuses = ["pending_payment", "paid", "preparing", "shipped", "delivered", "cancelled", "exception", "pending", "processing", "done"];
+    const statuses = ["attention", "pending_payment", "paid", "preparing", "shipped", "delivered", "cancelled", "exception", "pending", "processing", "done"];
     const payments = ["settled", "unpaid"];
     const fulfillments = ["unfulfilled", "picking", "packed", "shipped", "delivered"];
     const validDate = (d: string) => !d || (/^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d);
@@ -62,7 +62,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const where: string[] = [];
     const add = (sql: string, value: unknown) => { args.push(value); where.push(sql.replace("?", `$${args.length}`)); };
     if (q.trim()) add("(position(lower(?) in lower(id)) > 0 or position(lower($" + (args.length + 1) + ") in lower(coalesce(customer,''))) > 0)", q.trim());
-    if (status) add("status = ?", status);
+    // `attention` is the same supported operational queue used by the dashboard;
+    // payment and fulfillment remain independent query parameters and columns.
+    if (status === "attention") where.push("status in ('pending_payment','paid','preparing','exception','pending','processing')");
+    else if (status) add("status = ?", status);
     if (payment) add("payment_status = ?", payment);
     if (fulfillment) add("fulfillment_status = ?", fulfillment);
     if (from) add("created_at >= ?::date", from);

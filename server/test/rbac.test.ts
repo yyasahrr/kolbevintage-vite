@@ -442,6 +442,9 @@ test("orders list enforces view permission and supports server filters and pagin
     const res = await admin.get("/api/admin/orders-list?q=kv-test-list&payment=settled&sort=amount&dir=desc&page=1");
     assert.equal(res.status, 200); assert.equal(res.body.total, 1); assert.equal(res.body.orders[0].id, "kv-test-list-1");
     assert.equal("email" in res.body.orders[0], false);
+    const attention = await admin.get("/api/admin/orders-list?q=kv-test-list&status=attention");
+    assert.equal(attention.status, 200); assert.equal(attention.body.total, 1); assert.equal(attention.body.orders[0].id, "kv-test-list-1");
+    assert.equal((await admin.get("/api/admin/orders-list?q=kv-test-list&status=attention&payment=unpaid")).body.total, 0);
     assert.equal((await admin.get("/api/admin/orders-list?q=kv-test-list&page=2")).body.orders.length, 0);
     assert.equal((await admin.get("/api/admin/orders-list?sort=bad")).status, 400);
     const detail = await admin.get("/api/admin/orders-list/kv-test-list-1");
