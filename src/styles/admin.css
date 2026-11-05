@@ -73,7 +73,7 @@
   padding: 20px;
   background:
     radial-gradient(70% 60% at 20% 0%, rgba(194, 176, 154, 0.35), transparent 60%),
-    radial-gradient(60% 50% at 100% 100%, rgba(140, 74, 47, 0.22), transparent 65%),
+    radial-gradient(60% 50% at 100% 100%, color-mix(in srgb, var(--ad-brand) 22%, transparent), transparent 65%),
     #16130f;
   direction: rtl;
 }
@@ -456,7 +456,7 @@
   transform: none;
 }
 .ad-kpi.is-warn {
-  border-color: rgba(140, 74, 47, 0.35);
+  border-color: color-mix(in srgb, var(--ad-brand) 35%, transparent);
   background: var(--ad-warn-bg);
 }
 .ad-kpi-ic {
@@ -566,11 +566,11 @@
   white-space: nowrap;
 }
 .ad-status.is-active {
-  background: rgba(47, 111, 78, 0.14);
+  background: color-mix(in srgb, var(--ad-ok) 14%, transparent);
   color: var(--ad-ok);
 }
 .ad-status.is-configured {
-  background: rgba(140, 74, 47, 0.13);
+  background: color-mix(in srgb, var(--ad-brand) 13%, transparent);
   color: var(--ad-brand);
 }
 .ad-status.is-off {
@@ -622,7 +622,7 @@
 }
 .ad-btn.is-danger {
   color: var(--ad-danger);
-  border-color: rgba(156, 47, 34, 0.35);
+  border-color: color-mix(in srgb, var(--ad-danger) 35%, transparent);
 }
 .ad-btn.is-danger:hover:not(:disabled) {
   background: var(--ad-danger);
@@ -837,7 +837,7 @@
   background: var(--ad-line-soft);
 }
 .ad-table tr.is-open td {
-  background: rgba(140, 74, 47, 0.06);
+  background: color-mix(in srgb, var(--ad-brand) 6%, transparent);
   cursor: pointer;
 }
 .ad-table tr.is-total td {
@@ -947,23 +947,23 @@
   white-space: nowrap;
 }
 .ad-pill.is-done {
-  background: rgba(47, 111, 78, 0.14);
+  background: color-mix(in srgb, var(--ad-ok) 14%, transparent);
   color: var(--ad-ok);
 }
 .ad-pill.is-shipped {
-  background: rgba(37, 99, 235, 0.12);
+  background: color-mix(in srgb, var(--ad-info) 12%, transparent);
   color: var(--ad-info);
 }
 .ad-pill.is-pending {
-  background: rgba(154, 107, 33, 0.14);
+  background: color-mix(in srgb, var(--ad-warn) 14%, transparent);
   color: var(--ad-warn);
 }
 .ad-pill.is-cancelled {
-  background: rgba(156, 47, 34, 0.13);
+  background: color-mix(in srgb, var(--ad-danger) 13%, transparent);
   color: var(--ad-danger);
 }
 .ad-pill.is-processing {
-  background: rgba(140, 74, 47, 0.13);
+  background: color-mix(in srgb, var(--ad-brand) 13%, transparent);
   color: var(--ad-brand);
 }
 
@@ -1179,7 +1179,7 @@
 }
 .ad-stock-cell.is-out {
   border-style: dashed;
-  background: rgba(156, 47, 34, 0.05);
+  background: color-mix(in srgb, var(--ad-danger) 5%, transparent);
 }
 .ad-stock-cell input {
   width: 100%;
@@ -1367,7 +1367,7 @@
 }
 .ad-dot.is-on {
   background: var(--ad-ok);
-  box-shadow: 0 0 0 3px rgba(47, 111, 78, 0.15);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ad-ok) 15%, transparent);
 }
 .ad-card-inline-main {
   flex: 1;
@@ -1416,8 +1416,8 @@
   background: var(--ad-surface);
 }
 .ad-review.is-pending {
-  background: rgba(154, 107, 33, 0.05);
-  border-color: rgba(154, 107, 33, 0.25);
+  background: color-mix(in srgb, var(--ad-warn) 5%, transparent);
+  border-color: color-mix(in srgb, var(--ad-warn) 25%, transparent);
 }
 .ad-review header {
   display: flex;
@@ -1479,7 +1479,7 @@
   gap: 4px;
 }
 .ad-tags em.is-gold {
-  background: rgba(229, 193, 88, 0.25);
+  background: color-mix(in srgb, var(--ad-gold) 25%, transparent);
   color: var(--ad-warn);
 }
 .ad-tags em button {
@@ -1753,7 +1753,7 @@
 }
 .ad-bulkbar .ad-btn.is-danger {
   color: var(--ad-danger);
-  border-color: rgba(255, 180, 166, 0.4);
+  border-color: color-mix(in srgb, var(--ad-danger) 40%, transparent);
 }
 @media (max-width: 640px) {
   .ad-bulkbar {
@@ -1954,7 +1954,7 @@
   color: var(--ad-muted-2);
 }
 .ad-media-badges em.is-done {
-  background: rgba(47, 111, 78, 0.13);
+  background: color-mix(in srgb, var(--ad-ok) 13%, transparent);
   color: var(--ad-ok);
 }
 .ad-color-tabs {
@@ -2159,7 +2159,7 @@
   cursor: default;
 }
 .ad-gallery-tools .ad-img-x.is-danger {
-  background: rgba(156, 47, 34, 0.85);
+  background: color-mix(in srgb, var(--ad-danger) 85%, transparent);
 }
 .ad-gallery-fields {
   display: grid;
@@ -2228,7 +2228,7 @@
 }
 .ad-complement-x:hover {
   color: var(--ad-danger);
-  background: rgba(156, 47, 34, 0.09);
+  background: color-mix(in srgb, var(--ad-danger) 9%, transparent);
 }
 .ad-comp-search {
   display: flex;
@@ -2275,7 +2275,7 @@
 }
 .ad-complement-pick.is-on {
   border-color: var(--ad-ok);
-  background: rgba(47, 111, 78, 0.07);
+  background: color-mix(in srgb, var(--ad-ok) 7%, transparent);
 }
 .ad-complement-name {
   flex: 1;
@@ -2431,7 +2431,7 @@
 }
 .ad-look-pick.is-on {
   border-color: var(--ad-ok);
-  background: rgba(47, 111, 78, 0.05);
+  background: color-mix(in srgb, var(--ad-ok) 5%, transparent);
   color: var(--ad-ok);
 }
 
@@ -2733,7 +2733,7 @@
   background: #c9c3bc;
 }
 .ad-sync.is-online {
-  border-color: rgba(47, 111, 78, 0.25);
+  border-color: color-mix(in srgb, var(--ad-ok) 25%, transparent);
   color: var(--ad-ok);
 }
 .ad-sync.is-online i {
@@ -2743,7 +2743,7 @@
   background: var(--ad-warn);
 }
 .ad-sync.is-offline {
-  border-color: rgba(156, 47, 34, 0.22);
+  border-color: color-mix(in srgb, var(--ad-danger) 22%, transparent);
   color: var(--ad-danger);
 }
 .ad-sync.is-offline i {
@@ -3087,7 +3087,7 @@
 /* ---------- operational notices (decision 44) ---------- */
 .ad-bell{ position:relative; display:inline-flex }
 .ad-btn.is-attention{ border-color:var(--ad-gold); color:var(--ad-warn) }
-.ad-btn.is-attention:hover{ background:rgba(201,138,43,.1) }
+.ad-btn.is-attention:hover{ background:color-mix(in srgb, var(--ad-gold) 10%, transparent) }
 .ad-bell-count{
   font-style:normal; font-size:11px; line-height:1; padding:2px 5px; border-radius:999px;
   background:var(--ad-gold); color:var(--ad-ink); font-variant-numeric:tabular-nums;
@@ -3131,7 +3131,7 @@
   border:1px solid transparent; cursor:grab;
 }
 .ad-order-row.is-off{ opacity:.5 }
-.ad-order-row.is-over{ border-color:var(--ad-gold); background:rgba(201,138,43,.08) }
+.ad-order-row.is-over{ border-color:var(--ad-gold); background:color-mix(in srgb, var(--ad-gold) 8%, transparent) }
 .ad-order-grip{ color:var(--ad-muted); letter-spacing:-2px; font-size:12px; user-select:none }
 .ad-order-index{ font-size:11px; color:var(--ad-muted); font-variant-numeric:tabular-nums; min-width:14px }
 .ad-order-label{ flex:1; font-size:13px }
@@ -3139,7 +3139,7 @@
 /* ---------- review replies (decision 70) ---------- */
 .ad-review-reply{
   margin-block-start: 8px; padding: 10px 12px; border-radius: 10px;
-  background: rgba(37,99,235,.06); border-inline-start: 2px solid rgba(37,99,235,.35);
+  background: color-mix(in srgb, var(--ad-info) 6%, transparent); border-inline-start: 2px solid color-mix(in srgb, var(--ad-info) 35%, transparent);
 }
 .ad-review-reply b{ font-size:11px; color:#1e40af }
 .ad-review-reply p{ margin:4px 0 2px; font-size:12px; line-height:1.85 }
@@ -3184,8 +3184,8 @@
 .ad-launch-banner { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--ad-line-strong); background: rgba(255, 255, 255, 0.55); font-size: 12px; color: var(--color-ink-45, var(--ad-muted)); }
 .ad-launch-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .ad-launch-item { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--ad-line); background: var(--ad-surface); }
-.ad-launch-item.is-ok { border-color: rgba(60, 125, 74, 0.35); }
-.ad-launch-item.is-fail { border-color: rgba(180, 85, 45, 0.35); }
+.ad-launch-item.is-ok { border-color: color-mix(in srgb, var(--ad-ok) 35%, transparent); }
+.ad-launch-item.is-fail { border-color: color-mix(in srgb, var(--ad-brand) 35%, transparent); }
 .ad-launch-icon { display: inline-flex; padding-top: 2px; color: var(--color-ink-45, var(--ad-muted)); }
 .ad-launch-item.is-ok .ad-launch-icon { color: var(--ad-ok); }
 .ad-launch-item.is-fail .ad-launch-icon { color: var(--ad-brand); }
@@ -3202,7 +3202,7 @@
 .ad-changelog-item ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 5px; }
 .ad-changelog-item li { display: flex; gap: 6px; font-size: 12px; line-height: 1.9; }
 .ad-changelog-item li svg { margin-top: 4px; flex: none; color: var(--ad-ok); }
-.ad-changelog-open { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(180, 85, 45, 0.07); }
+.ad-changelog-open { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--ad-brand) 7%, transparent); }
 .ad-changelog-open b { font-size: 11px; color: var(--ad-brand); }
 .ad-changelog-open ul { margin: 4px 0 0; padding-inline-start: 16px; list-style: disc; }
 .ad-changelog-open li { display: list-item; font-size: 11px; color: var(--ad-brand); }

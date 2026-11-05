@@ -72,6 +72,18 @@ const themeLabel = (name, t) => {
 themeLabel("light", light);
 themeLabel("dark", dark);
 
+/* parity: a token declared for the light theme but missing from the dark one does not
+   throw — it silently keeps the light value, which is how a white band appears on a dark
+   table. Every token has to be answered in both themes. */
+const onlyLight = Object.keys(light).filter((t) => !(t in dark));
+const onlyDark = Object.keys(dark).filter((t) => !(t in light));
+console.log(`\ntoken parity: ${Object.keys(light).length} light, ${Object.keys(dark).length} dark`);
+if (onlyLight.length) {
+  failed += 1;
+  console.log(`  light-only (silently reused in dark mode): ${onlyLight.join(", ")}`);
+}
+if (onlyDark.length) console.log(`  dark-only: ${onlyDark.join(", ")}`);
+
 /* ---- literals: any remaining hardcoded text colour must also clear AA ---- */
 console.log("\nliteral colours used as text");
 const literal = new Map();
