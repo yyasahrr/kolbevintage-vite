@@ -253,7 +253,8 @@ function GroupShell({
 }) {
   const active = sections.find((s) => s.id === value) ?? sections[0];
   return (
-    <div>
+    /* data-screen is what makes "the URL asked for X and the panel painted Y" testable */
+    <div data-screen={active.id} data-screen-requested={value}>
       <div className="ad-chips mb-4" role="tablist" aria-label="بخش‌های این گروه">
         {sections.map((s) => (
           <button
@@ -316,6 +317,15 @@ export function AdminPage() {
     },
     [navigate],
   );
+  // a screen has exactly one address: /admin/experience/widgets is not "another way in",
+  // it is a stale bookmark, so it is rewritten to the one the sidebar links to
+  useEffect(() => {
+    if (orderId) return;
+    const canonical = SCREEN_PATH[tab];
+    if (!canonical) return;
+    const current = location.pathname.replace(/\/+$/, "") || "/";
+    if (current !== canonical) navigate(canonical, { replace: true });
+  }, [tab, orderId, location.pathname, navigate]);
   const [navOpen, setNavOpen] = useState(false);
   const admin = useAdmin();
   const session = useAdminMe();
@@ -620,7 +630,6 @@ export function AdminPage() {
                 { id: "journal", label: "ژورنال", node: <JournalEditor /> },
                 { id: "appearance", label: "ظاهر سایت", node: <Appearance /> },
                 { id: "forms", label: "فرم‌ها", node: <FormsPanel /> },
-                { id: "widgets", label: "ویجت‌ها", node: <WidgetsPanel /> },
               ]}
               value={tab}
               onChange={setTab}
@@ -658,6 +667,7 @@ export function AdminPage() {
                 { id: "health", label: "سلامت سیستم", node: <HealthPanel /> },
                 { id: "backup", label: "پشتیبان‌گیری", node: <BackupPanel /> },
                 { id: "purge", label: "پاک‌سازی داده", node: <PurgePanel /> },
+                { id: "widgets", label: "ویجت‌ها", node: <WidgetsPanel /> },
                 { id: "settings", label: "تنظیمات", node: <StoreSettings onBack={() => navigate("/")} /> },
                 { id: "launch", label: "چک‌لیست انتشار", node: <LaunchChecklist /> },
                 { id: "manual", label: "راهنمای فارسی", node: <ManualPanel /> },
