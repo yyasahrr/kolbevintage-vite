@@ -398,7 +398,16 @@
     gap: 10px;
   }
 }
+/* Density, not beauty: at 1100 the shell has already given 224px to the sidebar, so
+   six columns left 103px of inner width per card and a price like «۴۵٬۹۸۰٬۰۰۰ تومان»
+   (needs ~158px at 18px) came out as «۴۵٬۹۸۰٬۰۰…». Four across fits; six waits until
+   the card is genuinely wide enough. */
 @media (min-width: 1100px) {
+  .ad-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1440px) {
   .ad-kpis {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
@@ -447,9 +456,11 @@
   font-weight: 700;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* A price is one unbreakable token plus its unit. On a phone column the old
+     nowrap+ellipsis cut «۴۵٬۹۸۰٬۰۰۰ تومان» down to «۴۵٬۹۸۰٬۰۰…» — a wrong number
+     is worse than a two-line one, so the unit drops to the next line instead. */
+  white-space: normal;
+  overflow-wrap: normal;
 }
 .ad-kpi-label {
   font-size: 10.5px;
@@ -468,7 +479,10 @@
   display: grid;
   gap: 12px;
 }
-@media (min-width: 900px) {
+/* 900 was the shell's own switch, but with the rail out the two cards were 279px
+   wide and a 560px table inside them only ever showed its first two columns. Two
+   cards need 666px of content, which the shell provides at 960. */
+@media (min-width: 960px) {
   .ad-grid-2 {
     grid-template-columns: 1fr 1fr;
     gap: 14px;
@@ -3066,8 +3080,8 @@
   min-height:2px;
 }
 .ad-report-bar small{
-  font-size:9px; color:#6b6255; white-space:nowrap;
-  transform:rotate(-45deg); transform-origin:center;
+  font-size:9px; color:#6b6255; white-space:normal; line-height:1.25;
+  text-align:center; max-width:100%; transform:none;
 }
 
 /* ---------- operational notices (decision 44) ---------- */
@@ -3313,7 +3327,6 @@
   .ad-toolbar .ad-input,
   .ad-field textarea {
     font-size: 16px;
-    min-height: 44px;
   }
   .ad-btn,
   .ad-btn.is-sm,
@@ -3326,15 +3339,6 @@
   .ad-icon {
     min-width: 44px;
     min-height: 44px;
-  }
-  .ad-table th,
-  .ad-table td {
-    padding: 12px 10px;
-  }
-  .ad-check input,
-  .ad-checkbox {
-    width: 20px;
-    height: 20px;
   }
   .ad-stock-matrix {
     overflow-x: auto;
@@ -3894,10 +3898,18 @@ textarea.ad-input {
   gap: 6px;
   height: 170px;
   padding: 10px 2px 0;
+  /* A 30-day axis on a phone gave every column 5.5px while a rotated label still
+     needed ~34px, so the axis painted as a grey smear over the bars. The fix is a
+     floor on column width and a chart that scrolls instead of compressing. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
 }
 .ad-report-chart .ad-bar {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 34px;
+  scroll-snap-align: start;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -3917,16 +3929,21 @@ textarea.ad-input {
 }
 .ad-report-chart .ad-bar small {
   font-size: 9px;
+  line-height: 1.25;
   color: var(--ad-muted);
-  white-space: nowrap;
-  transform: rotate(-32deg);
-  transform-origin: center;
+  text-align: center;
+  /* «۱۲ آبان» wraps onto two short lines instead of leaning into its neighbour */
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: keep-all;
+  max-width: 100%;
+  transform: none;
 }
 .ad-report-grid {
   display: grid;
   gap: var(--ad-stack);
 }
-@media (min-width: 900px) {
+@media (min-width: 960px) {
   .ad-report-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -4207,4 +4224,32 @@ textarea.ad-input {
 /* 7. Thin dividers inside a dense table read as data, not as borders. */
 .ad-table td {
   border-bottom-color: rgba(27, 24, 21, 0.055);
+}
+
+/* =====================================================================
+   Touch targets — the last word
+   ---------------------------------------------------------------------
+   The touch pass above was written before the craft pass, and the craft
+   pass reset the same properties afterwards: on a phone the fields came
+   out 38px high, checkboxes 15px and table cells 10px, so the "44px on
+   touch" promise was never actually kept — it only looked kept. These
+   three declarations must stay at the end of the file. `npm run
+   lint:responsive` fails if a later rule steals them again.
+   ===================================================================== */
+@media (pointer: coarse), (max-width: 559px) {
+  .ad-input,
+  .ad-select,
+  .ad-toolbar .ad-input,
+  .ad-field textarea {
+    min-height: 44px;
+  }
+  .ad-table th,
+  .ad-table td {
+    padding: 12px 10px;
+  }
+  .ad-check input,
+  .ad-checkbox {
+    width: 20px;
+    height: 20px;
+  }
 }

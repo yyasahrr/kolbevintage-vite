@@ -581,7 +581,7 @@ export function CashbackPanel() {
               onChange={(e) => setSim(Number(e.target.value) || 0)}
             />
           </label>
-          <div className="ad-stat" style={{ minWidth: 190 }}>
+          <div className="ad-stat">
             <b>{formatPrice(simResult.amount)}</b>
             <span>کشبک این سبد ({formatNumber(simResult.percent)}٪)</span>
             <small>
