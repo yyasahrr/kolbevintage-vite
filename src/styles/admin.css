@@ -4030,3 +4030,37 @@ textarea.ad-input {
   background: rgba(47, 111, 78, 0.09);
   color: #245840;
 }
+
+/* reports: the delta and the share bar inside a ranked table cell */
+.ad-up {
+  color: #2f6f4e;
+}
+.ad-down {
+  color: #9c2f22;
+}
+.ad-share {
+  margin-top: 5px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(27, 24, 21, 0.08);
+  overflow: hidden;
+}
+.ad-share span {
+  display: block;
+  height: 100%;
+  background: rgba(140, 74, 47, 0.55);
+  border-radius: 999px;
+}
+.ad-app[data-ad-theme="dark"] .ad-share {
+  background: rgba(247, 243, 237, 0.12);
+}
+.ad-report .ad-card-head .ad-filters {
+  margin: 0;
+}
+.ad-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}

@@ -1078,26 +1078,36 @@ const REASON_LABEL: Record<StockMove["reason"], string> = { sale: "فروش", re
    reports — every number here is computed from real orders
    ===================================================================== */
 
+/**
+ * Reports — every figure is summed from the orders in the store, over a range the
+ * owner picks. No sample rows, no invented targets: when a number cannot be
+ * computed (no previous period, no second purchase) the cell says so.
+ */
 function Reports() {
   const admin = useAdmin();
+  const [range, setRange] = useState<7 | 30 | 90 | 0>(30);
+  const [chartDays, setChartDays] = useState<7 | 14 | 30>(14);
 
-  const orders = admin.orders.filter((o) => o.status !== "cancelled");
-  const total = orders.reduce((n, o) => n + o.total, 0);
-  const basket = orders.length ? Math.round(total / orders.length) : 0;
+  const now = Date.now();
+  const spanMs = range === 0 ? null : range * 86400000;
+  const since = spanMs === null ? 0 : now - spanMs;
 
-  /** the last 14 days, oldest first — days with no order are honestly zero */
-  const days = Array.from({ length: 14 }, (_, i) => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - (13 - i));
-    const next = d.getTime() + 86400000;
-    const sum = orders.filter((o) => o.at >= d.getTime() && o.at < next).reduce((n, o) => n + o.total, 0);
-    return { label: d.toLocaleDateString("fa-IR", { day: "numeric", month: "short" }), sum };
-  });
-  const peak = Math.max(1, ...days.map((d) => d.sum));
+  const inRange = admin.orders.filter((o) => o.at >= since && o.status !== "cancelled");
+  const allLive = admin.orders.filter((o) => o.status !== "cancelled");
+
+  /** the same window one period earlier — the only honest way to say "up" or "down" */
+  const prev = spanMs === null ? [] : admin.orders.filter((o) => o.at >= since - spanMs && o.at < since && o.status !== "cancelled");
+  const sum = (list: typeof admin.orders) => list.reduce((n, o) => n + o.total, 0);
+  const total = sum(inRange);
+  const prevTotal = sum(prev);
+  const delta = spanMs === null || prev.length === 0 ? null : prevTotal === 0 ? null : (total - prevTotal) / prevTotal;
+
+  const items = inRange.reduce((n, o) => n + o.lines.reduce((m, l) => m + l.qty, 0), 0);
+  const basket = inRange.length ? Math.round(total / inRange.length) : 0;
+  const discounts = inRange.reduce((n, o) => n + (o.discountTotal ?? 0), 0);
 
   const byProduct = new Map<string, { name: string; qty: number; revenue: number }>();
-  for (const o of orders) {
+  for (const o of inRange) {
     for (const l of o.lines) {
       const cur = byProduct.get(l.productId) ?? { name: l.name, qty: 0, revenue: 0 };
       cur.qty += l.qty;
@@ -1106,98 +1116,183 @@ function Reports() {
     }
   }
   const topProducts = [...byProduct.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+  const topRevenue = topProducts[0]?.revenue ?? 0;
 
   const byCustomer = new Map<string, { name: string; orders: number; total: number }>();
-  for (const o of orders) {
+  for (const o of inRange) {
     const key = o.email || o.customer;
     const cur = byCustomer.get(key) ?? { name: o.customer, orders: 0, total: 0 };
     cur.orders += 1;
     cur.total += o.total;
     byCustomer.set(key, cur);
   }
-  const topCustomers = [...byCustomer.values()].sort((a, b) => b.total - a.total).slice(0, 8);
+  const customers = [...byCustomer.values()];
+  const topCustomers = [...customers].sort((a, b) => b.total - a.total).slice(0, 8);
+  /* loyal = came back. Counted from real order history, not from a score (decision 65) */
+  const loyal = [...customers].filter((c) => c.orders > 1).sort((a, b) => b.orders - a.orders || b.total - a.total).slice(0, 8);
+  const repeatShare = customers.length ? customers.filter((c) => c.orders > 1).length / customers.length : 0;
 
-  /**
-   * loyal = came back. Counted from real order history, not from a score.
-   * (decision 65 — the fifth report)
-   */
-  const loyal = [...byCustomer.values()]
-    .filter((c) => c.orders > 1)
-    .sort((a, b) => b.orders - a.orders || b.total - a.total)
-    .slice(0, 8);
-  const repeatShare = byCustomer.size ? [...byCustomer.values()].filter((c) => c.orders > 1).length / byCustomer.size : 0;
+  /* the chart window is its own control: 30 days of bars is unreadable on a laptop */
+  const chart = Array.from({ length: chartDays }, (_, i) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (chartDays - 1 - i));
+    const next = d.getTime() + 86400000;
+    const list = allLive.filter((o) => o.at >= d.getTime() && o.at < next);
+    return {
+      label: d.toLocaleDateString("fa-IR", { day: "numeric", month: "short" }),
+      sum: sum(list),
+      orders: list.length,
+    };
+  });
+  const peak = Math.max(1, ...chart.map((d) => d.sum));
 
-  /** abandoned carts live on the server — the panel asks it, it does not guess */
-  const [idle, setIdle] = useState(6);
-  const [carts, setCarts] = useState<{ carts: { id: string; email: string | null; updated_at: string; lines: number; qty: number; value: number; items: string[] }[]; totals: { carts: number; value: number; withEmail: number } } | null>(null);
-  const [cartError, setCartError] = useState("");
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const { api } = await import("@/lib/api");
-        const res = await api.get<{ carts: { id: string; email: string | null; updated_at: string; lines: number; qty: number; value: number; items: string[] }[]; totals: { carts: number; value: number; withEmail: number } }>(`/api/admin/abandoned-carts?idle=${idle}`);
-        if (alive) { setCarts(res); setCartError(""); }
-      } catch {
-        if (alive) { setCarts(null); setCartError("فهرست سبدهای رهاشده خوانده نشد (دسترسی سفارش‌ها یا اتصال سرور)."); }
-      }
-    })();
-    return () => { alive = false; };
-  }, [idle]);
+  const byCity = new Map<string, { city: string; orders: number; total: number }>();
+  for (const o of inRange) {
+    const city = o.city || "نامشخص";
+    const cur = byCity.get(city) ?? { city, orders: 0, total: 0 };
+    cur.orders += 1;
+    cur.total += o.total;
+    byCity.set(city, cur);
+  }
+  const topCities = [...byCity.values()].sort((a, b) => b.total - a.total).slice(0, 6);
 
-  const kpis = [
-    { label: "فروش کل (بدون لغوشده)", value: formatPrice(total) },
-    { label: "تعداد سفارش", value: fa(orders.length) },
-    { label: "میانگین سبد", value: formatPrice(basket) },
-    { label: "قطعهٔ فروش‌رفته", value: fa(orders.reduce((n, o) => n + o.lines.reduce((m, l) => m + l.qty, 0), 0)) },
-  ];
+  const statusRows = (["pending", "processing", "shipped", "done", "exception", "cancelled"] as const).map((st) => ({
+    status: st,
+    label: ORDER_STATUS_LABEL[st],
+    count: admin.orders.filter((o) => o.status === st).length,
+  }));
+
+  const csv = () => {
+    const lines = [
+      ["بازه", range === 0 ? "همهٔ سفارش‌ها" : `${range} روز گذشته`],
+      ["فروش", total],
+      ["سفارش", inRange.length],
+      ["قطعه", items],
+      ["میانگین سبد", basket],
+      ["تخفیف داده‌شده", discounts],
+      [],
+      ["قطعه", "تعداد", "درآمد"],
+      ...topProducts.map((p) => [p.name, p.qty, p.revenue]),
+    ];
+    download(
+      "reports.csv",
+      "\uFEFF" + lines.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"),
+      "text/csv",
+    );
+  };
+
+  const rangeLabel = range === 0 ? "کل تاریخ فروشگاه" : `${fa(range)} روز گذشته`;
 
   return (
-    <div className="ad-panel-adm">
+    <div className="ad-report">
       <header className="ad-head">
         <div>
           <h2>گزارش‌ها</h2>
-          <p>همهٔ اعداد از سفارش‌های ثبت‌شدهٔ همین سامانه محاسبه می‌شوند؛ هیچ عدد نمایشی یا نمونه‌ای اینجا نیست.</p>
+          <p>
+            همهٔ اعداد از سفارش‌های همین فروشگاه جمع می‌شوند. بازه را عوض کن تا هم نمودار و هم جدول‌ها
+            با هم عوض شوند؛ مقایسه همیشه با دورهٔ قبل از خودش است، نه با یک هدف ساختگی.
+          </p>
+        </div>
+        <div className="ad-head-actions">
+          <button type="button" className="ad-btn is-sm" onClick={csv} disabled={inRange.length === 0}>
+            <DIcon width={13} height={13} /> خروجی CSV
+          </button>
         </div>
       </header>
 
-      {orders.length === 0 ? (
-        <Empty text="هنوز سفارشی ثبت نشده، پس گزارشی هم وجود ندارد." />
+      <div className="ad-filters" role="group" aria-label="بازهٔ گزارش">
+        {([[7, "۷ روز"], [30, "۳۰ روز"], [90, "۹۰ روز"], [0, "همه"]] as const).map(([value, label]) => (
+          <button key={value} type="button" className={cn("ad-chip", range === value && "is-on")} onClick={() => setRange(value)}>
+            {label}
+          </button>
+        ))}
+        <span className="ad-hint" style={{ margin: "0 4px" }}>
+          {rangeLabel} · {fa(inRange.length)} سفارش
+        </span>
+      </div>
+
+      {admin.orders.length === 0 ? (
+        <Empty text="هنوز سفارشی ثبت نشده، پس گزارشی هم وجود ندارد. اولین خرید از فروشگاه این صفحه را پر می‌کند." />
       ) : (
         <>
-          <div className="ad-kpis">
-            {kpis.map((k) => (
-              <div key={k.label} className="ad-kpi ad-kpi-static">
-                <b>{k.value}</b>
-                <span className="ad-kpi-label">{k.label}</span>
-              </div>
-            ))}
+          <div className="ad-report-kpis">
+            <div className="ad-report-kpi">
+              <b>{formatPrice(total)}</b>
+              <span>فروش {rangeLabel}</span>
+              <small>
+                {delta === null ? (
+                  prev.length === 0 ? "دورهٔ قبلی داده‌ای ندارد" : "قابل مقایسه نیست"
+                ) : (
+                  <span className={delta >= 0 ? "ad-up" : "ad-down"}>
+                    {delta >= 0 ? "▲" : "▼"} {Math.abs(delta * 100).toFixed(1).replace(".", "/")}٪ نسبت به دورهٔ قبل
+                  </span>
+                )}
+              </small>
+            </div>
+            <div className="ad-report-kpi">
+              <b>{fa(inRange.length)}</b>
+              <span>سفارش</span>
+              <small>{fa(items)} قطعه · {fa(discounts > 0 ? Math.round(discounts * 100) / 100 : 0)} واحد تخفیف</small>
+            </div>
+            <div className="ad-report-kpi">
+              <b>{formatPrice(basket)}</b>
+              <span>میانگین سبد</span>
+              <small>{inRange.length ? `از ${fa(inRange.length)} سفارش` : "بدون سفارش"}</small>
+            </div>
+            <div className="ad-report-kpi">
+              <b>{customers.length ? `${(repeatShare * 100).toFixed(0).replace(".", "/")}٪` : "—"}</b>
+              <span>خرید تکراری</span>
+              <small>
+                {customers.length
+                  ? `${fa(customers.filter((c) => c.orders > 1).length)} از ${fa(customers.length)} مشتری`
+                  : "هنوز مشتری‌ای نیست"}
+              </small>
+            </div>
           </div>
 
           <section className="ad-card">
-            <header className="ad-card-head"><h3>فروش ۱۴ روز گذشته</h3></header>
+            <header className="ad-card-head">
+              <h3>فروش روزانه</h3>
+              <div className="ad-filters">
+                {([[7, "۷ روز"], [14, "۱۴ روز"], [30, "۳۰ روز"]] as const).map(([n, label]) => (
+                  <button key={n} type="button" className={cn("ad-chip", chartDays === n && "is-on")} onClick={() => setChartDays(n)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </header>
             <div className="ad-card-body">
-              <div className="ad-report-bars" role="img" aria-label="نمودار فروش روزانهٔ ۱۴ روز گذشته">
-                {days.map((d) => (
-                  <div key={d.label} className="ad-report-bar">
-                    <span className="ad-report-fill" style={{ height: `${Math.max(2, (d.sum / peak) * 100)}%` }} />
+              <div className="ad-report-chart" role="img" aria-label={`نمودار فروش ${fa(chartDays)} روز گذشته`}>
+                {chart.map((d) => (
+                  <div key={d.label} className="ad-bar" title={`${d.label}: ${formatPrice(d.sum)} · ${fa(d.orders)} سفارش`}>
+                    <span className="ad-bar-fill" style={{ height: `${Math.max(2, (d.sum / peak) * 100)}%` }} />
                     <small>{d.label}</small>
                   </div>
                 ))}
               </div>
+              <p className="ad-hint" style={{ marginBottom: 0 }}>
+                بلندترین ستون {formatPrice(peak)} است؛ روزهای بی‌سفارش صفر می‌مانند و پنهان نمی‌شوند.
+              </p>
             </div>
           </section>
 
-          <div className="ad-order-grid">
+          <div className="ad-report-grid">
             <section className="ad-card">
               <header className="ad-card-head"><h3>پرفروش‌ترین قطعه‌ها</h3></header>
               <div className="ad-table-wrap">
                 <table className="ad-table">
-                  <thead><tr><th>قطعه</th><th>تعداد</th><th>درآمد</th></tr></thead>
+                  <thead><tr><th>قطعه</th><th className="ad-num">تعداد</th><th className="ad-money">درآمد</th></tr></thead>
                   <tbody>
-                    {topProducts.map((p) => (
-                      <tr key={p.name}>
-                        <td>{p.name}</td>
+                    {topProducts.map((p, i) => (
+                      <tr key={`${p.name}-${i}`}>
+                        <td>
+                          <span className="ad-rank">{fa(i + 1)}</span>
+                          {p.name}
+                          <div className="ad-share" aria-hidden>
+                            <span style={{ width: `${topRevenue ? Math.round((p.revenue / topRevenue) * 100) : 0}%` }} />
+                          </div>
+                        </td>
                         <td className="ad-num">{fa(p.qty)}</td>
                         <td className="ad-money">{formatPrice(p.revenue)}</td>
                       </tr>
@@ -1211,11 +1306,11 @@ function Reports() {
               <header className="ad-card-head"><h3>مشتریان پرمصرف</h3></header>
               <div className="ad-table-wrap">
                 <table className="ad-table">
-                  <thead><tr><th>مشتری</th><th>سفارش</th><th>ارزش</th></tr></thead>
+                  <thead><tr><th>مشتری</th><th className="ad-num">سفارش</th><th className="ad-money">ارزش</th></tr></thead>
                   <tbody>
-                    {topCustomers.map((c) => (
-                      <tr key={c.name}>
-                        <td>{c.name}</td>
+                    {topCustomers.map((c, i) => (
+                      <tr key={`${c.name}-${i}`}>
+                        <td><span className="ad-rank">{fa(i + 1)}</span>{c.name}</td>
                         <td className="ad-num">{fa(c.orders)}</td>
                         <td className="ad-money">{formatPrice(c.total)}</td>
                       </tr>
@@ -1226,71 +1321,23 @@ function Reports() {
             </section>
           </div>
 
-          <div className="ad-order-grid">
-            <section className="ad-card">
-              <header className="ad-card-head">
-                <h3>سبدهای رهاشده</h3>
-                <select
-                  className="ad-select is-compact"
-                  value={idle}
-                  aria-label="مدت بی‌حرکتی"
-                  onChange={(e) => setIdle(Number(e.target.value))}
-                >
-                  {[1, 6, 24, 72].map((h) => <option key={h} value={h}>{fa(h)} ساعت بی‌حرکت</option>)}
-                </select>
-              </header>
-              <div className="ad-card-body">
-                {cartError ? (
-                  <p className="ad-hint is-warn">{cartError}</p>
-                ) : !carts ? (
-                  <p className="ad-hint">در حال خواندن از سرور…</p>
-                ) : carts.carts.length === 0 ? (
-                  <p className="ad-empty-tight">سبدی با این شرط رها نشده است.</p>
-                ) : (
-                  <>
-                    <p className="ad-hint" style={{ marginTop: 0 }}>
-                      {fa(carts.totals.carts)} سبد · ارزش ثبت‌شده {formatPrice(carts.totals.value)} ·
-                      {" "}{fa(carts.totals.withEmail)} سبد ایمیل دارد. ارزش بر پایهٔ قیمت لحظهٔ افزودن است، نه نرخ امروز.
-                    </p>
-                    <div className="ad-table-wrap">
-                      <table className="ad-table">
-                        <thead><tr><th>سبد</th><th>آخرین فعالیت</th><th>قطعه</th><th>ارزش ثبت‌شده</th></tr></thead>
-                        <tbody>
-                          {carts.carts.slice(0, 10).map((c) => (
-                            <tr key={c.id}>
-                              <td>
-                                <b dir="ltr">{c.id.slice(0, 10)}</b>
-                                <small>{c.email ?? "مهمان"}</small>
-                              </td>
-                              <td>{timeAgo(new Date(c.updated_at).getTime())}</td>
-                              <td className="ad-num">{fa(c.qty)}</td>
-                              <td className="ad-money">{formatPrice(c.value)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-              </div>
-            </section>
-
+          <div className="ad-report-grid">
             <section className="ad-card">
               <header className="ad-card-head"><h3>مشتریان وفادار (خرید تکراری)</h3></header>
               <div className="ad-card-body">
                 {loyal.length === 0 ? (
-                  <p className="ad-empty-tight">هنوز هیچ مشتری‌ای بیش از یک سفارش نداده است.</p>
+                  <p className="ad-empty-tight">در این بازه هیچ مشتری‌ای بیش از یک سفارش نداده است.</p>
                 ) : (
                   <>
                     <p className="ad-hint" style={{ marginTop: 0 }}>
-                      {(repeatShare * 100).toFixed(1).replace(".", "/")}٪ مشتریان بیش از یک‌بار خرید کرده‌اند.
+                      {(repeatShare * 100).toFixed(1).replace(".", "/")}٪ مشتریان این بازه بیش از یک‌بار خرید کرده‌اند.
                     </p>
                     <div className="ad-table-wrap">
                       <table className="ad-table">
-                        <thead><tr><th>مشتری</th><th>سفارش</th><th>ارزش</th></tr></thead>
+                        <thead><tr><th>مشتری</th><th className="ad-num">سفارش</th><th className="ad-money">ارزش</th></tr></thead>
                         <tbody>
-                          {loyal.map((c) => (
-                            <tr key={c.name}>
+                          {loyal.map((c, i) => (
+                            <tr key={`${c.name}-${i}`}>
                               <td>{c.name}</td>
                               <td className="ad-num">{fa(c.orders)}</td>
                               <td className="ad-money">{formatPrice(c.total)}</td>
@@ -1303,10 +1350,119 @@ function Reports() {
                 )}
               </div>
             </section>
+
+            <section className="ad-card">
+              <header className="ad-card-head"><h3>شهرها و وضعیت سفارش</h3></header>
+              <div className="ad-card-body">
+                {topCities.length > 0 && (
+                  <div className="ad-table-wrap" style={{ marginBottom: 12 }}>
+                    <table className="ad-table">
+                      <thead><tr><th>شهر</th><th className="ad-num">سفارش</th><th className="ad-money">فروش</th></tr></thead>
+                      <tbody>
+                        {topCities.map((c) => (
+                          <tr key={c.city}>
+                            <td>{c.city}</td>
+                            <td className="ad-num">{fa(c.orders)}</td>
+                            <td className="ad-money">{formatPrice(c.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="ad-tags">
+                  {statusRows.map((row) => (
+                    <em key={row.status}>{row.label}: {fa(row.count)}</em>
+                  ))}
+                </div>
+              </div>
+            </section>
           </div>
+
+          <AbandonedCarts />
         </>
       )}
     </div>
+  );
+}
+
+/** abandoned carts live on the server — the panel asks it, it does not guess */
+function AbandonedCarts() {
+  const [idle, setIdle] = useState(6);
+  const [carts, setCarts] = useState<{
+    carts: { id: string; email: string | null; updated_at: string; lines: number; qty: number; value: number; items: string[] }[];
+    totals: { carts: number; value: number; withEmail: number };
+  } | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const { api } = await import("@/lib/api");
+        const res = await api.get<{
+          carts: { id: string; email: string | null; updated_at: string; lines: number; qty: number; value: number; items: string[] }[];
+          totals: { carts: number; value: number; withEmail: number };
+        }>(`/api/admin/abandoned-carts?idle=${idle}`);
+        if (alive) {
+          setCarts(res);
+          setError("");
+        }
+      } catch {
+        if (alive) {
+          setCarts(null);
+          setError("فهرست سبدهای رهاشده خوانده نشد (دسترسی سفارش‌ها یا اتصال سرور).");
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [idle]);
+
+  return (
+    <section className="ad-card">
+      <header className="ad-card-head">
+        <h3>سبدهای رهاشده</h3>
+        <select className="ad-select is-compact" value={idle} aria-label="مدت بی‌حرکتی" onChange={(e) => setIdle(Number(e.target.value))}>
+          {[1, 6, 24, 72].map((h) => <option key={h} value={h}>{fa(h)} ساعت بی‌حرکت</option>)}
+        </select>
+      </header>
+      <div className="ad-card-body">
+        {error ? (
+          <p className="ad-hint is-warn">{error}</p>
+        ) : !carts ? (
+          <p className="ad-hint">در حال خواندن از سرور…</p>
+        ) : carts.carts.length === 0 ? (
+          <p className="ad-empty-tight">سبدی با این شرط رها نشده است.</p>
+        ) : (
+          <>
+            <p className="ad-hint" style={{ marginTop: 0 }}>
+              {fa(carts.totals.carts)} سبد · ارزش ثبت‌شده {formatPrice(carts.totals.value)} · {fa(carts.totals.withEmail)} سبد
+              ایمیل دارد. ارزش بر پایهٔ قیمت لحظهٔ افزودن است، نه نرخ امروز.
+            </p>
+            <div className="ad-table-wrap">
+              <table className="ad-table">
+                <thead><tr><th>سبد</th><th>آخرین فعالیت</th><th className="ad-num">قطعه</th><th className="ad-money">ارزش ثبت‌شده</th></tr></thead>
+                <tbody>
+                  {carts.carts.slice(0, 12).map((c) => (
+                    <tr key={c.id}>
+                      <td>
+                        <b dir="ltr">{c.id.slice(0, 10)}</b>
+                        <small>{c.email ?? "مهمان"}</small>
+                      </td>
+                      <td>{timeAgo(new Date(c.updated_at).getTime())}</td>
+                      <td className="ad-num">{fa(c.qty)}</td>
+                      <td className="ad-money">{formatPrice(c.value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
