@@ -6,18 +6,18 @@
 .ad-app {
   /* the panel's own palette: light is the default, dark is the same tokens
      flipped (decision 5). Nothing else in this file should need to know. */
-  --ad-bg: #f2efe9;
+  --ad-bg: #f7f7fb;
   --ad-surface: #ffffff;
-  --ad-surface-2: #f7f3ed;
-  --ad-surface-3: #faf7f2;
-  --ad-ink: #1b1815;
-  --ad-ink-soft: #211d19;
+  --ad-surface-2: #f5f6fc;
+  --ad-surface-3: #fbfbfd;
+  --ad-ink: #101828;
+  --ad-ink-soft: #182447;
   /* two greys, both measured: --ad-muted clears 4.5:1 on the lightest surface-2 (#f7f3ed)
      and on the page background, --ad-muted-2 clears 7:1 and is for figures and labels.
      Before this, seven near-identical greys were in use and four of them failed AA at
      9–11px, which is most of the caption text in the panel. */
-  --ad-muted: #6f675c;
-  --ad-muted-2: #554e44;
+  --ad-muted: #5f6572;
+  --ad-muted-2: #475467;
   --ad-line-soft: rgba(27, 24, 21, 0.06);
   --ad-line: rgba(27, 24, 21, 0.1);
   --ad-line-strong: rgba(27, 24, 21, 0.16);
@@ -30,8 +30,8 @@
   --ad-warn: #8a5a12;
   --ad-warn-bg: #fdf6f0;
   --ad-gold: #c98a2b;
-  --ad-brand: #8c4a2f;
-  --ad-info: #2563eb;
+  --ad-brand: #315fe6;
+  --ad-info: #315fe6;
   /* layers, named: the palette has to outrank a modal, the wizard has to outrank both */
   --ad-z-rail: 30;
   --ad-z-app: 60;
@@ -256,8 +256,8 @@
 .ad-nav {
   display: none;
   width: min(16.5rem, 85vw);
-  background: var(--ad-ink-soft);
-  color: #ded8cf;
+  background: var(--ad-surface);
+  color: var(--ad-muted-2);
 }
 .ad-nav.is-open {
   position: fixed;
@@ -318,12 +318,12 @@
   width: 100%;
 }
 .ad-nav-item:hover {
-  background: #2c2723;
-  color: var(--ad-surface);
+  background: var(--ad-surface-2);
+  color: var(--ad-brand);
 }
 .ad-nav-item.is-on {
-  background: var(--ad-bg);
-  color: var(--ad-ink);
+  background: color-mix(in srgb, var(--ad-brand) 12%, var(--ad-surface));
+  color: var(--ad-brand);
   font-weight: 600;
 }
 .ad-nav-item em {
@@ -346,17 +346,17 @@
 .ad-nav-foot {
   margin-top: auto;
   padding: 14px 12px 4px;
-  border-top: 1px solid #2c2723;
+  border-top: 1px solid var(--ad-line);
 }
 .ad-nav-foot p {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  color: var(--ad-bg);
+  color: var(--ad-ink);
 }
 .ad-nav-foot small {
   font-size: 10px;
-  color: rgba(222, 216, 207, 0.6);
+  color: var(--ad-muted);
 }
 
 @media (min-width: 900px) {
@@ -365,7 +365,7 @@
     position: static;
     width: 224px;
     flex: none;
-    border-inline-end: 1px solid #2c2723;
+    border-inline-end: 1px solid var(--ad-line);
     animation: none;
     box-shadow: none;
   }
@@ -481,8 +481,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  background: var(--ad-line);
-  color: var(--ad-ink);
+  background: color-mix(in srgb, var(--ad-brand) 12%, var(--ad-surface));
+  color: var(--ad-brand);
   margin-bottom: 4px;
 }
 .ad-kpi b {
@@ -627,13 +627,13 @@
   font-size: 13px;
 }
 .ad-btn.is-primary {
-  background: var(--ad-ink);
-  border-color: var(--ad-ink);
-  color: var(--ad-surface-2);
-}
-.ad-btn.is-primary:hover:not(:disabled) {
   background: var(--ad-brand);
   border-color: var(--ad-brand);
+  color: var(--ad-surface);
+}
+.ad-btn.is-primary:hover:not(:disabled) {
+  background: var(--ad-ink-soft);
+  border-color: var(--ad-ink-soft);
 }
 .ad-btn.is-danger {
   color: var(--ad-danger);

@@ -1,0 +1,57 @@
+/* Compact overview. The shell supplies theme tokens; the grid collapses inside the content area. */
+.dash { --dash-accent: #edebff; display: grid; gap: 16px; min-width: 0; }
+.dash-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.dash-heading h1 { margin: 4px 0; font-size: 22px; line-height: 1.5; font-weight: 700; color: var(--ad-ink); }
+.dash-heading p, .dash-panel-head p { margin: 0; color: var(--ad-muted); font-size: 12px; }
+.dash-eyebrow { color: var(--ad-brand); font-size: 11px; font-weight: 700; }
+.dash-range { display: flex; align-items: center; gap: 8px; color: var(--ad-muted-2); font-size: 12px; }
+.dash-range select { min-height: 44px; border: 1px solid var(--ad-line); border-radius: 8px; background: var(--ad-surface); color: var(--ad-ink); padding: 8px 12px; }
+.dash-note { margin: -8px 0 0; color: var(--ad-muted); font-size: 11px; }
+.dash-metrics { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 12px; }
+.dash-metric, .dash-panel, .dash-state { min-width: 0; border: 1px solid var(--ad-line); border-radius: 12px; background: var(--ad-surface); }
+.dash-metric { grid-column: span 3; display: grid; grid-template-columns: 36px minmax(0,1fr); align-content: start; column-gap: 12px; row-gap: 4px; padding: 12px; }
+.dash-metric-icon, .dash-placeholder-icon, .dash-queue-icon { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 8px; color: var(--ad-brand); background: color-mix(in srgb, var(--ad-brand) 10%, var(--ad-surface)); }
+.dash-metric-icon { grid-row: span 3; }
+.dash-metric-label { color: var(--ad-muted-2); font-size: 12px; }
+.dash-metric strong { color: var(--ad-ink); font-size: 19px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.dash-metric small { color: var(--ad-muted); font-size: 11px; line-height: 1.7; }
+.dash-grid { display: grid; grid-template-columns: repeat(12,minmax(0,1fr)); gap: 12px; }
+.dash-primary-grid > :first-child { grid-column: span 8; }
+.dash-primary-grid > :last-child { grid-column: span 4; }
+.dash-summary-grid > * { grid-column: span 6; }
+.dash-panel { overflow: hidden; }
+.dash-panel-head { padding: 12px 16px; border-bottom: 1px solid var(--ad-line); }
+.dash-panel-head h2 { margin: 0; font-size: 15px; font-weight: 700; color: var(--ad-ink); }
+.dash-panel-head p { margin-top: 4px; }
+.dash-placeholder { display: flex; align-items: flex-start; gap: 12px; padding: 20px 16px; }
+.dash-placeholder-icon { background: var(--dash-accent); color: #315fe6; }
+.dash-placeholder strong, .dash-queue strong { font-size: 13px; color: var(--ad-ink); }
+.dash-placeholder p, .dash-queue p { margin: 4px 0 0; color: var(--ad-muted); font-size: 12px; line-height: 1.8; }
+.dash-status-list { display: grid; gap: 8px; padding: 12px 16px; }
+.dash-status > div { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--ad-muted-2); }
+.dash-track { display: block; height: 4px; margin-top: 4px; background: var(--ad-surface-2); border-radius: 999px; overflow: hidden; }
+.dash-track > span { display: block; height: 100%; background: var(--ad-brand); border-radius: inherit; }
+.dash-empty { color: var(--ad-muted); font-size: 12px; padding: 16px; }
+.dash-queue { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; }
+.dash-queue > div { flex: 1 1 140px; min-width: 0; }
+.dash-link, .dash-sort { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--ad-brand); cursor: pointer; font: inherit; font-size: 12px; min-height: 44px; }
+.dash-products { list-style: none; margin: 0; padding: 8px 16px; }
+.dash-products li { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--ad-line-soft); font-size: 12px; }
+.dash-products li:last-child { border: 0; }
+.dash-rank { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--ad-surface-2); color: var(--ad-brand); }
+.dash-product-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.dash-products strong { white-space: nowrap; }
+.dash-summary-total { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 0; color: var(--ad-muted-2); font-size: 12px; }
+.dash-summary-total strong { color: var(--ad-ink); font-size: 19px; }
+.dash-table-wrap { overflow-x: auto; }
+.dash-table { width: 100%; min-width: 520px; border-collapse: collapse; text-align: start; font-size: 12px; }
+.dash-table th, .dash-table td { padding: 8px 16px; border-bottom: 1px solid var(--ad-line-soft); text-align: start; }
+.dash-table th { background: var(--ad-surface-2); color: var(--ad-muted-2); font-weight: 600; }
+.dash-badge { display: inline-block; padding: 4px 8px; border-radius: 8px; color: var(--ad-brand); background: color-mix(in srgb, var(--ad-brand) 10%, var(--ad-surface)); }
+.dash-table-foot { padding: 0 16px; }
+.dash-state { padding: 20px; color: var(--ad-muted-2); }
+.dash-state p { margin: 8px 0; }
+.dash button:focus-visible, .dash select:focus-visible { outline: 2px solid var(--ad-brand); outline-offset: 2px; }
+@media (max-width: 1100px) { .dash-metric { grid-column: span 6; } }
+@media (max-width: 700px) { .dash-primary-grid > *, .dash-summary-grid > * { grid-column: 1 / -1 !important; } }
+@media (max-width: 360px) { .dash-metric { grid-column: 1 / -1; } }
