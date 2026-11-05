@@ -507,3 +507,16 @@ create table if not exists login_events (
   user_agent text
 );
 create index if not exists login_events_at_idx on login_events (at desc);
+
+-- First-party visit counting (decision 80). No third-party script: the shop
+-- posts a path with a random session id, and the panel aggregates the rows.
+create table if not exists page_views (
+  id bigserial primary key,
+  at timestamptz not null default now(),
+  path text not null,
+  session text not null,
+  referrer text,
+  device text
+);
+create index if not exists page_views_at_idx on page_views (at desc);
+create index if not exists page_views_session_idx on page_views (session);

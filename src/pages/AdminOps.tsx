@@ -2017,6 +2017,118 @@ const fmtDuration = (seconds: number) => {
   return `${fa(Math.floor(hours / 24))} روز و ${fa(hours % 24)} ساعت`;
 };
 
+
+/* ------------------------------------------------------------------ */
+/* first-party visits: counted by our own server, no third party       */
+/* (decision 80)                                                       */
+/* ------------------------------------------------------------------ */
+
+interface AnalyticsPayload {
+  days: number;
+  totals: { views: number; visits: number; sources: number; orders: number; conversion: number };
+  daily: { day: string; views: number; visits: number }[];
+  top: { path: string; views: number }[];
+  referrers: { source: string; visits: number }[];
+  devices: { device: string; views: number }[];
+  sampleTooSmall: boolean;
+}
+
+export function AnalyticsPanel() {
+  const [days, setDays] = useState(14);
+  const [data, setData] = useState<AnalyticsPayload | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const { api } = await import("@/lib/api");
+        const res = await api.get<AnalyticsPayload>(`/api/admin/analytics?days=${days}`);
+        if (alive) { setData(res); setError(""); }
+      } catch {
+        if (alive) { setData(null); setError("آمار خوانده نشد؛ دسترسی «داشبورد» یا اتصال سرور را بررسی کن."); }
+      }
+    })();
+    return () => { alive = false; };
+  }, [days]);
+
+  const max = Math.max(1, ...(data?.daily.map((d) => d.views) ?? [1]));
+
+  return (
+    <>
+      <PanelHead title="آمار بازدید" sub="بازدیدها را خود سرور می‌شمارد؛ اسکریپت بیرونی در کار نیست و چیزی هویت بازدیدکننده را نگه نمی‌دارد." />
+      <div className="ad-filters">
+        {[7, 14, 30].map((d) => (
+          <button key={d} type="button" className={cn("ad-chip", days === d && "is-on")} onClick={() => setDays(d)}>
+            {fa(d)} روز
+          </button>
+        ))}
+      </div>
+
+      {error && <p className="ad-empty" role="alert">{error}</p>}
+
+      {data && (
+        <>
+          <div className="ad-kpis">
+            <div className="ad-kpi ad-kpi-static"><b>{fa(data.totals.views)}</b><span className="ad-kpi-label">بازدید صفحه</span></div>
+            <div className="ad-kpi ad-kpi-static"><b>{fa(data.totals.visits)}</b><span className="ad-kpi-label">بازدیدکنندهٔ یکتا</span></div>
+            <div className="ad-kpi ad-kpi-static"><b>{fa(data.totals.orders)}</b><span className="ad-kpi-label">سفارش در همین بازه</span></div>
+            <div className="ad-kpi ad-kpi-static">
+              <b>{(data.totals.conversion * 100).toFixed(1).replace(".", "/")}٪</b>
+              <span className="ad-kpi-label">تبدیل (سفارش ÷ بازدیدکننده)</span>
+            </div>
+          </div>
+
+          {data.sampleTooSmall && (
+            <p className="ad-hint is-warn">
+              نمونه کوچک است (زیر ۳۰ بازدیدکننده)؛ از این درصدها نتیجه نگیر.
+            </p>
+          )}
+
+          <Panel title="بازدید روزانه">
+            {data.daily.length === 0 ? (
+              <p className="ad-empty">در این بازه بازدیدی ثبت نشده.</p>
+            ) : (
+              <div className="ad-report-bars" role="img" aria-label={`نمودار بازدید ${fa(days)} روز`}>
+                {data.daily.map((d) => (
+                  <span key={d.day} style={{ height: `${Math.round((d.views / max) * 100)}%` }} title={`${d.day}: ${fa(d.views)} بازدید · ${fa(d.visits)} نفر`} />
+                ))}
+              </div>
+            )}
+            <div className="ad-actions">
+              <span className="ad-hint">بیشترین روز: {fa(max)} بازدید</span>
+            </div>
+          </Panel>
+
+          <div className="ad-grid-2">
+            <Panel title="پربازدیدترین صفحه‌ها">
+              {data.top.length === 0 ? <p className="ad-empty">داده‌ای نیست.</p> : (
+                <ul className="ad-mini-list">
+                  {data.top.map((t) => (
+                    <li key={t.path}><span dir="ltr">{t.path}</span><b>{fa(t.views)}</b></li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+            <Panel title="مبدأ و دستگاه">
+              <ul className="ad-mini-list">
+                {data.referrers.map((r) => (
+                  <li key={r.source}><span dir="auto">{r.source}</span><b>{fa(r.visits)} نفر</b></li>
+                ))}
+              </ul>
+              <ul className="ad-mini-list">
+                {data.devices.map((d) => (
+                  <li key={d.device}><span>{d.device === "mobile" ? "موبایل" : d.device === "tablet" ? "تبلت" : d.device === "desktop" ? "دسکتاپ" : d.device}</span><b>{fa(d.views)}</b></li>
+                ))}
+              </ul>
+            </Panel>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 export function HealthPanel() {
   const [data, setData] = useState<HealthPayload | null>(null);
   const [error, setError] = useState("");

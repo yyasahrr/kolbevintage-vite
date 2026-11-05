@@ -15,6 +15,7 @@ import { commerceRoutes } from "./commerce/routes";
 import { rbacRoutes } from "./routes/rbac";
 import { healthRoutes } from "./routes/health";
 import { backupRoutes } from "./routes/backup";
+import { analyticsRoutes } from "./routes/analytics";
 import { startBackupScheduler } from "./backup";
 import { recordServerError } from "./errors";
 import { seedRbac } from "./http/rbac";
@@ -109,6 +110,7 @@ export async function buildServer() {
   await app.register(rbacRoutes);
   await app.register(healthRoutes);
   await app.register(backupRoutes);
+  await app.register(analyticsRoutes);
 
   if (config.serveStatic && fs.existsSync(path.join(config.distDir, "index.html"))) {
     await app.register(fastifyStatic, {

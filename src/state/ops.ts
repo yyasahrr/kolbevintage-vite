@@ -236,6 +236,8 @@ export interface OpsState {
    * not greyed out.
    */
   features: { tryon: boolean; reviews: boolean; journal: boolean; wishlist: boolean };
+  /** journal articles the owner rewrote in the block editor, by slug (decision 68) */
+  journalBlocks: Record<string, import("@/data/journal").ArticleBlock[]>;
   /** first-run wizard: five steps, resumable, and it disappears once finished (decision 93) */
   setup: { done: boolean; step: number };
   /** signed-off launch checks; what the panel can measure is measured, the rest is the owner's word (decision 91) */
@@ -362,6 +364,7 @@ const DEFAULT: OpsState = {
   ],
   sizeGuides: {},
   features: { tryon: true, reviews: true, journal: true, wishlist: true },
+  journalBlocks: {},
   setup: { done: false, step: 0 },
   launchChecks: {},
   issues: [],
@@ -611,6 +614,15 @@ export const setTicketAssignee = (id: string, assignee: string) =>
 
 export const setSizeGuide = (categoryId: string, guide: OpsState["sizeGuides"][string]) =>
   patchOps({ sizeGuides: { ...cache.sizeGuides, [categoryId]: guide } });
+
+export const setJournalBlocks = (slug: string, blocks: import("@/data/journal").ArticleBlock[]) =>
+  patchOps({ journalBlocks: { ...cache.journalBlocks, [slug]: blocks } });
+
+export const resetJournalBlocks = (slug: string) => {
+  const next = { ...cache.journalBlocks };
+  delete next[slug];
+  return patchOps({ journalBlocks: next });
+};
 
 export const setFeature = (key: keyof OpsState["features"], on: boolean) =>
   patchOps({ features: { ...cache.features, [key]: on } });

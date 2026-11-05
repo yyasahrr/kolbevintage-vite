@@ -50,6 +50,32 @@ function BrandMeta() {
   return null;
 }
 
+/** one page view per route change, counted on our own server (decision 80) */
+function ViewTracker() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (pathname.startsWith("/admin")) return;
+    const key = "kv_visit_session";
+    let session = localStorage.getItem(key) ?? "";
+    const day = new Date().toISOString().slice(0, 10);
+    if (!session || !session.endsWith(`:${day}`)) {
+      session = `${Math.random().toString(36).slice(2, 10)}:${day}`;
+      localStorage.setItem(key, session);
+    }
+    const device = window.innerWidth < 640 ? "mobile" : window.innerWidth < 1024 ? "tablet" : "desktop";
+    // fire and forget: a failed beacon must never disturb the shopper
+    void (async () => {
+      try {
+        const { api } = await import("@/lib/api");
+        await api.post("/api/track", { path: pathname, session, device, referrer: document.referrer || "" });
+      } catch {
+        /* offline or blocked — the shop keeps working */
+      }
+    })();
+  }, [pathname]);
+  return null;
+}
+
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
@@ -83,6 +109,7 @@ function SiteRoutes() {
       </Routes>
       {/* the report button belongs to the shop floor as much as to the panel (decision 96) */}
       <IssueButton page={pathname} />
+      <ViewTracker />
     </SiteShell>
   );
 }

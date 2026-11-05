@@ -3192,3 +3192,17 @@
 .ad-queue-item b { font-size: 15px; }
 .ad-queue-item span { font-size: 11px; color: var(--color-ink-45, #7d7367); line-height: 1.6; }
 .ad-empty-tight { margin: 0; font-size: 11.5px; color: var(--color-ink-45, #7d7367); }
+
+/* journal block editor (decision 68) */
+.ad-blocks { display: grid; gap: 10px; margin-block: 12px; }
+.ad-block { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 12px; background: #fff; }
+.ad-block-head { display: flex; align-items: center; gap: 8px; }
+.ad-block-head .ad-actions { margin-inline-start: auto; }
+.ad-block-img { max-height: 180px; width: auto; border-radius: 10px; border: 1px solid rgba(0, 0, 0, 0.08); }
+.ad-block-gallery { display: flex; gap: 6px; flex-wrap: wrap; }
+.ad-block-gallery img { width: 64px; height: 84px; object-fit: cover; border-radius: 8px; border: 1px solid rgba(0, 0, 0, 0.08); }
+
+/* top pages / sources lists (decision 80) */
+.ad-mini-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 4px; }
+.ad-mini-list li { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; padding: 5px 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.03); }
+.ad-mini-list li b { font-weight: 500; }

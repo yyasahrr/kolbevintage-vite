@@ -7,10 +7,13 @@ import { useCart } from "@/state/cart";
 import { ProductCard } from "@/components/ProductCard";
 import { Breadcrumbs, buttonStyles } from "@/components/ui";
 import { NotFoundPage } from "./NotFoundPage";
+import { useOps } from "@/state/ops";
 
 export function ArticlePage() {
   const { slug } = useParams();
   const post = getPost(slug);
+  // the owner's block-editor version wins over the shipped article (decision 68)
+  const edited = useOps().journalBlocks ?? {};
   const { notify } = useCart();
   const [progress, setProgress] = useState(0);
 
@@ -90,12 +93,27 @@ export function ArticlePage() {
         </div>
 
         <div className="mx-auto max-w-[42rem] px-4 pt-9 sm:px-6">
-          {post.blocks.map((block, i) => {
+          {(edited[post.slug] ?? post.blocks).map((block, i) => {
             if (block.type === "h")
               return (
                 <h2 key={i} className="mt-7 font-display text-[22px] leading-snug font-medium text-ink">
                   {block.text}
                 </h2>
+              );
+            if (block.type === "image" && block.src)
+              return (
+                <figure key={i} className="mt-6">
+                  <img src={block.src} alt={block.text || "تصویر مقاله"} loading="lazy" className="w-full rounded-[var(--radius-lg)] border border-black/5 object-cover" />
+                  {block.text && <figcaption className="mt-2 text-[10.5px] text-ink-45">{block.text}</figcaption>}
+                </figure>
+              );
+            if (block.type === "gallery" && block.images?.length)
+              return (
+                <div key={i} className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {block.images.map((src, gi) => (
+                    <img key={gi} src={src} alt={block.text || `تصویر ${gi + 1}`} loading="lazy" className="aspect-[3/4] w-full rounded-[var(--radius-md)] border border-black/5 object-cover" />
+                  ))}
+                </div>
               );
             if (block.type === "quote")
               return (

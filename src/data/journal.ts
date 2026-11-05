@@ -7,8 +7,12 @@ import look6 from "@/assets/models/look-6.webp";
 import look1 from "@/assets/models/look-1.webp";
 
 export interface ArticleBlock {
-  type: "p" | "h" | "quote";
+  type: "p" | "h" | "quote" | "image" | "gallery";
   text: string;
+  /** image blocks: one picture + its caption */
+  src?: string;
+  /** gallery blocks: two or more pictures */
+  images?: string[];
 }
 
 export interface Post {
