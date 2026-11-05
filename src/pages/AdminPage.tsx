@@ -1931,6 +1931,8 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
   const [price, setPrice] = useState(product?.price ?? 100);
   const [compareAt, setCompareAt] = useState(product?.compareAt ?? 0);
   // optional cost price; with it the panel can show a real margin (decision 38)
+  /* the variant matrix can be huge; it renders a window, never everything (decision 22) */
+  const [variantPage, setVariantPage] = useState(0);
   const [video, setVideo] = useState<string | undefined>(product ? getOps().productVideos?.[product.id] : undefined);
   const [cost, setCost] = useState(
     product ? (getAdmin().productEdits[product.id]?.cost ?? admin.customProducts.find((c) => c.id === product.id)?.cost ?? 0) : 0,
@@ -2293,9 +2295,14 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
                 {err && <p className="ad-form-err">{err}</p>}
               </div>
               <div className="ad-form-col">
-                <p className="ad-field-label">موجودی هر واریانت</p>
+                <p className="ad-field-label">
+                  موجودی هر واریانت — {fa(colors.length * sizes.length)} ترکیب
+                  {colors.length * sizes.length > 60 && <span className="ad-hint"> · ماتریس صفحه‌بندی می‌شود تا فرم کند نشود</span>}
+                </p>
                 <div className="ad-stock-matrix">
-                  {colors.map((c) => (
+                  {colors
+                    .slice(variantPage * VARIANT_ROWS, variantPage * VARIANT_ROWS + VARIANT_ROWS)
+                    .map((c) => (
                     <div key={c.id} className="ad-stock-matrix-row">
                       <span className="ad-stock-matrix-head"><i style={{ background: c.hex }} />{c.name}</span>
                       {sizes.map((sz) => (
@@ -2305,6 +2312,24 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
                     </div>
                   ))}
                 </div>
+                {colors.length > VARIANT_ROWS && (
+                  <div className="ad-actions">
+                    <button type="button" className="ad-btn is-sm" disabled={variantPage === 0} onClick={() => setVariantPage((v) => Math.max(0, v - 1))}>
+                      رنگ‌های قبلی
+                    </button>
+                    <span className="ad-hint">
+                      رنگ {fa(variantPage * VARIANT_ROWS + 1)} تا {fa(Math.min(colors.length, (variantPage + 1) * VARIANT_ROWS))} از {fa(colors.length)}
+                    </span>
+                    <button
+                      type="button"
+                      className="ad-btn is-sm"
+                      disabled={(variantPage + 1) * VARIANT_ROWS >= colors.length}
+                      onClick={() => setVariantPage((v) => v + 1)}
+                    >
+                      رنگ‌های بعدی
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -4234,6 +4259,9 @@ function HomeOrderPanel() {
 /* the shipped article is the starting point; the owner's version is   */
 /* stored per slug and can always be thrown away to get it back.       */
 /* ------------------------------------------------------------------ */
+
+/** how many colour rows the variant matrix shows at once (decision 22) */
+const VARIANT_ROWS = 8;
 
 const BLOCK_TYPES: { id: ArticleBlock["type"]; label: string }[] = [
   { id: "h", label: "تیتر" },
