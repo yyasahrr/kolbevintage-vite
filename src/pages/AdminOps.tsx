@@ -5,6 +5,7 @@ import {
   Bot,
   Check,
   CheckCircle2,
+  CheckSquare,
   ClipboardList,
   Copy,
   Image as ImageIcon,
@@ -80,6 +81,7 @@ import {
   type SizeSet,
   type SmsTemplate,
   type TryOnPackage,
+  type ReturnReq,
 } from "@/state/ops";
 import {
   useAdmin,
@@ -1187,64 +1189,327 @@ export function TicketsPanel() {
   );
 }
 
+const RETURN_STATUS_LABEL: Record<ReturnReq["status"], string> = {
+  requested: "در انتظار تصمیم",
+  approved: "تأییدشده",
+  received: "کالا رسید",
+  refunded: "بازپرداخت شد",
+  rejected: "رد شد",
+};
+
+const RETURN_STATUS_TONE: Record<ReturnReq["status"], string> = {
+  requested: "is-pending",
+  approved: "is-open",
+  received: "is-open",
+  refunded: "is-done",
+  rejected: "is-danger",
+};
+
+/**
+ * Returns used to be one flat table with a five-option select per row: the owner
+ * could not see what a request was worth, what was in the parcel, or how many
+ * were still waiting on them. It is now a decision screen — the queue first, the
+ * money it represents, and one obvious next step per card.
+ */
 export function ReturnsPanel() {
   const ops = useOps();
-  const statuses = ["requested", "approved", "received", "refunded", "rejected"] as const;
-  const labels: Record<string, string> = { requested: "ثبت شده", approved: "تأیید", received: "دریافت شد", refunded: "بازپرداخت", rejected: "رد شد" };
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<"all" | ReturnReq["status"]>("all");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [openNote, setOpenNote] = useState<string | null>(null);
+
+  const list = useMemo(() => {
+    const needle = q.trim();
+    return ops.returns
+      .filter((r) => filter === "all" || r.status === filter)
+      .filter((r) => !needle || `${r.id} ${r.orderId} ${r.email} ${r.items.map((i) => i.name).join(" ")}`.includes(needle))
+      .sort((a, b) => b.at - a.at);
+  }, [ops.returns, filter, q]);
+
+  const stats = useMemo(() => {
+    const waiting = ops.returns.filter((r) => r.status === "requested");
+    const moving = ops.returns.filter((r) => r.status === "approved" || r.status === "received");
+    const refunded = ops.returns.filter((r) => r.status === "refunded");
+    const rejected = ops.returns.filter((r) => r.status === "rejected");
+    // how long the oldest open request has been waiting — the number that matters
+    const oldest = waiting.reduce<number | null>((min, r) => (min === null || r.at < min ? r.at : min), null);
+    return {
+      waiting: waiting.length,
+      moving: moving.length,
+      refundedTotal: refunded.reduce((n, r) => n + r.refund, 0),
+      refunded: refunded.length,
+      rejected: rejected.length,
+      oldestAge: oldest === null ? null : timeAgo(oldest),
+    };
+  }, [ops.returns]);
+
+  const pickedHere = list.filter((r) => picked.has(r.id)).length;
+  const allHerePicked = list.length > 0 && pickedHere === list.length;
+  const togglePick = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAll = () =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (allHerePicked) list.forEach((r) => next.delete(r.id));
+      else list.forEach((r) => next.add(r.id));
+      return next;
+    });
+  /** one status for many requests — the only bulk write this screen allows */
+  const bulkStatus = (status: ReturnReq["status"]) => {
+    const targets = ops.returns.filter((r) => picked.has(r.id));
+    targets.forEach((r) => setReturnStatus(r.id, status));
+    addLog({
+      actor: "مدیر",
+      action: `تغییر گروهی وضعیت ${fa(targets.length)} مرجوعی به «${RETURN_STATUS_LABEL[status]}»`,
+      target: "مرجوعی‌ها",
+    });
+    setPicked(new Set());
+  };
+  /** refunds are money: they also get their own log line */
+  const refund = (r: ReturnReq) => {
+    setReturnStatus(r.id, "refunded");
+    addLog({ actor: "مدیر", action: `بازپرداخت ${formatPrice(r.refund)} برای ${r.id}`, target: r.orderId });
+  };
+
   return (
     <>
-      <PanelHead title="مرجوعی‌ها" sub="درخواست‌های مرجوعی مشتریان را بررسی و وضعیت را به‌روز کن." />
-      {ops.returns.length === 0 ? (
-        <p className="ad-empty">درخواست مرجوعی‌ای ثبت نشده.</p>
+      <PanelHead
+        title="مرجوعی‌ها"
+        sub="هر درخواست را تا تصمیم نهایی جلو ببر: تأیید، دریافت کالا، بازپرداخت یا رد."
+        action={
+          <button type="button" className="ad-btn is-sm" onClick={toggleAll} disabled={list.length === 0}>
+            <CheckSquare width={12} height={12} /> {allHerePicked ? "برداشتن انتخاب" : `انتخاب همهٔ ${fa(list.length)}`}
+          </button>
+        }
+      />
+
+      <div className="ad-return-summary">
+        <div className="ad-stat">
+          <b>{fa(stats.waiting)}</b>
+          <span>در انتظار تصمیم تو</span>
+          <small>{stats.oldestAge ? `قدیمی‌ترین: ${stats.oldestAge}` : "صف خالی است"}</small>
+        </div>
+        <div className="ad-stat">
+          <b>{fa(stats.moving)}</b>
+          <span>در جریان (تأیید یا دریافت)</span>
+          <small>بین تأیید و بازپرداخت</small>
+        </div>
+        <div className="ad-stat">
+          <b>{formatPrice(stats.refundedTotal)}</b>
+          <span>بازپرداخت‌شده</span>
+          <small>{fa(stats.refunded)} درخواست تسویه‌شده</small>
+        </div>
+        <div className="ad-stat">
+          <b>{fa(stats.rejected)}</b>
+          <span>رد‌شده</span>
+          <small>{fa(ops.returns.length)} درخواست در کل</small>
+        </div>
+      </div>
+
+      <div className="ad-toolbar">
+        <input
+          className="ad-input"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="شناسهٔ مرجوعی، سفارش، ایمیل یا کالا…"
+          aria-label="جست‌وجوی مرجوعی"
+        />
+        <label className="ad-select-all">
+          <input
+            type="checkbox"
+            className="ad-checkbox"
+            checked={allHerePicked}
+            ref={(el) => {
+              if (el) el.indeterminate = !allHerePicked && pickedHere > 0;
+            }}
+            onChange={toggleAll}
+            aria-label="انتخاب همهٔ مرجوعی‌های این فهرست"
+          />
+          همه
+        </label>
+      </div>
+
+      <div className="ad-filters">
+        {(["all", "requested", "approved", "received", "refunded", "rejected"] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            className={cn("ad-chip", filter === f && "is-on")}
+            onClick={() => setFilter(f)}
+          >
+            {f === "all" ? "همه" : RETURN_STATUS_LABEL[f]}
+            {f !== "all" && (
+              <em className="ad-chip-count">{fa(ops.returns.filter((r) => r.status === f).length)}</em>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {picked.size > 0 && (
+        <div className="ad-bulkbar" role="region" aria-label="عملیات گروهی مرجوعی">
+          <b>{fa(picked.size)} مرجوعی انتخاب‌شده</b>
+          <div className="ad-actions">
+            <button type="button" className="ad-btn is-sm" onClick={() => bulkStatus("approved")}>تأیید</button>
+            <button type="button" className="ad-btn is-sm" onClick={() => bulkStatus("received")}>دریافت کالا</button>
+            <button type="button" className="ad-btn is-sm" onClick={() => bulkStatus("refunded")}>بازپرداخت</button>
+            <button type="button" className="ad-btn is-sm is-danger" onClick={() => bulkStatus("rejected")}>رد</button>
+            <button type="button" className="ad-btn is-sm" onClick={() => setPicked(new Set())}>لغو انتخاب</button>
+          </div>
+        </div>
+      )}
+
+      {list.length === 0 ? (
+        <p className="ad-empty">
+          {ops.returns.length === 0
+            ? "درخواست مرجوعی‌ای ثبت نشده. وقتی مشتری از صفحهٔ حساب درخواست بدهد، اینجا می‌آید."
+            : "با این فیلتر مرجوعی‌ای نیست."}
+        </p>
       ) : (
-        <div className="ad-table-wrap">
-          <table className="ad-table">
-            <thead><tr><th>شناسه</th><th>سفارش</th><th>مشتری</th><th>اقلام</th><th>مبلغ</th><th>وضعیت</th><th /></tr></thead>
-            <tbody>
-              {ops.returns.map((r) => (
-                <tr key={r.id}>
-                  <td dir="ltr">{r.id}</td>
-                  <td dir="ltr">{r.orderId}</td>
-                  <td>{r.email}<small>{timeAgo(r.at)}</small></td>
-                  <td>{r.items.map((i) => i.name).join("، ")}</td>
-                  <td className="ad-money">{formatPrice(r.refund)}</td>
-                  <td>
-                    <select className="ad-select" value={r.status} aria-label="وضعیت مرجوعی" onChange={(e) => setReturnStatus(r.id, e.target.value as never)}>
-                      {statuses.map((s) => <option key={s} value={s}>{labels[s]}</option>)}
-                    </select>
-                  </td>
-                  <td>
-                    <button type="button" className="ad-icon" aria-label="چاپ برچسب" onClick={() => addLog({ actor: "مدیر", action: "چاپ لیبل مرجوعی", target: r.id })}><ClipboardList width={13} height={13} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="ad-returns">
+          {list.map((r) => {
+            const next: { label: string; status: ReturnReq["status"] }[] =
+              r.status === "requested"
+                ? [{ label: "تأیید مرجوعی", status: "approved" }, { label: "رد", status: "rejected" }]
+                : r.status === "approved"
+                  ? [{ label: "کالا رسید", status: "received" }]
+                  : r.status === "received"
+                    ? [{ label: "بازپرداخت", status: "refunded" }]
+                    : [];
+            return (
+              <article key={r.id} className={cn("ad-return", (r.status === "refunded" || r.status === "rejected") && "is-muted")}>
+                <div className="ad-return-top">
+                  <input
+                    type="checkbox"
+                    className="ad-checkbox"
+                    checked={picked.has(r.id)}
+                    onChange={() => togglePick(r.id)}
+                    aria-label={`انتخاب مرجوعی ${r.id}`}
+                  />
+                  <b dir="ltr">{r.id}</b>
+                  <span className={cn("ad-pill", RETURN_STATUS_TONE[r.status])}>{RETURN_STATUS_LABEL[r.status]}</span>
+                  <span className="ad-chip is-flat" dir="ltr">سفارش {r.orderId}</span>
+                  <span className="ad-hint" style={{ margin: 0 }}>{r.email}</span>
+                  <span className="ad-hint" style={{ margin: 0 }}>{timeAgo(r.at)}</span>
+                  <span className="ad-spacer" />
+                  <b className="ad-money">{formatPrice(r.refund)}</b>
+                </div>
+
+                <div className="ad-return-meta">
+                  <span>کالاها: <b>{fa(r.items.reduce((n, i) => n + i.qty, 0))} قلم</b></span>
+                  <span>تاریخ ثبت: <b>{formatJalaliDateTime(r.at)}</b></span>
+                  <span>پاسخ داده‌شده: <b>{r.note ? "بله" : "نه"}</b></span>
+                </div>
+
+                <ul className="ad-return-items">
+                  {r.items.map((i, idx) => (
+                    <li key={`${r.id}-${idx}`}>
+                      <span>{i.name} <small>× {fa(i.qty)}</small></span>
+                      <em>{i.reason || "بدون دلیل ثبت‌شده"}</em>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="ad-return-actions">
+                  {next.map((n) => (
+                    <button
+                      key={n.status}
+                      type="button"
+                      className={cn("ad-btn is-sm", n.status === "approved" || n.status === "received" ? "is-primary" : "", n.status === "rejected" && "is-danger")}
+                      onClick={() => {
+                        if (n.status === "refunded") refund(r);
+                        else setReturnStatus(r.id, n.status);
+                      }}
+                    >
+                      {n.label}
+                    </button>
+                  ))}
+                  <select
+                    className="ad-select is-compact"
+                    value={r.status}
+                    aria-label="تغییر وضعیت مرجوعی"
+                    onChange={(e) => setReturnStatus(r.id, e.target.value as ReturnReq["status"])}
+                  >
+                    {(Object.keys(RETURN_STATUS_LABEL) as ReturnReq["status"][]).map((st) => (
+                      <option key={st} value={st}>{RETURN_STATUS_LABEL[st]}</option>
+                    ))}
+                  </select>
+                  <button type="button" className="ad-btn is-sm" onClick={() => setOpenNote(openNote === r.id ? null : r.id)}>
+                    یادداشت داخلی
+                  </button>
+                  <button
+                    type="button"
+                    className="ad-btn is-sm"
+                    onClick={() => addLog({ actor: "مدیر", action: "چاپ لیبل مرجوعی", target: r.id })}
+                  >
+                    <ClipboardList width={12} height={12} /> چاپ لیبل
+                  </button>
+                </div>
+
+                {openNote === r.id && (
+                  <div className="ad-field" style={{ marginBottom: 0 }}>
+                    <label htmlFor={`note-${r.id}`}>یادداشت داخلی (فقط برای تیم، مشتری نمی‌بیند)</label>
+                    <textarea
+                      id={`note-${r.id}`}
+                      className="ad-input"
+                      rows={2}
+                      defaultValue={r.note ?? ""}
+                      placeholder="مثلاً: پارچه سالم است، فقط سایز بزرگ بوده."
+                      onBlur={(e) => {
+                        const v = e.target.value.trim();
+                        if (v !== (r.note ?? "")) setReturnStatus(r.id, r.status, v);
+                      }}
+                    />
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
 
       <Panel title="قالب‌های پاسخ">
         <p className="ad-hint" style={{ marginTop: 0 }}>
-          متن‌های آماده‌ای که با یک کلیک در کادر پاسخ می‌نشینند؛ بعد از درج می‌توانی ویرایششان کنی.
+          متن‌های آماده‌ای که با یک کلیک کپی می‌شوند و در کادر پاسخ مشتری می‌نشینند؛ بعد از درج می‌توانی ویرایششان کنی.
         </p>
-        {ops.replyTemplates.map((tpl) => (
-          <div key={tpl.id} className="ad-field">
-            <input
-              className="ad-input"
-              value={tpl.name}
-              aria-label="نام قالب"
-              onChange={(e) => saveReplyTemplate({ ...tpl, name: e.target.value })}
-            />
-            <textarea
-              className="ad-input"
-              rows={2}
-              value={tpl.body}
-              aria-label={`متن قالب ${tpl.name}`}
-              onChange={(e) => saveReplyTemplate({ ...tpl, body: e.target.value })}
-            />
-            <button type="button" className="ad-btn is-sm is-danger" onClick={() => removeReplyTemplate(tpl.id)}>حذف قالب</button>
-          </div>
-        ))}
+        <div className="ad-grid-2">
+          {ops.replyTemplates.map((tpl) => (
+            <div key={tpl.id} className="ad-return">
+              <div className="ad-field" style={{ marginBottom: 0 }}>
+                <input
+                  className="ad-input"
+                  value={tpl.name}
+                  aria-label="نام قالب"
+                  onChange={(e) => saveReplyTemplate({ ...tpl, name: e.target.value })}
+                />
+                <textarea
+                  className="ad-input"
+                  rows={3}
+                  value={tpl.body}
+                  aria-label={`متن قالب ${tpl.name}`}
+                  onChange={(e) => saveReplyTemplate({ ...tpl, body: e.target.value })}
+                />
+              </div>
+              <div className="ad-return-actions">
+                <button
+                  type="button"
+                  className="ad-btn is-sm"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(tpl.body);
+                    addLog({ actor: "مدیر", action: `کپی قالب پاسخ «${tpl.name}»`, target: "مرجوعی‌ها" });
+                  }}
+                >
+                  <Copy width={12} height={12} /> کپی متن
+                </button>
+                <button type="button" className="ad-btn is-sm is-danger" onClick={() => removeReplyTemplate(tpl.id)}>حذف قالب</button>
+              </div>
+            </div>
+          ))}
+        </div>
         <button
           type="button"
           className="ad-btn is-sm"
