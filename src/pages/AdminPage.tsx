@@ -2237,6 +2237,9 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
                 <button type="button" className="ad-btn is-sm" onClick={() => setColors([...colors, { id: `c${uid()}`, name: "رنگ جدید", hex: "#8c4a2f" }])}><Plus width={13} height={13} /> رنگ</button>
 
                 <p className="ad-field-label">سایزها {catSizeSet && <span className="ad-hint">— مجموعهٔ «{catSizeSet.name}»</span>}</p>
+                <p className="ad-hint" style={{ marginTop: -4 }}>
+                  ست دسته فقط میان‌بر است؛ هر محصول می‌تواند سایزهای خودش را داشته باشد یا هیچ سایزی از ست را نگیرد.
+                </p>
                 <div className="ad-size-pool">
                   {poolSizes.map((label) => {
                     const has = sizes.some((x) => x.label === label);

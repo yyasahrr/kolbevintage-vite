@@ -356,17 +356,27 @@ test("a price change between quote and payment forces a re-quote", async () => {
 
 test("a coupon is refused when an active campaign is already applied", async () => {
   const variantId = await setStock(SKU, 5);
+  // the campaign is refreshed rather than skipped: a stale row from an earlier
+  // run would silently disarm this test
   await query(
     `insert into price_rules (id, name, kind, value, scope, priority, starts_at, ends_at, active)
      values ('test-campaign', 'کمپین تست', 'percent', 10, 'all', 10, now() - interval '1 day', now() + interval '1 day', true)
-     on conflict (id) do nothing`,
+     on conflict (id) do update set value = 10, priority = 10, active = true,
+       starts_at = now() - interval '1 day', ends_at = now() + interval '1 day'`,
+  );
+  // and the test brings its own coupon; it must not depend on what a seed
+  // happened to leave in a long-lived database
+  await query(
+    `insert into coupons (code, kind, value, min_subtotal, combinable, active)
+     values ('TEST-NOSTACK', 'percent', 10, 0, false, true)
+     on conflict (code) do update set active = true, used_count = 0, min_subtotal = 0`,
   );
   const client = makeClient();
   const checkout = await startCheckout(client, [{ variantId, quantity: 1 }]);
   const id = checkout.body.checkout.id;
   assert.ok(checkout.body.checkout.quote.campaignDiscount > 0);
 
-  const quote = await client.post(`/api/commerce/checkout/${id}/quote`, { couponCode: "VELOURS10" });
+  const quote = await client.post(`/api/commerce/checkout/${id}/quote`, { couponCode: "TEST-NOSTACK" });
   assert.equal(quote.status, 409);
   assert.equal(quote.body.code, "coupon_not_combinable");
 });
@@ -1168,7 +1178,15 @@ test("the public bootstrap never leaks the admin passcode, orders or provider se
   assert.equal(admin.orders, undefined);
   assert.equal(admin.customers, undefined);
   assert.equal(admin.integrations?.payment?.key, undefined, "provider credentials are admin-only");
-  assert.equal(admin.integrations?.payment?.enabled !== undefined, true, "public capability flags stay");
+  // public capability flags have their own endpoint; the document is not the
+  // place they come from any more, so assert against the real source
+  const commerce = await guest.get("/api/commerce/config");
+  assert.equal(commerce.status, 200);
+  assert.equal(typeof commerce.body.bnpl4?.enabled, "boolean", "the checkout learns BNPL state from the capability endpoint");
+  assert.equal(commerce.body.bnpl4?.providerReady, false, "the owner switch and the provider contract are separate facts");
+  assert.equal(commerce.body.bnpl4?.availableForCheckout, false);
+  assert.equal(commerce.body.paymentProvider === undefined || typeof commerce.body.paymentProvider === "string", true);
+  assert.equal(/secret|token|key=/.test(JSON.stringify(commerce.body).toLowerCase()), false, "no credential in the public config");
   assert.equal(admin.settings?.passcode, undefined, "the passcode inside settings must be stripped too");
   assert.equal(boot.body.ops?.security?.passcode, undefined, "the ops document must not carry the passcode");
 

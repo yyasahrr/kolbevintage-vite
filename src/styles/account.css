@@ -1546,3 +1546,27 @@
   cursor: pointer;
 }
 .shop-notice-close:hover { opacity: 1; }
+
+/* ------------------------------------- phones and touch screens (6 + 76)
+   Storefront side of the same rule: 16px inputs so iOS does not zoom into a
+   field it never zooms out of, and thumb-sized controls. */
+@media (pointer: coarse), (max-width: 559px) {
+  .auth-field input,
+  .acc-field input,
+  .acc-field textarea,
+  .acc-ticket-form input {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .acc-btn {
+    min-height: 44px;
+  }
+  .acc-check input {
+    width: 20px;
+    height: 20px;
+  }
+  .shop-notice-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

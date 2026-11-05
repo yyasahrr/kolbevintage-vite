@@ -60,7 +60,7 @@
   gap: 12px;
   padding: 26px 22px;
   border-radius: 20px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.7);
   text-align: center;
 }
@@ -402,7 +402,7 @@
   padding: 12px 13px;
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 14px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   cursor: pointer;
   text-align: start;
   font: inherit;
@@ -469,7 +469,7 @@
 .ad-card {
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 16px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   overflow: hidden;
   min-width: 0;
 }
@@ -548,7 +548,7 @@
   padding: 9px 14px;
   border: 1px solid rgba(27, 24, 21, 0.18);
   border-radius: 10px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   color: var(--ad-ink);
   font-size: 11.5px;
   font-weight: 500;
@@ -603,7 +603,7 @@
   padding: 6px 12px;
   border: 1px solid rgba(27, 24, 21, 0.14);
   border-radius: 999px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   font-size: 11px;
   color: #4c443b;
   cursor: pointer;
@@ -732,7 +732,7 @@
   justify-content: center;
   border: 1px solid rgba(27, 24, 21, 0.14);
   border-radius: 9px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   color: #4c443b;
   cursor: pointer;
   text-decoration: none;
@@ -769,7 +769,7 @@
 .ad-table-wrap {
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 14px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -1033,7 +1033,7 @@
   padding: 10px 12px;
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 14px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   flex-wrap: wrap;
 }
 .ad-product:hover {
@@ -1041,7 +1041,7 @@
 }
 .ad-product.is-hidden {
   opacity: 0.6;
-  background: repeating-linear-gradient(45deg, var(--ad-surface)dfa, var(--ad-surface)dfa 8px, #f4f1ea 8px, #f4f1ea 16px);
+  background: repeating-linear-gradient(45deg, var(--ad-surface), var(--ad-surface) 8px, var(--ad-surface-2) 8px, var(--ad-surface-2) 16px);
 }
 .ad-product-main {
   flex: 1;
@@ -1329,7 +1329,7 @@
   padding: 12px 14px;
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 14px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   flex-wrap: wrap;
 }
 .ad-card-inline.is-off {
@@ -1390,7 +1390,7 @@
   padding: 13px 15px;
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 14px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
 }
 .ad-review.is-pending {
   background: rgba(154, 107, 33, 0.05);
@@ -1503,7 +1503,7 @@
   padding: 10px;
   border: 1px solid rgba(27, 24, 21, 0.12);
   border-radius: 14px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   cursor: pointer;
   text-align: start;
   font: inherit;
@@ -1599,7 +1599,7 @@
   display: flex;
   flex-direction: column;
   border-radius: 18px 18px 0 0;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   overflow: hidden;
   box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.7);
   animation: adModalIn 0.3s cubic-bezier(0.22, 0.61, 0.24, 1);
@@ -1900,7 +1900,7 @@
   padding: 6px;
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 12px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   font-family: inherit;
   cursor: pointer;
   text-align: start;
@@ -2083,7 +2083,7 @@
   margin: 0;
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 13px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   overflow: hidden;
 }
 .ad-gallery-thumb {
@@ -2241,7 +2241,7 @@
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   border: 1px solid rgba(27, 24, 21, 0.09);
   border-radius: 10px;
   cursor: pointer;
@@ -2288,7 +2288,7 @@
 .ad-look-edit {
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 14px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   overflow: hidden;
 }
 .ad-look-edit.is-open {
@@ -2417,7 +2417,7 @@
 .ad-inv {
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 14px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   overflow: hidden;
 }
 .ad-inv.is-open {
@@ -2519,7 +2519,7 @@
 .ad-ticket {
   border: 1px solid rgba(27, 24, 21, 0.1);
   border-radius: 14px;
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   overflow: hidden;
 }
 .ad-ticket.is-open {
@@ -2700,7 +2700,7 @@
   border-radius: 999px;
   font-size: 9.5px;
   border: 1px solid rgba(27, 24, 21, 0.12);
-  background: var(--ad-surface)dfa;
+  background: var(--ad-surface);
   color: #6f675c;
   white-space: nowrap;
 }
@@ -3288,4 +3288,64 @@
 .ad-draft-banner > span {
   flex: 1 1 240px;
   line-height: 1.7;
+}
+
+/* ------------------------------------- phones and touch screens (6 + 76)
+   A laptop browser never shows these; the point is that a phone gets 44px
+   targets, 16px inputs (below that iOS zooms on focus and never zooms back),
+   full-height sheets instead of floating modals, and bars that stay clear of
+   the home indicator. */
+@media (pointer: coarse), (max-width: 559px) {
+  .ad-input,
+  .ad-select,
+  .ad-toolbar .ad-input,
+  .ad-field textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .ad-btn,
+  .ad-btn.is-sm,
+  .ad-chip,
+  .ad-nav-item,
+  .ad-tab {
+    min-height: 44px;
+    padding-block: 10px;
+  }
+  .ad-icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .ad-table th,
+  .ad-table td {
+    padding: 12px 10px;
+  }
+  .ad-check input,
+  .ad-checkbox {
+    width: 20px;
+    height: 20px;
+  }
+  .ad-stock-matrix {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ad-modal-bg {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .ad-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: 16px 16px 0 0;
+  }
+  .ad-modal-foot,
+  .ad-bulkbar,
+  .ad-toolbar {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  /* the two-column form grids collapse before they squeeze */
+  .ad-form-grid,
+  .ad-two {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

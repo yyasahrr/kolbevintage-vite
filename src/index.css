@@ -110,3 +110,14 @@
     scroll-behavior: auto;
   }
 }
+
+/* A phone zooms into any field under 16px and never zooms back out. The panel
+   and account screens set this themselves; this covers every other form on the
+   storefront (decisions 6 + 76). */
+@media (pointer: coarse), (max-width: 559px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
