@@ -567,7 +567,7 @@ export function CommercePanel() {
                   <th>از مبلغ</th>
                   <th>تا مبلغ (خالی = نامحدود)</th>
                   <th>درصد</th>
-                  <th />
+                  <th><span className="ad-sr">عملیات</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -740,7 +740,7 @@ export function CommercePanel() {
                   <th>مبلغ</th>
                   <th>وضعیت</th>
                   <th>درخواست‌دهنده</th>
-                  <th />
+                  <th><span className="ad-sr">عملیات</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -814,7 +814,7 @@ export function CommercePanel() {
                   <th>تغییر</th>
                   <th>وضعیت</th>
                   <th>درخواست‌دهنده</th>
-                  <th />
+                  <th><span className="ad-sr">عملیات</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -852,7 +852,7 @@ export function CommercePanel() {
                   <th>مبلغ</th>
                   <th>وضعیت</th>
                   <th>اقلام</th>
-                  <th />
+                  <th><span className="ad-sr">عملیات</span></th>
                 </tr>
               </thead>
               <tbody>

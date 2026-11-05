@@ -83,7 +83,7 @@ export function SetupWizard({ onJump }: { onJump: (target: string) => void }) {
   return (
     <div className="ad-wizard-backdrop" role="dialog" aria-modal="true" aria-label="راه‌اندازی اولیه">
       <div className="ad-wizard">
-        <header>
+        <div className="ad-wizard-head">
           <div>
             <p className="ad-eyebrow">مرحلهٔ {fa(step + 1)} از {fa(WIZARD_STEPS.length)}</p>
             <h2>{current.title}</h2>
@@ -92,7 +92,7 @@ export function SetupWizard({ onJump }: { onJump: (target: string) => void }) {
           <button type="button" className="ad-icon" aria-label="بستن ویزارد" onClick={() => setOpen(false)}>
             <X width={15} height={15} />
           </button>
-        </header>
+        </div>
 
         <ol className="ad-wizard-steps">
           {WIZARD_STEPS.map((s, i) => (

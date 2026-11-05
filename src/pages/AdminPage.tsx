@@ -1186,7 +1186,7 @@ function Reports() {
 
   return (
     <div className="ad-report">
-      <header className="ad-head">
+      <div className="ad-head">
         <div>
           <h2>گزارش‌ها</h2>
           <p>
@@ -1199,7 +1199,7 @@ function Reports() {
             <DIcon width={13} height={13} /> خروجی CSV
           </button>
         </div>
-      </header>
+      </div>
 
       <div className="ad-filters" role="group" aria-label="بازهٔ گزارش">
         {([[7, "۷ روز"], [30, "۳۰ روز"], [90, "۹۰ روز"], [0, "همه"]] as const).map(([value, label]) => (
@@ -1497,7 +1497,7 @@ function OrderPage({ orderId }: { orderId: string }) {
 
   return (
     <div className="ad-panel-adm">
-      <header className="ad-head">
+      <div className="ad-head">
         <div>
           <button type="button" className="ad-back" onClick={() => navigate("/admin/sales/orders")}>
             <ArrowLeft width={13} height={13} /> سفارش‌ها
@@ -1525,7 +1525,7 @@ function OrderPage({ orderId }: { orderId: string }) {
             ))}
           </select>
         </div>
-      </header>
+      </div>
 
       <div className="ad-order-grid">
         <section className="ad-card">
@@ -1772,6 +1772,7 @@ function Orders() {
             <thead>
               <tr>
                 <th className="ad-check-cell">
+                  <span className="ad-sr">انتخاب همه</span>
                   <input
                     type="checkbox"
                     className="ad-checkbox"
@@ -1792,7 +1793,7 @@ function Orders() {
                 <th>تخفیف</th>
                 <th>کل</th>
                 <th>وضعیت</th>
-                <th />
+                <th><span className="ad-sr">عملیات</span></th>
               </tr>
             </thead>
             <tbody>
@@ -2061,6 +2062,7 @@ function Products() {
           <thead>
             <tr>
               <th className="ad-check-cell">
+                <span className="ad-sr">انتخاب همه</span>
                 <input
                   type="checkbox"
                   className="ad-checkbox"
@@ -2079,7 +2081,7 @@ function Products() {
               <th><button type="button" className="ad-sort" onClick={() => sortBy("price")}>قیمت{sortMark("price")}</button></th>
               <th><button type="button" className="ad-sort" onClick={() => sortBy("stock")}>موجودی{sortMark("stock")}</button></th>
               <th>وضعیت</th>
-              <th aria-label="عملیات" />
+              <th><span className="ad-sr">عملیات</span></th>
             </tr>
           </thead>
           <tbody>
@@ -2397,13 +2399,13 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
   return (
     <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="ad-modal is-wide" role="dialog" aria-modal="true" aria-label="فرم محصول">
-        <header className="ad-modal-head">
+        <div className="ad-modal-head">
           <div>
             <h3>{product ? `ویرایش ${product.name}` : "افزودن محصول"}</h3>
             <p>همهٔ فیلدها قابل ویرایش‌اند؛ تصاویر را در گالری بریز و برای هر عکس رنگ و نقشش را انتخاب کن.</p>
           </div>
           <button type="button" className="ad-icon" aria-label="بستن" onClick={onClose}><X width={16} height={16} /></button>
-        </header>
+        </div>
 
         <div className="ad-modal-tabs" role="tablist" aria-label="بخش‌های فرم محصول">
           {([
@@ -2779,13 +2781,13 @@ function StockModal({ productId, onClose }: { productId: string; onClose: () => 
   return (
     <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="ad-modal" role="dialog" aria-modal="true" aria-label={`موجودی ${product.name}`}>
-        <header className="ad-modal-head">
+        <div className="ad-modal-head">
           <div>
             <h3>ویرایش موجودی</h3>
             <p>{product.name} {isCustom ? "· محصول دست‌ساز" : "· محصول پایه"}</p>
           </div>
           <button type="button" className="ad-icon" aria-label="بستن" onClick={onClose}><X width={16} height={16} /></button>
-        </header>
+        </div>
         <div className="ad-modal-body">
           {product.colors.map((c) => (
             <div key={c.id} className="ad-stock-group">
@@ -3041,6 +3043,7 @@ function Customers() {
             <thead>
               <tr>
                 <th className="ad-check-cell">
+                  <span className="ad-sr">انتخاب همه</span>
                   <input
                     type="checkbox"
                     className="ad-checkbox"
@@ -3310,12 +3313,12 @@ function OpsBell({ onGo }: { onGo: (tab: Tab) => void }) {
         <>
           <div className="ad-bell-scrim" onClick={() => setOpen(false)} aria-hidden />
           <div className="ad-bell-pop" role="dialog" aria-label="اعلان‌های عملیاتی">
-            <header>
+            <div className="ad-bell-head">
               <b>اعلان‌های عملیاتی</b>
               <button type="button" className="ad-icon" aria-label="بستن" onClick={() => setOpen(false)}>
                 <X width={14} height={14} />
               </button>
-            </header>
+            </div>
             {liveError && (
               <p className="ad-bell-note">
                 اعداد سرور خوانده نشد ({liveError})؛ فقط دادهٔ همین پنل نمایش داده می‌شود.
@@ -3586,10 +3589,10 @@ function CampaignModal({ initial, onClose }: { initial: Campaign; onClose: () =>
   return (
     <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="ad-modal" role="dialog" aria-modal="true" aria-label="جشنواره">
-        <header className="ad-modal-head">
+        <div className="ad-modal-head">
           <div><h3>{isExisting ? "ویرایش جشنواره" : "جشنوارهٔ جدید"}</h3><p>جشنواره‌ها با بنر، کد و بازهٔ تاریخ روی فروشگاه اثر دارند.</p></div>
           <button type="button" className="ad-icon" aria-label="بستن" onClick={onClose}><X width={16} height={16} /></button>
-        </header>
+        </div>
         <div className="ad-modal-body">
           <label className="ad-field">نام جشنواره<input className="ad-input" value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} /></label>
           <div className="ad-two">
@@ -3664,10 +3667,10 @@ function RuleModal({ initial, onClose }: { initial: DiscountRule; onClose: () =>
   return (
     <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="ad-modal is-sm" role="dialog" aria-modal="true" aria-label="قانون تخفیف">
-        <header className="ad-modal-head">
+        <div className="ad-modal-head">
           <div><h3>قانون تخفیف</h3><p>به‌صورت خودکار روی سندهای مطابق دامنه اعمال می‌شود.</p></div>
           <button type="button" className="ad-icon" aria-label="بستن" onClick={onClose}><X width={16} height={16} /></button>
-        </header>
+        </div>
         <div className="ad-modal-body">
           <label className="ad-field">نام<input className="ad-input" value={r.name} onChange={(e) => setR({ ...r, name: e.target.value })} /></label>
           <label className="ad-field">نوع
@@ -3753,10 +3756,10 @@ function CodeModal({ initial, onClose }: { initial: Coupon; onClose: () => void 
   return (
     <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="ad-modal is-sm" role="dialog" aria-modal="true" aria-label="کد تخفیف">
-        <header className="ad-modal-head">
+        <div className="ad-modal-head">
           <div><h3>{isExisting ? "ویرایش کد" : "کد تخفیف جدید"}</h3><p>در صفحهٔ تسویه حساب با این کد اعمال می‌شود.</p></div>
           <button type="button" className="ad-icon" aria-label="بستن" onClick={onClose}><X width={16} height={16} /></button>
-        </header>
+        </div>
         <div className="ad-modal-body">
           <DraftBanner draft={couponDraft} what="این کد تخفیف" />
           <label className="ad-field">
@@ -4848,7 +4851,7 @@ function Content() {
         <div className="ad-table-wrap">
           <table className="ad-table">
             <thead>
-              <tr><th>عنوان</th><th>نوع</th><th>وضعیت</th><th>به‌روزرسانی</th><th /></tr>
+              <tr><th>عنوان</th><th>نوع</th><th>وضعیت</th><th>به‌روزرسانی</th><th><span className="ad-sr">عملیات</span></th></tr>
             </thead>
             <tbody>
               {docs.map((d) => (
@@ -4900,7 +4903,7 @@ function SizeGuidePanel() {
       </label>
       <div className="ad-table-wrap">
         <table className="ad-table">
-          <thead><tr><th>سایز</th><th>دور سینه</th><th>دور کمر</th><th>دور باسن</th><th /></tr></thead>
+          <thead><tr><th>سایز</th><th>دور سینه</th><th>دور کمر</th><th>دور باسن</th><th><span className="ad-sr">عملیات</span></th></tr></thead>
           <tbody>
             {guide.rows.map((row, i) => (
               <tr key={i}>
@@ -5246,13 +5249,13 @@ function StoreSettings({ onBack }: { onBack: () => void }) {
 
 function PageHead({ title, sub, actions }: { title: string; sub?: string; actions?: React.ReactNode }) {
   return (
-    <header className="ad-head">
+    <div className="ad-head">
       <div>
         <h2>{title}</h2>
         {sub && <p>{sub}</p>}
       </div>
       {actions && <div className="ad-head-actions">{actions}</div>}
-    </header>
+    </div>
   );
 }
 

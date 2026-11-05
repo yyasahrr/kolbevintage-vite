@@ -656,6 +656,7 @@ export function CashbackPanel() {
               <thead>
                 <tr>
                   <th className="ad-check-cell">
+                    <span className="ad-sr">انتخاب همه</span>
                     <input
                       type="checkbox"
                       className="ad-checkbox"

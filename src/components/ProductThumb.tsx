@@ -10,13 +10,15 @@ interface Props {
   tileAspect?: number;
   /** lighten hard crops on white backgrounds so the garment reads at a glance */
   softLight?: boolean;
+  /** the name is already text next to the tile: repeating it in alt is noise for a screen reader */
+  decorative?: boolean;
 }
 
 /**
  * Thumbnails are framed crops of the same transparent runway cut-out, so every
  * product image is genuinely the garment as worn on the runway.
  */
-export function ProductThumb({ product, tint = "#bba893", className, tileAspect = 0.78, softLight = true }: Props) {
+export function ProductThumb({ product, tint = "#bba893", className, tileAspect = 0.78, softLight = true, decorative = false }: Props) {
   const { crop, aspect, image, name } = product;
   const ops = useOps();
   const uploaded = ops.productImages[product.id] ?? [];
@@ -40,7 +42,7 @@ export function ProductThumb({ product, tint = "#bba893", className, tileAspect 
       {cover ? (
         <img
           src={cover}
-          alt={name}
+          alt={decorative ? "" : name}
           loading="lazy"
           decoding="async"
           draggable={false}
@@ -54,7 +56,7 @@ export function ProductThumb({ product, tint = "#bba893", className, tileAspect 
           />
           <img
             src={image}
-            alt={name}
+            alt={decorative ? "" : name}
             loading="lazy"
             decoding="async"
             draggable={false}

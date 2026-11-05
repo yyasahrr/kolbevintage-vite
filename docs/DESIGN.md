@@ -146,3 +146,23 @@ literal `color:` that cannot clear AA on either the light page or the dark chrom
 
 `npm run lint:ui` refuses any value outside those sets, and `npm run lint:classes` refuses
 any `ad-*` class in the JSX that has no rule in the stylesheet.
+
+## Layers and motion
+
+There is one list of layers, and a rule that needs a layer picks from it — the palette outranks a
+modal, the wizard outranks both, and the bell popover sits above its own scrim.
+
+| Token | Value | What sits there |
+| --- | --- | --- |
+| `--ad-z-rail` | 30 | the mobile drawer |
+| `--ad-z-app` | 60 | the panel root |
+| `--ad-z-scrim` | 60 | a scrim under a popover |
+| `--ad-z-popover` | 61 | the notifications popover |
+| `--ad-z-gate` / `--ad-z-fab` | 70 | the passcode gate, the floating issue button |
+| `--ad-z-modal` | 80 | modals and their backdrop |
+| `--ad-z-palette` | 82 | the command palette (above a modal) |
+| `--ad-z-wizard` | 90 | the first-run wizard |
+
+Motion is three durations and one curve: `--ad-dur-fast` 120ms (state), `--ad-dur` 190ms (hover,
+cards), `--ad-dur-slow` 280ms (panels). Anything longer is a loading state, not a transition, and
+`prefers-reduced-motion` removes it.

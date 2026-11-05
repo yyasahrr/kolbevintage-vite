@@ -121,7 +121,8 @@ const sidebar = (w) => (w >= 900 ? 224 : 0);
 const mainPadding = (w) => (w >= 900 ? 26 : w >= 640 ? 20 : 12);
 const contentWidth = (w) => w - sidebar(w) - mainPadding(w) * 2;
 
-const VIEWPORTS = [360, 390, 414, 480, 560, 640, 768, 820, 900, 1024, 1180, 1280, 1440, 1600, 1920];
+/* the widths the review brief names, plus the two the shell switches at (560, 900) */
+const VIEWPORTS = [320, 360, 375, 390, 414, 430, 480, 560, 640, 768, 820, 900, 960, 1024, 1180, 1280, 1440, 1600, 1920];
 
 /* ------------------------------------------------------------------ checks */
 
@@ -348,7 +349,7 @@ for (const f of grid) {
 
 console.log("\nWhat each size gets");
 console.log("  viewport   rail   pad   content   KPIs   two-up cards   table");
-for (const w of [360, 390, 480, 560, 640, 768, 900, 960, 1024, 1100, 1280, 1440, 1600, 1920]) {
+for (const w of VIEWPORTS) {
   const kpi = (() => {
     let n = 2;
     for (const rule of rules) {

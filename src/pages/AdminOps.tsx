@@ -341,7 +341,7 @@ export function CategoriesPanel() {
       {draft && (
         <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && setDraft(null)}>
           <div className="ad-modal" role="dialog" aria-modal="true" aria-label="دسته‌بندی">
-            <header className="ad-modal-head"><h3>{ops.categories.some((c) => c.id === draft.id) ? "ویرایش دسته" : "دستهٔ جدید"}</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setDraft(null)}><X width={16} height={16} /></button></header>
+            <div className="ad-modal-head"><h3>{ops.categories.some((c) => c.id === draft.id) ? "ویرایش دسته" : "دستهٔ جدید"}</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setDraft(null)}><X width={16} height={16} /></button></div>
             <div className="ad-modal-body">
               <div className="ad-two">
                 <label className="ad-field">نام<input className="ad-input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value, slug: e.target.value.trim().replace(/\s+/g, "-") })} /></label>
@@ -386,7 +386,7 @@ export function CategoriesPanel() {
       {sizeDraft && (
         <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && setSizeDraft(null)}>
           <div className="ad-modal is-sm" role="dialog" aria-modal="true" aria-label="مجموعهٔ سایز">
-            <header className="ad-modal-head"><h3>مجموعهٔ سایز</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setSizeDraft(null)}><X width={16} height={16} /></button></header>
+            <div className="ad-modal-head"><h3>مجموعهٔ سایز</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setSizeDraft(null)}><X width={16} height={16} /></button></div>
             <div className="ad-modal-body">
               <label className="ad-field">نام<input className="ad-input" value={sizeDraft.name} onChange={(e) => setSizeDraft({ ...sizeDraft, name: e.target.value })} placeholder="مثلاً کفش زنانه" /></label>
               <CsvField
@@ -628,7 +628,7 @@ export function LooksPanel() {
                           const on = ids.includes(p.id);
                           return (
                             <button key={p.id} type="button" className={cn("ad-look-pick", on && "is-on")} onClick={() => setLookProducts(l.id, on ? ids.filter((x) => x !== p.id) : [...ids, p.id])}>
-                              <ProductThumb product={p} className="w-[38px]" />
+                              <ProductThumb product={p} className="w-[38px]" decorative />
                               <span>{p.name}</span>
                               {on ? <Check width={13} height={13} /> : <Plus width={13} height={13} />}
                             </button>
@@ -792,7 +792,7 @@ function LookComposer({ initial, onDone }: { initial?: CustomLook; onDone: () =>
                       )
                     }
                   >
-                    <ProductThumb product={p} className="w-[38px]" />
+                    <ProductThumb product={p} className="w-[38px]" decorative />
                     <span>{p.name}</span>
                     {on ? <Check width={13} height={13} /> : <Plus width={13} height={13} />}
                   </button>
@@ -991,7 +991,7 @@ export function CrmPanel() {
       {labelDraft && (
         <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && setLabelDraft(null)}>
           <div className="ad-modal is-sm" role="dialog" aria-modal="true" aria-label="برچسب">
-            <header className="ad-modal-head"><h3>برچسب مشتری</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setLabelDraft(null)}><X width={16} height={16} /></button></header>
+            <div className="ad-modal-head"><h3>برچسب مشتری</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setLabelDraft(null)}><X width={16} height={16} /></button></div>
             <div className="ad-modal-body">
               <label className="ad-field">نام<input className="ad-input" value={labelDraft.name} onChange={(e) => setLabelDraft({ ...labelDraft, name: e.target.value })} /></label>
               <div className="ad-two">
@@ -1016,7 +1016,7 @@ export function CrmPanel() {
       {template && (
         <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && setTemplate(null)}>
           <div className="ad-modal is-sm" role="dialog" aria-modal="true" aria-label="قالب پیامک">
-            <header className="ad-modal-head"><h3>قالب پیامک</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setTemplate(null)}><X width={16} height={16} /></button></header>
+            <div className="ad-modal-head"><h3>قالب پیامک</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setTemplate(null)}><X width={16} height={16} /></button></div>
             <div className="ad-modal-body">
               <label className="ad-field">نام<input className="ad-input" value={template.name} onChange={(e) => setTemplate({ ...template, name: e.target.value })} /></label>
               <label className="ad-field">متن<textarea className="ad-input" rows={4} value={template.body} onChange={(e) => setTemplate({ ...template, body: e.target.value })} /></label>
@@ -1906,7 +1906,7 @@ export function SecurityPanel() {
         {sec.failedAttempts.length === 0 ? <p className="ad-hint">تلاش ناموفقی ثبت نشده.</p> : (
           <div className="ad-table-wrap">
             <table className="ad-table">
-              <thead><tr><th>زمان</th><th>IP</th><th /></tr></thead>
+              <thead><tr><th>زمان</th><th>IP</th><th><span className="ad-sr">عملیات</span></th></tr></thead>
               <tbody>
                 {sec.failedAttempts.map((f, i) => (
                   <tr key={i}><td>{timeAgo(f.at)}</td><td dir="ltr">{f.ip}</td><td><button type="button" className="ad-btn is-sm is-danger" onClick={() => blockIp(f.ip)}>بلاک</button></td></tr>
@@ -2015,7 +2015,7 @@ export function TryOnPanel() {
         {ops.tryonRequests.length === 0 ? <p className="ad-hint">درخواستی ثبت نشده.</p> : (
           <div className="ad-table-wrap">
             <table className="ad-table">
-              <thead><tr><th>شناسه</th><th>مشتری</th><th>محصول</th><th>وضعیت</th><th /></tr></thead>
+              <thead><tr><th>شناسه</th><th>مشتری</th><th>محصول</th><th>وضعیت</th><th><span className="ad-sr">عملیات</span></th></tr></thead>
               <tbody>
                 {ops.tryonRequests.map((r) => (
                   <tr key={r.id}>
@@ -2039,7 +2039,7 @@ export function TryOnPanel() {
       {draft && (
         <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && setDraft(null)}>
           <div className="ad-modal is-sm" role="dialog" aria-modal="true" aria-label="بستهٔ پرو">
-            <header className="ad-modal-head"><h3>بستهٔ پرو</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setDraft(null)}><X width={16} height={16} /></button></header>
+            <div className="ad-modal-head"><h3>بستهٔ پرو</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setDraft(null)}><X width={16} height={16} /></button></div>
             <div className="ad-modal-body">
               <label className="ad-field">نام<input className="ad-input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
               <div className="ad-two">
@@ -2095,7 +2095,7 @@ export function MegaMenuPanel() {
       {draft && (
         <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && setDraft(null)}>
           <div className="ad-modal" role="dialog" aria-modal="true" aria-label="مگا منو">
-            <header className="ad-modal-head"><h3>ساخت مگا منو</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setDraft(null)}><X width={16} height={16} /></button></header>
+            <div className="ad-modal-head"><h3>ساخت مگا منو</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setDraft(null)}><X width={16} height={16} /></button></div>
             <div className="ad-modal-body">
               <label className="ad-field">عنوان منو<input className="ad-input" value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} /></label>
               {draft.columns.map((col, ci) => (
@@ -2713,7 +2713,7 @@ export function BackupPanel() {
               <div className="ad-table-wrap">
                 <table className="ad-table">
                   <thead>
-                    <tr><th>زمان</th><th>نوع</th><th>حجم</th><th>ردیف</th><th>کپی ابری</th><th>اثر انگشت</th><th /></tr>
+                    <tr><th>زمان</th><th>نوع</th><th>حجم</th><th>ردیف</th><th>کپی ابری</th><th>اثر انگشت</th><th><span className="ad-sr">عملیات</span></th></tr>
                   </thead>
                   <tbody>
                     {feed.backups.map((b) => (
