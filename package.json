@@ -19,7 +19,8 @@
     "audit:contrast": "node scripts/contrast-check.mjs",
     "audit:mobile": "node scripts/mobile-audit.mjs",
     "audit:purge": "node scripts/purge-dryrun.mjs",
-    "audit": "npm run audit:contrast && npm run audit:mobile",
+    "audit:widgets": "node scripts/widget-audit.mjs",
+    "audit": "npm run audit:contrast && npm run audit:mobile && npm run audit:widgets",
     "test:rbac": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/rbac.test.ts",
     "restore": "node --import tsx scripts/restore-backup.mjs",
    "clear-demo": "node --import tsx scripts/clear-demo-data.mjs"

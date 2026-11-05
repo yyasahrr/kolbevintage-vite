@@ -11,6 +11,8 @@ import {
   Truck,
   Undo2,
 } from "lucide-react";
+import { rememberView } from "@/widgets/recent";
+import { WidgetZone } from "@/widgets/WidgetZone";
 import { COLLECTIONS, complementProducts, getProduct, liveGetProduct, relatedProducts, totalStock } from "@/data/catalog";
 import { ProductGallery } from "@/components/ProductGallery";
 import { SmartSizeGuide } from "@/components/SmartSizeGuide";
@@ -63,6 +65,8 @@ export function ProductPage() {
     const firstSize = product.sizes.find((s) => stockOf(product, color?.id ?? product.colors[0].id, s.id) > 0);
     setSizeId(firstSize?.id ?? product.sizes[0].id);
     document.title = `${product.name} — فروشگاه ولور`;
+    // remembered in this browser only, for the «بازدیدهای اخیر» widget
+    rememberView(product.id);
     return () => {
       document.title = "ولور — خرید بر اساس استایل | رانوی تعاملی";
     };
@@ -513,6 +517,9 @@ export function ProductPage() {
         </div>
       </section>
       )}
+
+      {/* widgets the owner installed for product pages (decision 75) */}
+      <WidgetZone zone="product-side" productId={product.id} />
 
       {/* ---------------- related ---------------- */}
       <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">

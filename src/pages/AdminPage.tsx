@@ -85,6 +85,7 @@ import { CommercePanel } from "./AdminCommercePanel";
 import { StaffPanel } from "./AdminRbac";
 import { loadAdminMe, invalidateAdminMe, useAdminMe } from "@/state/session";
 import { DraftBanner, useLocalDraft } from "@/components/LocalDraft";
+import { WidgetsPanel } from "@/pages/AdminWidgets";
 import { ChangelogPanel, IssueButton, IssueInbox, LaunchBanner, LaunchChecklist, ManualPanel, PurgePanel, SetupWizard } from "@/pages/AdminLaunch";
 import { can, permissionForScreen, firstAllowedScreen } from "@/admin/rbac";
 import "@/styles/admin.css";
@@ -137,6 +138,7 @@ type Tab =
   | "manual"
   | "changelog"
   | "purge"
+  | "widgets"
   | "issues"
   /* grouped areas — six sidebar entries, each one nests its screens */
   | "sales"
@@ -221,6 +223,7 @@ const TABS: NavItem[] = [
       { id: "manual", label: "راهنمای فارسی" },
       { id: "changelog", label: "سابقهٔ تغییرات" },
       { id: "purge", label: "پاک‌سازی داده" },
+      { id: "widgets", label: "ویجت‌ها" },
       { id: "issues", label: "گزارش مشکل" },
     ],
   },
@@ -571,6 +574,7 @@ export function AdminPage() {
                 { id: "journal", label: "ژورنال", node: <JournalEditor /> },
                 { id: "appearance", label: "ظاهر سایت", node: <Appearance /> },
                 { id: "forms", label: "فرم‌ها", node: <FormsPanel /> },
+                { id: "widgets", label: "ویجت‌ها", node: <WidgetsPanel /> },
               ]}
               value={tab}
               onChange={setTab}

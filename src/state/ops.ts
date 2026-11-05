@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { GarmentKind, ProductImage, ProductImageRole } from "@/types";
 import { pushRemote } from "./persist";
 import { DEFAULT_THEME, type ThemeId } from "@/theme/themes";
+import type { WidgetInstance, WidgetZone } from "@/widgets/types";
 
 /* =====================================================================
    Operations store — everything the admin panel edits that is NOT the
@@ -266,6 +267,11 @@ export interface OpsState {
   security: Security;
   formFields: FormFieldPolicy[];
   megaMenus: MegaMenuDef[];
+  /**
+   * widgets the owner dropped into a storefront zone (decision 75). The list is
+   * empty on a fresh shop: nothing appears until the owner installs a widget.
+   */
+  widgets: WidgetInstance[];
   /** lookId → product ids explicitly placed in that look (admin editor) */
   lookProducts: Record<string, string[]>;
   /** lookId → uploaded look image override */
@@ -317,6 +323,42 @@ export const defaultHomeSections = (): HomeSection[] =>
   HOME_DEFAULT_ORDER.map((id) => ({ id, label: HOME_SECTION_NAMES[id] ?? id, active: true }));
 
 export const setHomeSections = (list: HomeSection[]) => patchOps({ homeSections: list });
+
+/* ---------------- widgets (decision 75) ---------------- */
+
+const uid = () => `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+export const addWidget = (kind: string, zone: WidgetZone, defaults: Record<string, string | number | boolean> = {}) => {
+  const list = cache.widgets ?? [];
+  const instance: WidgetInstance = { id: uid(), kind, zone, title: "", active: true, options: defaults };
+  patchOps({ widgets: [...list, instance] });
+  return instance.id;
+};
+
+export const removeWidget = (id: string) => patchOps({ widgets: (cache.widgets ?? []).filter((w) => w.id !== id) });
+
+export const toggleWidget = (id: string) =>
+  patchOps({ widgets: (cache.widgets ?? []).map((w) => (w.id === id ? { ...w, active: !w.active } : w)) });
+
+export const updateWidget = (id: string, patch: Partial<Omit<WidgetInstance, "id">>) =>
+  patchOps({ widgets: (cache.widgets ?? []).map((w) => (w.id === id ? { ...w, ...patch } : w)) });
+
+/** move an instance inside its own zone; widgets never jump zones by accident */
+export const moveWidget = (id: string, direction: -1 | 1) => {
+  const list = [...(cache.widgets ?? [])];
+  const index = list.findIndex((w) => w.id === id);
+  if (index < 0) return;
+  const zone = list[index].zone;
+  const siblings = list.filter((w) => w.zone === zone);
+  const at = siblings.findIndex((w) => w.id === id);
+  const target = siblings[at + direction];
+  if (!target) return;
+  const targetIndex = list.findIndex((w) => w.id === target.id);
+  [list[index], list[targetIndex]] = [list[targetIndex], list[index]];
+  patchOps({ widgets: list });
+};
+
+export const setWidgets = (list: WidgetInstance[]) => patchOps({ widgets: list });
 
 /** move one block up/down; used by the drag handle and the keyboard buttons */
 export const moveHomeSection = (id: string, direction: -1 | 1) => {
@@ -462,6 +504,7 @@ const DEFAULT: OpsState = {
       cta: { title: "خرید بر اساس استایل", text: "شش استایل کامل روی رانو", href: "/style", image: "stock:look5" },
     },
   ],
+  widgets: [],
   lookProducts: {},
   lookImages: {},
 };

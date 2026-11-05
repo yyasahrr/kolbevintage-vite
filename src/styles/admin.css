@@ -3347,3 +3347,69 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ------------------------------------------------ widget manager (75) */
+.ad-widget-zone + .ad-widget-zone {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ad-line);
+}
+.ad-widget-row {
+  border: 1px solid var(--ad-line);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: var(--ad-surface);
+}
+.ad-widget-row + .ad-widget-row {
+  margin-top: 7px;
+}
+.ad-widget-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ad-widget-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ad-ink);
+}
+.ad-widget-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--ad-line-strong);
+}
+.ad-widget-catalogue {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+.ad-widget-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--ad-line);
+  border-radius: 10px;
+  padding: 10px 11px;
+  background: var(--ad-surface);
+}
+.ad-widget-card h4 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ad-ink);
+}
+.ad-widget-card p {
+  margin: 3px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--ad-muted);
+}
+.ad-widget-card .ad-btn {
+  flex: 0 0 auto;
+}

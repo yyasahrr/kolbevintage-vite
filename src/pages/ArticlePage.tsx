@@ -8,6 +8,7 @@ import { ProductCard } from "@/components/ProductCard";
 import { Breadcrumbs, buttonStyles } from "@/components/ui";
 import { NotFoundPage } from "./NotFoundPage";
 import { useOps } from "@/state/ops";
+import { WidgetZone } from "@/widgets/WidgetZone";
 
 export function ArticlePage() {
   const { slug } = useParams();
@@ -180,8 +181,9 @@ export function ArticlePage() {
         </div>
       </section>
 
-      <div className="mt-12">
-      </div>
+      {/* widgets the owner installed for articles (decision 75) */}
+      <WidgetZone zone="article-side" articleSlug={post.slug} />
+
     </div>
   );
 }

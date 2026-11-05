@@ -8,6 +8,7 @@ import { ProductCard } from "@/components/ProductCard";
 import { ProductThumb } from "@/components/ProductThumb";
 import { ArrowLink, Marquee, Reveal, SectionHeading, buttonStyles } from "@/components/ui";
 import { HOME_DEFAULT_ORDER, useOps } from "@/state/ops";
+import { WidgetZone } from "@/widgets/WidgetZone";
 
 const COLLECTION_COPY: Record<string, string> = {
   outerwear: "پالتو، ترنچ و کاپشن",
@@ -357,9 +358,22 @@ export function HomePage() {
   );
   const hidden = new Set(saved.filter((section) => !section.active).map((section) => section.id));
 
+  // widgets (decision 75) sit around the owner's blocks: above everything,
+  // between the blocks and just before the footer
+  const visible = order.filter((id) => !hidden.has(id));
+  const splitAt = visible.length > 1 ? Math.max(1, Math.ceil(visible.length / 2)) : visible.length;
+
   return (
     <>
-      {order.map((id) => (hidden.has(id) ? null : <Fragment key={id}>{blocks[id]}</Fragment>))}
+      <WidgetZone zone="home-top" />
+      {visible.slice(0, splitAt).map((id) => (
+        <Fragment key={id}>{blocks[id]}</Fragment>
+      ))}
+      <WidgetZone zone="home-middle" />
+      {visible.slice(splitAt).map((id) => (
+        <Fragment key={id}>{blocks[id]}</Fragment>
+      ))}
+      <WidgetZone zone="home-bottom" />
     </>
   );
 }
