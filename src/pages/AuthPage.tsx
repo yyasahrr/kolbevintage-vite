@@ -101,7 +101,8 @@ export function AuthPage() {
           <p className="auth-art-foot">اتصال امن به سرور · نشست با کوکی HTTP-only</p>
         </aside>
 
-        <main className="auth-card">
+        {/* the shell already provides <main id="main">; a second one splits the page in two */}
+        <section className="auth-card">
           <div className="auth-modes" role="tablist">
             {([["otp", "کد یکبار مصرف"], ["password", "رمز عبور"], ...(ops.security.allowCustomerSignup ? [["register", "ثبت‌نام"]] : [])] as [Mode, string][]).map(([m, l]) => (
               <button key={m} type="button" role="tab" aria-selected={mode === m} className={cn("auth-mode", mode === m && "is-on")} onClick={() => { setMode(m); setMsg(null); setSent(false); }}>
@@ -181,7 +182,7 @@ export function AuthPage() {
           <p className="auth-terms">
             با ورود، <Link to="/about">شرایط استفاده</Link> و <Link to="/about">حریم خصوصی</Link> را می‌پذیری.
           </p>
-        </main>
+        </section>
       </div>
     </div>
   );

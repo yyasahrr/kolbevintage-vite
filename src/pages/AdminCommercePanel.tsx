@@ -578,6 +578,7 @@ export function CommercePanel() {
                         className="ad-input"
                         type="number"
                         min={0}
+                        aria-label={`حداقل سبد پلهٔ ${index + 1} (تومان)`}
                         value={tier.min}
                         onChange={(e) => {
                           const next = [...settings.cashbackTiers];
@@ -592,6 +593,7 @@ export function CommercePanel() {
                         type="number"
                         min={0}
                         placeholder="نامحدود"
+                        aria-label={`حداکثر سبد پلهٔ ${index + 1} (تومان، خالی یعنی نامحدود)`}
                         value={tier.max ?? ""}
                         onChange={(e) => {
                           const next = [...settings.cashbackTiers];
@@ -607,6 +609,7 @@ export function CommercePanel() {
                         min={0}
                         max={30}
                         step={0.5}
+                        aria-label={`درصد کش‌بک پلهٔ ${index + 1}`}
                         value={tier.percent}
                         onChange={(e) => {
                           const next = [...settings.cashbackTiers];
@@ -877,6 +880,7 @@ export function CommercePanel() {
                           <>
                             <select
                               className="ad-input"
+                              aria-label={`انتخاب SKU برای برداشت سفارش ${o.id}`}
                               value={skuPick[o.id] ?? ""}
                               onChange={(e) => setSkuPick((m) => ({ ...m, [o.id]: e.target.value }))}
                             >

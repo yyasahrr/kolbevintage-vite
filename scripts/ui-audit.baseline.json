@@ -1,10 +1,4 @@
 {
   "updated": "2026-11-05",
-  "counts": {
-    "builder.physical": 39,
-    "builder.outlineNone": 5,
-    "offScaleSpace": 0,
-    "offScaleFont": 0,
-    "offScaleRadius": 0
-  }
+  "counts": {}
 }

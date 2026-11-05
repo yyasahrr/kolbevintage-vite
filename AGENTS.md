@@ -11,9 +11,9 @@ a 100-widget studio. The copy is Persian; the code is English.
 | `npx tsc --noEmit` | the types, including the visual specs | — |
 | `npm test` | commerce 54 + rbac 13 | — |
 | `npm run build` | the single-file bundle still builds | — |
-| `npm run audit` | token contrast, mobile passes, bundled widgets, stylesheet ratchet (`lint:ui`), responsive arithmetic (`lint:responsive`), class coverage (`lint:classes`) | — |
+| `npm run audit` | token contrast, mobile passes, bundled widgets, stylesheet ratchet (`lint:ui`, zero-tolerance for both stylesheets), responsive arithmetic at 19 widths (`lint:responsive`), class coverage (`lint:classes`) | — |
 | `npm run smoke:panel` | every panel screen renders content in a DOM (jsdom) | API on `:4000` |
-| `npm run audit:a11y` | axe-core (WCAG 2.1 A/AA + best practice) on 10 panel screens | API on `:4000` |
+| `npm run audit:a11y` | axe-core (WCAG 2.1 A/AA + best practice) on **37 panel screens + 15 storefront screens** | API on `:4000` |
 | `npm run goldens` | pixel baselines for 7 surfaces × 4 widths × 2 themes | a Chromium — this sandbox has none; the preflight says so |
 
 `npm run goldens:update` writes the baselines; run it once on a machine with a browser.

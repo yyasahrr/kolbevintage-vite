@@ -99,11 +99,17 @@ There are four layout breakpoints, and every component picks one of them — not
 Two rules that follow from the table:
 
 - **A media query that changes a component's shape must also change at one of these
-  widths.** 720/760/800/860 are leftovers; `npm run lint:responsive` lists them so they
-  are not mistaken for intent.
+  widths.** The 720/760/800/860 leftovers were moved onto 900 (the width the shell itself
+  switches at); `npm run lint:responsive` now reports no breakpoint that disagrees with the
+  shell, and any new one fails the gate.
 - **A grid may not squeeze a card below the width its content needs** (110px for a
   separated price, 300px for a card holding a table). `scripts/responsive-audit.mjs`
-  does that arithmetic for 15 viewports and fails the build when it stops adding up.
+  does that arithmetic for 19 viewports (320–1920) and fails the build when it stops
+  adding up. A table inside a half-width card is expected to scroll *inside* its
+  `.ad-table-wrap` — the card never goes below 300px, so the sticky header still has room
+  to say which column is which. The 22 remaining advisories are all `white-space: nowrap`
+  on money, pills and buttons, which is deliberate: a broken money token is worse than a
+  wrapped button.
 
 ### Text that does not fit
 

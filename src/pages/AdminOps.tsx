@@ -1086,19 +1086,21 @@ export function TicketsPanel() {
         <div className="ad-ticket-list">
           {list.map((t) => (
             <article key={t.id} className={cn("ad-ticket", open === t.id && "is-open")}>
-              <button type="button" className="ad-ticket-head" onClick={() => setOpen(open === t.id ? null : t.id)} aria-expanded={open === t.id}>
-                <input type="checkbox" className="ad-checkbox" checked={picked.has(t.id)} onClick={(e) => e.stopPropagation()} onChange={() => togglePick(t.id)} aria-label={`انتخاب تیکت ${t.id}`} />
-                <span className="ad-ticket-id" dir="ltr">{t.id}</span>
-                <span className="ad-ticket-main">
-                  <b>{t.subject}</b>
-                  <small>{t.email} · {timeAgo(t.at)}</small>
-                </span>
-                <span className={cn("ad-pill", t.status === "open" ? "is-pending" : t.status === "pending" ? "is-shipped" : "is-done")}>
-                  {t.status === "open" ? "باز" : t.status === "pending" ? "منتظر پاسخ" : "بسته"}
-                </span>
-                <span className={cn("ad-pill", t.priority === "high" ? "is-cancelled" : "")}>{t.priority === "high" ? "فوری" : t.priority === "normal" ? "عادی" : "کم"}</span>
-                {t.assignee && <span className="ad-hint">{t.assignee}</span>}
-              </button>
+              <div className="ad-ticket-row">
+                <input type="checkbox" className="ad-checkbox ad-ticket-check" checked={picked.has(t.id)} onChange={() => togglePick(t.id)} aria-label={`انتخاب تیکت ${t.id}`} />
+                <button type="button" className="ad-ticket-head" onClick={() => setOpen(open === t.id ? null : t.id)} aria-expanded={open === t.id}>
+                  <span className="ad-ticket-id" dir="ltr">{t.id}</span>
+                  <span className="ad-ticket-main">
+                    <b>{t.subject}</b>
+                    <small>{t.email} · {timeAgo(t.at)}</small>
+                  </span>
+                  <span className={cn("ad-pill", t.status === "open" ? "is-pending" : t.status === "pending" ? "is-shipped" : "is-done")}>
+                    {t.status === "open" ? "باز" : t.status === "pending" ? "منتظر پاسخ" : "بسته"}
+                  </span>
+                  <span className={cn("ad-pill", t.priority === "high" ? "is-cancelled" : "")}>{t.priority === "high" ? "فوری" : t.priority === "normal" ? "عادی" : "کم"}</span>
+                    {t.assignee && <span className="ad-hint">{t.assignee}</span>}
+                </button>
+              </div>
               {open === t.id && (
                 <div className="ad-ticket-body">
                   <div className="ad-ticket-meta">

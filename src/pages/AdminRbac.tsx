@@ -422,6 +422,7 @@ export function StaffPanel() {
                 <code className="latin-track" dir="ltr">{row.subject}</code>
                 <select
                   className="ad-input is-compact"
+                  aria-label={`نقش ${row.name}`}
                   value={row.role_id}
                   disabled={busy === `staff:${row.id}`}
                   onChange={(e) => void patchStaff(row, { roleId: e.target.value })}

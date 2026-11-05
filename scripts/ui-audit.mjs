@@ -142,9 +142,9 @@ for (const finding of findings) {
   const key = finding.defer ? `builder.${finding.id}` : finding.id;
   counts[key] = (counts[key] ?? 0) + 1;
 }
-counts.offScaleSpace = offScale.get("space")?.length ?? 0;
-counts.offScaleFont = offScale.get("font")?.length ?? 0;
-counts.offScaleRadius = offScale.get("radius")?.length ?? 0;
+// every scale key is counted, deferred ones included: the studio's off-scale values were being
+// collected and then never compared to the baseline, which made a non-zero debt look green
+for (const [key, list] of offScale) counts[key] = list.length;
 
 let baseline = null;
 try {

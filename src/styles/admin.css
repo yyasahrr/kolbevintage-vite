@@ -885,7 +885,7 @@
   gap: 14px;
   padding: 14px 14px;
 }
-@media (min-width: 760px) {
+@media (min-width: 900px) {
   .ad-detail {
     grid-template-columns: 1.2fr 1fr;
   }
@@ -1052,7 +1052,7 @@
   max-width: 30px;
   border-radius: 6px 6px 0 0;
   background: linear-gradient(var(--ad-brand), var(--ad-ink));
-  transition: height 0.7s cubic-bezier(0.22, 0.61, 0.24, 1);
+  transition: height var(--ad-dur-slow) var(--ad-ease);
 }
 .ad-bar-col small {
   font-size: 9px;
@@ -1122,13 +1122,14 @@
   height: 100%;
   background: var(--ad-ok);
   border-radius: 999px;
-  transition: width 0.5s;
+  transition: width var(--ad-dur-slow) var(--ad-ease);
 }
 .ad-stock-bar span.is-low {
   background: var(--ad-warn);
 }
 .ad-stock-bar span.is-out {
   background: var(--ad-danger);
+  /* the width arrives inline from the data (0% stock, 0 px): only !important beats style="" */
   width: 100% !important;
 }
 .ad-stock-label {
@@ -1419,7 +1420,7 @@
   display: grid;
   gap: 10px;
 }
-@media (min-width: 800px) {
+@media (min-width: 900px) {
   .ad-reviews {
     grid-template-columns: 1fr 1fr;
   }
@@ -2157,7 +2158,7 @@
   background: #fbf8f2;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.18s, background 0.18s;
+  transition: border-color var(--ad-dur-fast) var(--ad-ease), background var(--ad-dur-fast) var(--ad-ease);
 }
 .ad-drop:hover,
 .ad-drop.is-over {
@@ -2452,7 +2453,7 @@
   border-top: 1px solid var(--ad-line);
   background: var(--ad-surface-3);
 }
-@media (min-width: 860px) {
+@media (min-width: 900px) {
   .ad-look-edit-body {
     grid-template-columns: 1fr 1fr;
   }
@@ -2634,6 +2635,22 @@
 .ad-ticket.is-open {
   border-color: rgba(27, 24, 21, 0.3);
 }
+/* the checkbox is a sibling of the toggle, not inside it: a button may not contain a control */
+.ad-ticket-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-inline-start: 10px;
+}
+.ad-ticket-row .ad-ticket-head {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+.ad-ticket-check {
+  margin: 0;
+  flex: none;
+}
 .ad-ticket-head {
   display: flex;
   align-items: center;
@@ -2774,7 +2791,7 @@
   background: var(--ad-line-strong);
   cursor: pointer;
   padding: 0;
-  transition: background 0.2s;
+  transition: background var(--ad-dur-fast) var(--ad-ease);
 }
 .ad-switch::after {
   content: "";
@@ -2787,7 +2804,7 @@
   height: 16px;
   border-radius: 999px;
   background: var(--ad-surface);
-  transition: inset-inline-start 0.2s, background 0.2s;
+  transition: inset-inline-start var(--ad-dur-fast) var(--ad-ease), background var(--ad-dur-fast) var(--ad-ease);
 }
 .ad-switch.is-on {
   background: var(--ad-ink);
@@ -2965,7 +2982,7 @@
 .ad-rbac-add h4{ margin:0; font-size:13px; display:flex; align-items:center; gap:6px }
 .ad-rbac-hint{ margin:0; font-size:12px; line-height:1.9; opacity:.65; max-width:70ch }
 
-@media (max-width: 720px){
+@media (max-width: 899px){
   .ad-rbac-row{ grid-template-columns:1fr 1fr; row-gap:6px }
   .ad-rbac-row-head{ display:none }
   .ad-role-pill em{ display:none }
@@ -3203,7 +3220,7 @@
 .ad-bell-main{ display:grid; gap:1px; min-width:0; flex:1 }
 .ad-bell-main b{ font-size:12px; font-weight:600 }
 .ad-bell-main small{ font-size:11px; color:var(--ad-muted); line-height:1.6 }
-.ad-bell-stale{ color:var(--ad-warn) !important }
+.ad-bell-main .ad-bell-stale{ color:var(--ad-warn) }
 .ad-bell-foot{ margin:4px 4px 2px; font-size:10px; color:var(--ad-muted); text-align:end }
 
 /* ---------- temporary access (decision 89) ---------- */
@@ -3781,10 +3798,12 @@ textarea.ad-input {
 }
 
 /* ---------- 7. select-all cell ---------- */
-.ad-check-cell {
+/* (0,2,1): the table's own `th/td { padding }` is (0,1,1), so no !important is needed */
+.ad-table th.ad-check-cell,
+.ad-table td.ad-check-cell {
   width: 34px;
-  padding-inline-start: 12px !important;
-  padding-inline-end: 0 !important;
+  padding-inline-start: 12px;
+  padding-inline-end: 0;
 }
 .ad-checkbox {
   width: 15px;
@@ -3808,7 +3827,7 @@ textarea.ad-input {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
-@media (min-width: 720px) {
+@media (min-width: 900px) {
   .ad-return-summary {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -4023,7 +4042,7 @@ textarea.ad-input {
   border-radius: 6px 6px 4px 4px;
   background: linear-gradient(180deg, rgba(140, 74, 47, 0.85), rgba(140, 74, 47, 0.35));
   min-height: 3px;
-  transition: filter 160ms ease-out;
+  transition: filter var(--ad-dur-fast) var(--ad-ease);
 }
 .ad-report-chart .ad-bar:hover .ad-bar-fill {
   filter: brightness(1.12);
