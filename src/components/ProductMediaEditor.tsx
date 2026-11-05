@@ -27,12 +27,35 @@ interface Props {
  * them a colour and a role ("تصویر شاخص"، "گالری"، "هاور"، "جزئیات").
  */
 const MAX_IMAGES = 12;
+/** a clip, not a film: the owner's ceiling for the single product video (decision 25) */
+const MAX_VIDEO_SECONDS = 30;
+const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+
+/** reads the clip length in the browser before it is uploaded */
+function videoDuration(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const probe = document.createElement("video");
+    const done = (value: number | null) => {
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    probe.preload = "metadata";
+    probe.onloadedmetadata = () => done(Number.isFinite(probe.duration) ? probe.duration : null);
+    probe.onerror = () => done(null);
+    // a browser that never fires metadata must not hang the form
+    window.setTimeout(() => done(null), 6000);
+    probe.src = url;
+  });
+}
 
 export function ProductMediaEditor({ images, colors, onChange, emptyHint, video, onVideo }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const [videoBusy, setVideoBusy] = useState(false);
   const [videoError, setVideoError] = useState("");
+  const [videoUrlDraft, setVideoUrlDraft] = useState("");
+  const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [limitHit, setLimitHit] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -162,8 +185,14 @@ export function ProductMediaEditor({ images, colors, onChange, emptyHint, video,
               e.currentTarget.value = "";
               if (!file) return;
               setVideoError("");
-              if (file.size > 20 * 1024 * 1024) {
+              if (file.size > MAX_VIDEO_BYTES) {
                 setVideoError("حجم ویدیو بیشتر از ۲۰ مگابایت است؛ کلیپ کوتاه‌تری انتخاب کن.");
+                return;
+              }
+              const seconds = await videoDuration(file);
+              setVideoSeconds(seconds);
+              if (seconds !== null && seconds > MAX_VIDEO_SECONDS + 0.5) {
+                setVideoError(`این کلیپ ${Math.round(seconds)} ثانیه است؛ سقف ویدیوی محصول ۳۰ ثانیه است.`);
                 return;
               }
               setVideoBusy(true);
@@ -177,6 +206,34 @@ export function ProductMediaEditor({ images, colors, onChange, emptyHint, video,
               }
             }}
           />
+          {/* or point at a clip that is already hosted elsewhere (decision 26) */}
+          {!video && (
+            <div className="ad-video-url">
+              <input
+                className="ad-input"
+                dir="ltr"
+                value={videoUrlDraft}
+                onChange={(e) => setVideoUrlDraft(e.target.value)}
+                placeholder="https://…/clip.mp4"
+                aria-label="نشانی ویدیو"
+              />
+              <button
+                type="button"
+                className="ad-btn is-sm"
+                disabled={!/^https?:\/\//.test(videoUrlDraft.trim())}
+                onClick={() => {
+                  setVideoError("");
+                  onVideo(videoUrlDraft.trim());
+                  setVideoUrlDraft("");
+                }}
+              >
+                استفاده از این نشانی
+              </button>
+            </div>
+          )}
+          {videoSeconds !== null && !videoError && (
+            <p className="ad-hint">طول کلیپ: {videoSeconds.toFixed(1).replace(".", "/")} ثانیه (سقف ۳۰ ثانیه).</p>
+          )}
           {videoError && <p className="ad-hint is-warn">{videoError}</p>}
         </div>
       )}
