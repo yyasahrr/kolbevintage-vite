@@ -3359,6 +3359,35 @@ function Campaigns() {
   const [campDraft, setCampDraft] = useState<Campaign | null>(null);
   const [ruleDraft, setRuleDraft] = useState<DiscountRule | null>(null);
   const [codeDraft, setCodeDraft] = useState<Coupon | null>(null);
+  /* codes are the one list here that genuinely piles up: old codes stay active
+     forever unless someone switches them off in bulk */
+  const [pickedCodes, setPickedCodes] = useState<Set<string>>(new Set());
+  const allCodesPicked = admin.coupons.length > 0 && pickedCodes.size === admin.coupons.length;
+  const toggleCode = (id: string) =>
+    setPickedCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAllCodes = () => setPickedCodes(allCodesPicked ? new Set() : new Set(admin.coupons.map((c) => c.id)));
+  const bulkCodes = (mode: "on" | "off" | "delete") => {
+    const targets = admin.coupons.filter((c) => pickedCodes.has(c.id));
+    if (mode === "delete" && !window.confirm(`${fa(targets.length)} کد تخفیف برای همیشه حذف شود؟`)) return;
+    targets.forEach((c) => {
+      if (mode === "delete") removeCoupon(c.id);
+      else saveCoupon({ ...c, active: mode === "on" });
+    });
+    addLog({
+      actor: "مدیر",
+      action:
+        mode === "delete"
+          ? `حذف گروهی ${fa(targets.length)} کد تخفیف`
+          : `${mode === "on" ? "فعال‌سازی" : "غیرفعال‌سازی"} گروهی ${fa(targets.length)} کد تخفیف`,
+      target: "کدهای تخفیف",
+    });
+    setPickedCodes(new Set());
+  };
 
   return (
     <>
@@ -3442,11 +3471,42 @@ function Campaigns() {
 
       {tab === "codes" && (
         <div className="ad-cards">
-          <button type="button" className="ad-btn is-sm is-primary ad-full" onClick={() => setCodeDraft({ id: `c${uid()}`, code: "", kind: "percent", value: 10, minSpend: 0, active: true, expires: "", uses: 0 })}>
-            <Plus width={13} height={13} /> کد جدید
-          </button>
+          <div className="ad-toolbar">
+            <button type="button" className="ad-btn is-sm is-primary" onClick={() => setCodeDraft({ id: `c${uid()}`, code: "", kind: "percent", value: 10, minSpend: 0, active: true, expires: "", uses: 0 })}>
+              <Plus width={13} height={13} /> کد جدید
+            </button>
+            <label className="ad-select-all">
+              <input
+                type="checkbox"
+                className="ad-checkbox"
+                checked={allCodesPicked}
+                ref={(el) => {
+                  if (el) el.indeterminate = !allCodesPicked && pickedCodes.size > 0;
+                }}
+                onChange={toggleAllCodes}
+                aria-label="انتخاب همهٔ کدهای تخفیف"
+              />
+              انتخاب همهٔ {fa(admin.coupons.length)} کد
+            </label>
+            {pickedCodes.size > 0 && (
+              <div className="ad-actions">
+                <b className="ad-hint" style={{ margin: 0 }}>{fa(pickedCodes.size)} انتخاب‌شده</b>
+                <button type="button" className="ad-btn is-sm" onClick={() => bulkCodes("on")}>فعال</button>
+                <button type="button" className="ad-btn is-sm" onClick={() => bulkCodes("off")}>غیرفعال</button>
+                <button type="button" className="ad-btn is-sm is-danger" onClick={() => bulkCodes("delete")}>حذف</button>
+                <button type="button" className="ad-btn is-sm" onClick={() => setPickedCodes(new Set())}>لغو</button>
+              </div>
+            )}
+          </div>
           {admin.coupons.map((c) => (
             <article key={c.id} className={cn("ad-card-inline", !c.active && "is-off")}>
+              <input
+                type="checkbox"
+                className="ad-checkbox"
+                checked={pickedCodes.has(c.id)}
+                onChange={() => toggleCode(c.id)}
+                aria-label={`انتخاب کد ${c.code}`}
+              />
               <span className={cn("ad-dot", c.active ? "is-on" : "")} />
               <div className="ad-card-inline-main">
                 <b dir="ltr">{c.code}</b>
