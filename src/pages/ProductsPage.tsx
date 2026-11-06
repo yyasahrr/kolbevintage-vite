@@ -5,7 +5,6 @@ import { SlidersHorizontal, X, PackageSearch, RotateCcw } from "lucide-react";
 import {
   ALL_COLORS,
   ALL_SIZES,
-  CATEGORIES,
   COLLECTIONS,
   SORTS,
   filterProducts,
@@ -22,21 +21,29 @@ import {
   buttonStyles,
 } from "@/components/ui";
 import { cn } from "@/utils/cn";
+import { useEscape, useScrollLock } from "@/hooks/useOverlay";
 import { useOps } from "@/state/ops";
+import { useAdmin } from "@/state/admin";
 import { resolveImg } from "@/builder/stock";
 
 const VALID_SORTS = new Set<string>(SORTS.map((s) => s.id));
 
 export function ProductsPage() {
+  useAdmin();
   const [params, setParams] = useSearchParams();
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const { categories } = useOps();
+  useEscape(filtersOpen, () => setFiltersOpen(false));
+  useScrollLock(filtersOpen);
+  const ops = useOps();
+  const { categories } = ops;
 
   const collection = COLLECTIONS.find((c) => c.id === params.get("collection"))?.id ?? "all";
   const category = params.get("category") ?? "";
   const size = params.get("size") ?? "";
   const color = params.get("color") ?? "";
-  const sortParam = params.get("sort") ?? "featured";
+  // the owner's per-category default applies until the shopper picks a sort (decision 27)
+  const ownerSort = category ? ops.categorySort?.[category] : undefined;
+  const sortParam = params.get("sort") ?? ownerSort ?? "featured";
   const sort = (VALID_SORTS.has(sortParam) ? sortParam : "featured") as SortKey;
   const query = params.get("q") ?? "";
 
@@ -57,9 +64,6 @@ export function ProductsPage() {
   );
 
   const activeCollection = COLLECTIONS.find((c) => c.id === collection);
-  const availableCategories = CATEGORIES.filter(
-    (c) => !activeCollection || c.collectionId === activeCollection.id,
-  );
   const title = query
     ? `نتیجهٔ جست‌وجو برای «${query}»`
     : activeCollection
@@ -97,20 +101,6 @@ export function ProductsPage() {
             >
               {c.label}
               <span className="text-[9.5px] opacity-60">{productsInCollection(c.id).length}</span>
-            </Chip>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-[10px] text-ink-45">گروه محصول</p>
-        <div className="flex flex-wrap gap-1.5">
-          <Chip active={!category} onClick={() => patch({ category: null })}>
-            همهٔ گروه‌ها
-          </Chip>
-          {availableCategories.map((c) => (
-            <Chip key={c.name} active={category === c.name} onClick={() => patch({ category: c.name })}>
-              {c.name}
             </Chip>
           ))}
         </div>
@@ -288,7 +278,7 @@ export function ProductsPage() {
                 نمایش {(list.length > 0 ? 1 : 0).toLocaleString("fa-IR")} تا{" "}
                 {list.length.toLocaleString("fa-IR")} از {list.length.toLocaleString("fa-IR")} قطعه
               </p>
-              <p>همهٔ قطعه‌ها ساخت محدود دارند · ارسال رایگان بالای ۲۰۰ یورو</p>
+              <p>همهٔ قطعه‌ها ساخت محدود دارند · ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان</p>
             </div>
           </div>
         </div>
@@ -322,7 +312,7 @@ export function ProductsPage() {
                   type="button"
                   onClick={() => setFiltersOpen(false)}
                   aria-label="بستن فیلترها"
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-black/10"
+                  className="tap flex h-9 w-9 items-center justify-center rounded-full border border-black/10"
                 >
                   <X className="h-4 w-4" />
                 </button>

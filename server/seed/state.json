@@ -1,0 +1,2477 @@
+{
+ "generatedAt": "2026-11-04T05:21:46.466Z",
+ "baseProducts": [
+  {
+   "id": "p-rive-coat",
+   "name": "پالتوی پشمی اورسایز ریو",
+   "category": "بیرونی",
+   "garment": "coat",
+   "price": 1290,
+   "compareAt": 1490,
+   "description": "لایهٔ اصلی پاییز؛ با شانه‌های افتاده و برشی بلند که در حرکت باز می‌شود. پارچه پس از چند بار پوشیدن فرم بدن را می‌گیرد و نرم‌تر می‌شود.",
+   "material": "۷۰٪ پشم ویرجین، ۲۵٪ پلی‌آمید، ۵٪ کشمیر",
+   "care": "شست‌وشوی خشک با پرس گرم؛ نگهداری روی چوب‌لباس پهن",
+   "fit": "اورسایز با آستر کامل؛ دو سایز کوچک‌تر برای فرم کلاسیک",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "تخفیف",
+   "lookId": "look-01",
+   "lookName": "معماری نوآر",
+   "lookSlug": "look-01",
+   "lookOrder": 1,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.4,
+    "zoom": 1
+   },
+   "colors": [
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "charcoal",
+     "name": "زغالی",
+     "hex": "#3b3b3d"
+    },
+    {
+     "id": "camel",
+     "name": "شتری",
+     "hex": "#b7905c"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "xs",
+     "label": "XS"
+    },
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "noir:xs": 4,
+    "noir:s": 4,
+    "noir:m": 6,
+    "noir:l": 7,
+    "noir:xl": 0,
+    "charcoal:xs": 0,
+    "charcoal:s": 9,
+    "charcoal:m": 7,
+    "charcoal:l": 6,
+    "charcoal:xl": 8,
+    "camel:xs": 9,
+    "camel:s": 2,
+    "camel:m": 4,
+    "camel:l": 5,
+    "camel:xl": 9
+   }
+  },
+  {
+   "id": "p-cote-rollneck",
+   "name": "بافت مرینوی یقه‌لاک‌پشتی کوت",
+   "category": "بافت",
+   "garment": "knit",
+   "price": 280,
+   "compareAt": null,
+   "description": "بافت ساده‌ای که می‌تواند تمام فصل همراه باشد. تراکم بالا، لبه‌های کشباف و رنگ‌بندی خنثی برای لایه‌بندی بی‌زحمت.",
+   "material": "۱۰۰٪ کشمیر مغولستان، بافت تمام‌بافته",
+   "care": "شست‌وشوی دستی با آب سرد، خشک کردن افقی",
+   "fit": "فرم راحت با حجم کنترل‌شده",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "پرفروش",
+   "lookId": "look-01",
+   "lookName": "معماری نوآر",
+   "lookSlug": "look-01",
+   "lookOrder": 1,
+   "crop": {
+    "cx": 0.52,
+    "cy": 0.26,
+    "zoom": 0.45
+   },
+   "colors": [
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "ivory",
+     "name": "عاجی",
+     "hex": "#f1ead9"
+    },
+    {
+     "id": "slate",
+     "name": "خاکستری",
+     "hex": "#6c727a"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "xs",
+     "label": "XS"
+    },
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "noir:xs": 8,
+    "noir:s": 4,
+    "noir:m": 2,
+    "noir:l": 3,
+    "noir:xl": 3,
+    "ivory:xs": 9,
+    "ivory:s": 7,
+    "ivory:m": 5,
+    "ivory:l": 4,
+    "ivory:xl": 2,
+    "slate:xs": 9,
+    "slate:s": 0,
+    "slate:m": 5,
+    "slate:l": 4,
+    "slate:xl": 9
+   }
+  },
+  {
+   "id": "p-lacroix-trouser",
+   "name": "شلوار راسته لاکروا",
+   "category": "خیاطی",
+   "garment": "trousers",
+   "price": 390,
+   "compareAt": null,
+   "description": "شلوار با فرم فراخ و خط پرس تیز؛ کفش را پنهان می‌کند و با کت کوتاه یا بلند هر دو کار می‌کند.",
+   "material": "۹۸٪ پشم، ۲٪ الاستان",
+   "care": "شست‌وشوی خشک",
+   "fit": "فراخ از کمر تا مچ؛ اندازهٔ کمر قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "پرفروش",
+   "lookId": "look-01",
+   "lookName": "معماری نوآر",
+   "lookSlug": "look-01",
+   "lookOrder": 1,
+   "crop": {
+    "cx": 0.55,
+    "cy": 0.72,
+    "zoom": 0.6
+   },
+   "colors": [
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "charcoal",
+     "name": "زغالی",
+     "hex": "#3b3b3d"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "26",
+     "label": "26"
+    },
+    {
+     "id": "28",
+     "label": "28"
+    },
+    {
+     "id": "30",
+     "label": "30"
+    },
+    {
+     "id": "32",
+     "label": "32"
+    },
+    {
+     "id": "34",
+     "label": "34"
+    }
+   ],
+   "stock": {
+    "noir:26": 2,
+    "noir:28": 0,
+    "noir:30": 0,
+    "noir:32": 9,
+    "noir:34": 3,
+    "charcoal:26": 9,
+    "charcoal:28": 7,
+    "charcoal:30": 8,
+    "charcoal:32": 9,
+    "charcoal:34": 4
+   }
+  },
+  {
+   "id": "p-vega-boot",
+   "name": "بوت چرمی کوتاه وگا",
+   "category": "کفش",
+   "garment": "boot",
+   "price": 640,
+   "compareAt": null,
+   "description": "بوت با ساختار محکم و سیلوئت باریک؛ ترکیبی از دوام روزمره و ظرافت شهری.",
+   "material": "چرم گاوی مات، زیرهٔ لاستیکی",
+   "care": "واکس دوره‌ای و خشک کردن طبیعی",
+   "fit": "ساسات استاندارد، ساق متوسط",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "پرفروش",
+   "lookId": "look-01",
+   "lookName": "معماری نوآر",
+   "lookSlug": "look-01",
+   "lookOrder": 1,
+   "crop": {
+    "cx": 0.6,
+    "cy": 0.95,
+    "zoom": 0.65
+   },
+   "colors": [
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "oxblood",
+     "name": "زرشکی",
+     "hex": "#5c2026"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "36",
+     "label": "36"
+    },
+    {
+     "id": "37",
+     "label": "37"
+    },
+    {
+     "id": "38",
+     "label": "38"
+    },
+    {
+     "id": "39",
+     "label": "39"
+    },
+    {
+     "id": "40",
+     "label": "40"
+    },
+    {
+     "id": "41",
+     "label": "41"
+    }
+   ],
+   "stock": {
+    "noir:36": 4,
+    "noir:37": 5,
+    "noir:38": 6,
+    "noir:39": 7,
+    "noir:40": 3,
+    "noir:41": 2,
+    "oxblood:36": 0,
+    "oxblood:37": 0,
+    "oxblood:38": 0,
+    "oxblood:39": 0,
+    "oxblood:40": 0,
+    "oxblood:41": 0
+   }
+  },
+  {
+   "id": "p-carre-bag",
+   "name": "کیف دسته‌دار کوچک کاره",
+   "category": "کیف و چرم",
+   "garment": "bag",
+   "price": 990,
+   "compareAt": null,
+   "description": "کیفی که با گذشت زمان پتینه می‌شود. ساختار محکم، درزهای دست‌دوز و فضای کافی برای روزهای کاری.",
+   "material": "چرم گاوی دباغی‌شدهٔ گیاهی، یدک برنجی",
+   "care": "تمیز کردن با پارچهٔ نرم؛ دور از رطوبت",
+   "fit": "جیب داخلی زیپ‌دار و بند قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "آخرین موجودی",
+   "lookId": "look-01",
+   "lookName": "معماری نوآر",
+   "lookSlug": "look-01",
+   "lookOrder": 1,
+   "crop": {
+    "cx": 0.2,
+    "cy": 0.62,
+    "zoom": 0.42
+   },
+   "colors": [
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "cognac",
+     "name": "کنیاک",
+     "hex": "#8c5a33"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "یک-سایز",
+     "label": "یک سایز"
+    }
+   ],
+   "stock": {
+    "noir:یک-سایز": 5,
+    "cognac:یک-سایز": 4
+   }
+  },
+  {
+   "id": "p-sienna-blazer",
+   "name": "بلیزر کتان راحت سیِنا",
+   "category": "خیاطی",
+   "garment": "jacket",
+   "price": 720,
+   "compareAt": null,
+   "description": "ساختاری سبک برای روزهای گذار فصل. یقهٔ طبیعی، دکمه‌های شاخ و جیب‌های کاربردی؛ ساده اما با جزئیات کامل.",
+   "material": "۱۰۰٪ کتان ایتالیایی، آستر تنفس‌پذیر",
+   "care": "شست‌وشوی ملایم ۳۰ درجه یا خشک‌شویی",
+   "fit": "راحت و کمی بلندتر از حد معمول",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "پرفروش",
+   "lookId": "look-02",
+   "lookName": "ساعت تراکوتا",
+   "lookSlug": "look-02",
+   "lookOrder": 2,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.33,
+    "zoom": 0.95
+   },
+   "colors": [
+    {
+     "id": "terracotta",
+     "name": "تراکوتا",
+     "hex": "#a9513a"
+    },
+    {
+     "id": "sand",
+     "name": "شنی",
+     "hex": "#cdbba1"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "terracotta:s": 6,
+    "terracotta:m": 0,
+    "terracotta:l": 1,
+    "terracotta:xl": 5,
+    "sand:s": 1,
+    "sand:m": 0,
+    "sand:l": 9,
+    "sand:xl": 4,
+    "noir:s": 7,
+    "noir:m": 1,
+    "noir:l": 0,
+    "noir:xl": 2
+   }
+  },
+  {
+   "id": "p-ribbed-tank",
+   "name": "تاپ کشباف آتلیه",
+   "category": "اسنشال",
+   "garment": "tee",
+   "price": 120,
+   "compareAt": null,
+   "description": "تی‌شرت پایهٔ کمد؛ یقهٔ ضخیم که فرم می‌ماند و رنگ‌های شسته‌ای که با هر چیزی هماهنگ می‌شوند.",
+   "material": "۱۰۰٪ پنبهٔ آلی با گرماژ ۲۴۰",
+   "care": "شست‌وشوی ماشینی ۳۰ درجه، بدون سفیدکننده",
+   "fit": "برش مستقیم و کمی آزاد",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "پرفروش",
+   "lookId": "look-02",
+   "lookName": "ساعت تراکوتا",
+   "lookSlug": "look-02",
+   "lookOrder": 2,
+   "crop": {
+    "cx": 0.52,
+    "cy": 0.35,
+    "zoom": 0.3
+   },
+   "colors": [
+    {
+     "id": "cream",
+     "name": "کرم",
+     "hex": "#e8e0cb"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "cream:s": 3,
+    "cream:m": 9,
+    "cream:l": 8,
+    "cream:xl": 2,
+    "noir:s": 7,
+    "noir:m": 5,
+    "noir:l": 4,
+    "noir:xl": 9
+   }
+  },
+  {
+   "id": "p-palazzo-trouser",
+   "name": "شلوار فراخ پالازو",
+   "category": "خیاطی",
+   "garment": "trousers",
+   "price": 340,
+   "compareAt": null,
+   "description": "شلوار با فرم فراخ و خط پرس تیز؛ کفش را پنهان می‌کند و با کت کوتاه یا بلند هر دو کار می‌کند.",
+   "material": "۹۸٪ پشم، ۲٪ الاستان",
+   "care": "شست‌وشوی خشک",
+   "fit": "فراخ از کمر تا مچ؛ اندازهٔ کمر قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "پرفروش",
+   "lookId": "look-02",
+   "lookName": "ساعت تراکوتا",
+   "lookSlug": "look-02",
+   "lookOrder": 2,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.72,
+    "zoom": 0.62
+   },
+   "colors": [
+    {
+     "id": "cream",
+     "name": "کرم",
+     "hex": "#e8e0cb"
+    },
+    {
+     "id": "stone",
+     "name": "سنگی",
+     "hex": "#a9a39a"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "26",
+     "label": "26"
+    },
+    {
+     "id": "28",
+     "label": "28"
+    },
+    {
+     "id": "30",
+     "label": "30"
+    },
+    {
+     "id": "32",
+     "label": "32"
+    },
+    {
+     "id": "34",
+     "label": "34"
+    }
+   ],
+   "stock": {
+    "cream:26": 1,
+    "cream:28": 3,
+    "cream:30": 0,
+    "cream:32": 2,
+    "cream:34": 8,
+    "stone:26": 9,
+    "stone:28": 0,
+    "stone:30": 0,
+    "stone:32": 9,
+    "stone:34": 3,
+    "noir:26": 3,
+    "noir:28": 9,
+    "noir:30": 9,
+    "noir:32": 8,
+    "noir:34": 2
+   }
+  },
+  {
+   "id": "p-marcel-loafer",
+   "name": "لوفر دست‌دوز مارسل",
+   "category": "کفش",
+   "garment": "loafer",
+   "price": 450,
+   "compareAt": null,
+   "description": "لوفر با رویهٔ دست‌دوز و خطوط صاف؛ از صبح تا شب بدون دردسر و با هر شلواری.",
+   "material": "چرم بزی، زیرهٔ چرمی با پاشنهٔ لاستیکی",
+   "care": "واکس و برس چرم هر دو هفته",
+   "fit": "اندازهٔ استاندارد؛ برای پای پهن نیم سایز بزرگ‌تر",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "پرفروش",
+   "lookId": "look-02",
+   "lookName": "ساعت تراکوتا",
+   "lookSlug": "look-02",
+   "lookOrder": 2,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.96,
+    "zoom": 0.6
+   },
+   "colors": [
+    {
+     "id": "cognac",
+     "name": "کنیاک",
+     "hex": "#8c5a33"
+    },
+    {
+     "id": "espresso",
+     "name": "اسپرسو",
+     "hex": "#43291c"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "40",
+     "label": "40"
+    },
+    {
+     "id": "41",
+     "label": "41"
+    },
+    {
+     "id": "42",
+     "label": "42"
+    },
+    {
+     "id": "43",
+     "label": "43"
+    },
+    {
+     "id": "44",
+     "label": "44"
+    }
+   ],
+   "stock": {
+    "cognac:40": 2,
+    "cognac:41": 3,
+    "cognac:42": 0,
+    "cognac:43": 1,
+    "cognac:44": 9,
+    "espresso:40": 9,
+    "espresso:41": 8,
+    "espresso:42": 0,
+    "espresso:43": 9,
+    "espresso:44": 5
+   }
+  },
+  {
+   "id": "p-sling-cross",
+   "name": "کیف کراس‌بادی چرمی اسلینگ",
+   "category": "کیف و چرم",
+   "garment": "bag",
+   "price": 520,
+   "compareAt": null,
+   "description": "کیفی که با گذشت زمان پتینه می‌شود. ساختار محکم، درزهای دست‌دوز و فضای کافی برای روزهای کاری.",
+   "material": "چرم گاوی دباغی‌شدهٔ گیاهی، یدک برنجی",
+   "care": "تمیز کردن با پارچهٔ نرم؛ دور از رطوبت",
+   "fit": "جیب داخلی زیپ‌دار و بند قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "پرفروش",
+   "lookId": "look-02",
+   "lookName": "ساعت تراکوتا",
+   "lookSlug": "look-02",
+   "lookOrder": 2,
+   "crop": {
+    "cx": 0.62,
+    "cy": 0.43,
+    "zoom": 0.38
+   },
+   "colors": [
+    {
+     "id": "cognac",
+     "name": "کنیاک",
+     "hex": "#8c5a33"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "یک-سایز",
+     "label": "یک سایز"
+    }
+   ],
+   "stock": {
+    "cognac:یک-سایز": 8,
+    "noir:یک-سایز": 9
+   }
+  },
+  {
+   "id": "p-nuage-sweater",
+   "name": "پلیور کشمیر نوآژ",
+   "category": "بافت",
+   "garment": "knit",
+   "price": 460,
+   "compareAt": null,
+   "description": "بافت ساده‌ای که می‌تواند تمام فصل همراه باشد. تراکم بالا، لبه‌های کشباف و رنگ‌بندی خنثی برای لایه‌بندی بی‌زحمت.",
+   "material": "۱۰۰٪ کشمیر مغولستان، بافت تمام‌بافته",
+   "care": "شست‌وشوی دستی با آب سرد، خشک کردن افقی",
+   "fit": "فرم راحت با حجم کنترل‌شده",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": null,
+   "lookId": "look-03",
+   "lookName": "سکوت عاجی",
+   "lookSlug": "look-03",
+   "lookOrder": 3,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.28,
+    "zoom": 0.85
+   },
+   "colors": [
+    {
+     "id": "ivory",
+     "name": "عاجی",
+     "hex": "#f1ead9"
+    },
+    {
+     "id": "sand",
+     "name": "شنی",
+     "hex": "#cdbba1"
+    },
+    {
+     "id": "slate",
+     "name": "خاکستری",
+     "hex": "#6c727a"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "xs",
+     "label": "XS"
+    },
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "ivory:xs": 0,
+    "ivory:s": 9,
+    "ivory:m": 0,
+    "ivory:l": 9,
+    "ivory:xl": 0,
+    "sand:xs": 4,
+    "sand:s": 0,
+    "sand:m": 9,
+    "sand:l": 0,
+    "sand:xl": 3,
+    "slate:xs": 3,
+    "slate:s": 1,
+    "slate:m": 0,
+    "slate:l": 9,
+    "slate:xl": 8
+   }
+  },
+  {
+   "id": "p-liquid-skirt",
+   "name": "دامن میدی ساتن لیکید",
+   "category": "دامن",
+   "garment": "skirt",
+   "price": 310,
+   "compareAt": 380,
+   "description": "دامن میدی با جریان پارچه‌ای که در قدم برداشتن باز می‌شود؛ کمر کشدار پنهان برای راحتی تمام روز.",
+   "material": "۱۰۰٪ ساتن ویسکوز، آستر نرم",
+   "care": "شست‌وشوی خشک",
+   "fit": "میدی، برش اریب",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "تخفیف",
+   "lookId": "look-03",
+   "lookName": "سکوت عاجی",
+   "lookSlug": "look-03",
+   "lookOrder": 3,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.65,
+    "zoom": 0.8
+   },
+   "colors": [
+    {
+     "id": "sand",
+     "name": "شنی",
+     "hex": "#cdbba1"
+    },
+    {
+     "id": "navy",
+     "name": "نیمه‌شب",
+     "hex": "#1d2440"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "xs",
+     "label": "XS"
+    },
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "sand:xs": 8,
+    "sand:s": 0,
+    "sand:m": 6,
+    "sand:l": 7,
+    "sand:xl": 0,
+    "navy:xs": 9,
+    "navy:s": 6,
+    "navy:m": 8,
+    "navy:l": 9,
+    "navy:xl": 1,
+    "noir:xs": 9,
+    "noir:s": 9,
+    "noir:m": 8,
+    "noir:l": 9,
+    "noir:xl": 9
+   }
+  },
+  {
+   "id": "p-aria-slingback",
+   "name": "کفش پاشنه‌دار نوک‌تیز آریا",
+   "category": "کفش",
+   "garment": "heel",
+   "price": 520,
+   "compareAt": null,
+   "description": "کفشی که خط پا را کشیده می‌کند. پاشنهٔ متعادل و کفی نرم برای ساعت‌های طولانی.",
+   "material": "چرم ناپا، پاشنهٔ ۶ سانتی",
+   "care": "نگهداری در کیف پارچه‌ای",
+   "fit": "نوک‌تیز با بند قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": null,
+   "lookId": "look-03",
+   "lookName": "سکوت عاجی",
+   "lookSlug": "look-03",
+   "lookOrder": 3,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.95,
+    "zoom": 0.65
+   },
+   "colors": [
+    {
+     "id": "sand",
+     "name": "شنی",
+     "hex": "#cdbba1"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "36",
+     "label": "36"
+    },
+    {
+     "id": "37",
+     "label": "37"
+    },
+    {
+     "id": "38",
+     "label": "38"
+    },
+    {
+     "id": "39",
+     "label": "39"
+    },
+    {
+     "id": "40",
+     "label": "40"
+    },
+    {
+     "id": "41",
+     "label": "41"
+    }
+   ],
+   "stock": {
+    "sand:36": 0,
+    "sand:37": 1,
+    "sand:38": 2,
+    "sand:39": 3,
+    "sand:40": 0,
+    "sand:41": 9,
+    "noir:36": 9,
+    "noir:37": 0,
+    "noir:38": 8,
+    "noir:39": 9,
+    "noir:40": 9,
+    "noir:41": 8
+   }
+  },
+  {
+   "id": "p-soft-shoulder",
+   "name": "کیف دوشی جیر سوفله",
+   "category": "کیف و چرم",
+   "garment": "bag",
+   "price": 680,
+   "compareAt": null,
+   "description": "کیفی که با گذشت زمان پتینه می‌شود. ساختار محکم، درزهای دست‌دوز و فضای کافی برای روزهای کاری.",
+   "material": "چرم گاوی دباغی‌شدهٔ گیاهی، یدک برنجی",
+   "care": "تمیز کردن با پارچهٔ نرم؛ دور از رطوبت",
+   "fit": "جیب داخلی زیپ‌دار و بند قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": null,
+   "lookId": "look-03",
+   "lookName": "سکوت عاجی",
+   "lookSlug": "look-03",
+   "lookOrder": 3,
+   "crop": {
+    "cx": 0.85,
+    "cy": 0.43,
+    "zoom": 0.45
+   },
+   "colors": [
+    {
+     "id": "cream",
+     "name": "کرم",
+     "hex": "#e8e0cb"
+    },
+    {
+     "id": "chocolate",
+     "name": "شکلاتی",
+     "hex": "#5a3a28"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "یک-سایز",
+     "label": "یک سایز"
+    }
+   ],
+   "stock": {
+    "cream:یک-سایز": 9,
+    "chocolate:یک-سایز": 9
+   }
+  },
+  {
+   "id": "p-trucker-jacket",
+   "name": "کاپشن جین شسته تراکر",
+   "category": "بیرونی",
+   "garment": "jacket",
+   "price": 390,
+   "compareAt": null,
+   "description": "ساختاری سبک برای روزهای گذار فصل. یقهٔ طبیعی، دکمه‌های شاخ و جیب‌های کاربردی؛ ساده اما با جزئیات کامل.",
+   "material": "۱۰۰٪ کتان ایتالیایی، آستر تنفس‌پذیر",
+   "care": "شست‌وشوی ملایم ۳۰ درجه یا خشک‌شویی",
+   "fit": "راحت و کمی بلندتر از حد معمول",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": null,
+   "lookId": "look-04",
+   "lookName": "استاندارد نیلی",
+   "lookSlug": "look-04",
+   "lookOrder": 4,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.33,
+    "zoom": 0.95
+   },
+   "colors": [
+    {
+     "id": "indigo",
+     "name": "نیلی شسته",
+     "hex": "#4a6487"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "indigo:s": 7,
+    "indigo:m": 1,
+    "indigo:l": 0,
+    "indigo:xl": 6,
+    "noir:s": 9,
+    "noir:m": 0,
+    "noir:l": 9,
+    "noir:xl": 8
+   }
+  },
+  {
+   "id": "p-heavy-tee",
+   "name": "تیشرت جرسی ضخیم",
+   "category": "اسنشال",
+   "garment": "tee",
+   "price": 90,
+   "compareAt": null,
+   "description": "تی‌شرت پایهٔ کمد؛ یقهٔ ضخیم که فرم می‌ماند و رنگ‌های شسته‌ای که با هر چیزی هماهنگ می‌شوند.",
+   "material": "۱۰۰٪ پنبهٔ آلی با گرماژ ۲۴۰",
+   "care": "شست‌وشوی ماشینی ۳۰ درجه، بدون سفیدکننده",
+   "fit": "برش مستقیم و کمی آزاد",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": null,
+   "lookId": "look-04",
+   "lookName": "استاندارد نیلی",
+   "lookSlug": "look-04",
+   "lookOrder": 4,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.33,
+    "zoom": 0.3
+   },
+   "colors": [
+    {
+     "id": "charcoal",
+     "name": "زغالی",
+     "hex": "#3b3b3d"
+    },
+    {
+     "id": "ivory",
+     "name": "عاجی",
+     "hex": "#f1ead9"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "charcoal:s": 5,
+    "charcoal:m": 7,
+    "charcoal:l": 6,
+    "charcoal:xl": 4,
+    "ivory:s": 7,
+    "ivory:m": 9,
+    "ivory:l": 8,
+    "ivory:xl": 9,
+    "noir:s": 8,
+    "noir:m": 2,
+    "noir:l": 3,
+    "noir:xl": 0
+   }
+  },
+  {
+   "id": "p-tapered-twill",
+   "name": "شلوار تیپر توییل خشک",
+   "category": "شلوار",
+   "garment": "trousers",
+   "price": 240,
+   "compareAt": null,
+   "description": "شلوار با فرم فراخ و خط پرس تیز؛ کفش را پنهان می‌کند و با کت کوتاه یا بلند هر دو کار می‌کند.",
+   "material": "۹۸٪ پشم، ۲٪ الاستان",
+   "care": "شست‌وشوی خشک",
+   "fit": "فراخ از کمر تا مچ؛ اندازهٔ کمر قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": null,
+   "lookId": "look-04",
+   "lookName": "استاندارد نیلی",
+   "lookSlug": "look-04",
+   "lookOrder": 4,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.7,
+    "zoom": 0.62
+   },
+   "colors": [
+    {
+     "id": "charcoal",
+     "name": "زغالی",
+     "hex": "#3b3b3d"
+    },
+    {
+     "id": "stone",
+     "name": "سنگی",
+     "hex": "#a9a39a"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "26",
+     "label": "26"
+    },
+    {
+     "id": "28",
+     "label": "28"
+    },
+    {
+     "id": "30",
+     "label": "30"
+    },
+    {
+     "id": "32",
+     "label": "32"
+    },
+    {
+     "id": "34",
+     "label": "34"
+    }
+   ],
+   "stock": {
+    "charcoal:26": 9,
+    "charcoal:28": 0,
+    "charcoal:30": 0,
+    "charcoal:32": 9,
+    "charcoal:34": 3,
+    "stone:26": 0,
+    "stone:28": 9,
+    "stone:30": 1,
+    "stone:32": 3,
+    "stone:34": 5
+   }
+  },
+  {
+   "id": "p-court-sneaker",
+   "name": "کفش کالجی چرمی کورت",
+   "category": "کفش",
+   "garment": "sneaker",
+   "price": 320,
+   "compareAt": null,
+   "description": "کفش کالجی مینیمال با خطوط تمیز؛ همان چیزی که با کت و شلوار هم درست جواب می‌دهد.",
+   "material": "چرم سفید ایتالیایی، زیرهٔ لاستیک طبیعی",
+   "care": "تمیز کردن با پارچهٔ نمدار",
+   "fit": "اندازهٔ استاندارد",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": null,
+   "lookId": "look-04",
+   "lookName": "استاندارد نیلی",
+   "lookSlug": "look-04",
+   "lookOrder": 4,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.96,
+    "zoom": 0.62
+   },
+   "colors": [
+    {
+     "id": "ivory",
+     "name": "عاجی",
+     "hex": "#f1ead9"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "40",
+     "label": "40"
+    },
+    {
+     "id": "41",
+     "label": "41"
+    },
+    {
+     "id": "42",
+     "label": "42"
+    },
+    {
+     "id": "43",
+     "label": "43"
+    },
+    {
+     "id": "44",
+     "label": "44"
+    }
+   ],
+   "stock": {
+    "ivory:40": 0,
+    "ivory:41": 9,
+    "ivory:42": 9,
+    "ivory:43": 8,
+    "ivory:44": 7,
+    "noir:40": 0,
+    "noir:41": 1,
+    "noir:42": 2,
+    "noir:43": 3,
+    "noir:44": 4
+   }
+  },
+  {
+   "id": "p-bias-slip",
+   "name": "پیراهن ساتن اریب اسلیپ",
+   "category": "شب",
+   "garment": "dress",
+   "price": 890,
+   "compareAt": null,
+   "description": "پیراهنی که با حرکت بدن جابه‌جا می‌شود. برش اریب و درزهای پنهان، فرمی سیال و در عین حال ساده می‌سازند.",
+   "material": "۱۰۰٪ ساتن ویسکوز با درخشش مات",
+   "care": "شست‌وشوی خشک؛ نگهداری دور از نور مستقیم",
+   "fit": "برش اریب، چسبان روی بدن بدون فشار",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "جدید",
+   "lookId": "look-05",
+   "lookName": "ساتن نیمه‌شب",
+   "lookSlug": "look-05",
+   "lookOrder": 5,
+   "crop": {
+    "cx": 0.52,
+    "cy": 0.55,
+    "zoom": 0.85
+   },
+   "colors": [
+    {
+     "id": "navy",
+     "name": "نیمه‌شب",
+     "hex": "#1d2440"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "oxblood",
+     "name": "زرشکی",
+     "hex": "#5c2026"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "xs",
+     "label": "XS"
+    },
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "navy:xs": 6,
+    "navy:s": 9,
+    "navy:m": 0,
+    "navy:l": 1,
+    "navy:xl": 9,
+    "noir:xs": 9,
+    "noir:s": 6,
+    "noir:m": 4,
+    "noir:l": 5,
+    "noir:xl": 9,
+    "oxblood:xs": 0,
+    "oxblood:s": 0,
+    "oxblood:m": 0,
+    "oxblood:l": 2,
+    "oxblood:xl": 0
+   }
+  },
+  {
+   "id": "p-organza-coat",
+   "name": "پالتوی اپرا ارگانزا",
+   "category": "بیرونی",
+   "garment": "coat",
+   "price": 1150,
+   "compareAt": null,
+   "description": "لایهٔ اصلی پاییز؛ با شانه‌های افتاده و برشی بلند که در حرکت باز می‌شود. پارچه پس از چند بار پوشیدن فرم بدن را می‌گیرد و نرم‌تر می‌شود.",
+   "material": "۷۰٪ پشم ویرجین، ۲۵٪ پلی‌آمید، ۵٪ کشمیر",
+   "care": "شست‌وشوی خشک با پرس گرم؛ نگهداری روی چوب‌لباس پهن",
+   "fit": "اورسایز با آستر کامل؛ دو سایز کوچک‌تر برای فرم کلاسیک",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "جدید",
+   "lookId": "look-05",
+   "lookName": "ساتن نیمه‌شب",
+   "lookSlug": "look-05",
+   "lookOrder": 5,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.35,
+    "zoom": 1
+   },
+   "colors": [
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "silver",
+     "name": "نقره‌ای مروارید",
+     "hex": "#c8c6cc"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "xs",
+     "label": "XS"
+    },
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "noir:xs": 8,
+    "noir:s": 0,
+    "noir:m": 6,
+    "noir:l": 7,
+    "noir:xl": 7,
+    "silver:xs": 9,
+    "silver:s": 0,
+    "silver:m": 1,
+    "silver:l": 0,
+    "silver:xl": 2
+   }
+  },
+  {
+   "id": "p-filament-sandal",
+   "name": "صندل پاشنه‌دار فیلامنت",
+   "category": "کفش",
+   "garment": "heel",
+   "price": 590,
+   "compareAt": null,
+   "description": "کفشی که خط پا را کشیده می‌کند. پاشنهٔ متعادل و کفی نرم برای ساعت‌های طولانی.",
+   "material": "چرم ناپا، پاشنهٔ ۶ سانتی",
+   "care": "نگهداری در کیف پارچه‌ای",
+   "fit": "نوک‌تیز با بند قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "جدید",
+   "lookId": "look-05",
+   "lookName": "ساتن نیمه‌شب",
+   "lookSlug": "look-05",
+   "lookOrder": 5,
+   "crop": {
+    "cx": 0.55,
+    "cy": 0.95,
+    "zoom": 0.6
+   },
+   "colors": [
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "silver",
+     "name": "نقره‌ای مروارید",
+     "hex": "#c8c6cc"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "36",
+     "label": "36"
+    },
+    {
+     "id": "37",
+     "label": "37"
+    },
+    {
+     "id": "38",
+     "label": "38"
+    },
+    {
+     "id": "39",
+     "label": "39"
+    },
+    {
+     "id": "40",
+     "label": "40"
+    },
+    {
+     "id": "41",
+     "label": "41"
+    }
+   ],
+   "stock": {
+    "noir:36": 9,
+    "noir:37": 0,
+    "noir:38": 4,
+    "noir:39": 5,
+    "noir:40": 1,
+    "noir:41": 0,
+    "silver:36": 7,
+    "silver:37": 6,
+    "silver:38": 5,
+    "silver:39": 4,
+    "silver:40": 0,
+    "silver:41": 1
+   }
+  },
+  {
+   "id": "p-perle-clutch",
+   "name": "کیف دستی مرواریدبافت پرل",
+   "category": "کیف و چرم",
+   "garment": "accessory",
+   "price": 740,
+   "compareAt": null,
+   "description": "قطعهٔ کوچک برای شب؛ پرداخت دستی و جزئیاتی که از نزدیک دیده می‌شوند.",
+   "material": "مروارید طبیعی، قاب فلزی",
+   "care": "نگهداری در پوشش نرم",
+   "fit": "بند زنجیری جداشدنی",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "آخرین موجودی",
+   "lookId": "look-05",
+   "lookName": "ساتن نیمه‌شب",
+   "lookSlug": "look-05",
+   "lookOrder": 5,
+   "crop": {
+    "cx": 0.34,
+    "cy": 0.51,
+    "zoom": 0.35
+   },
+   "colors": [
+    {
+     "id": "silver",
+     "name": "نقره‌ای مروارید",
+     "hex": "#c8c6cc"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "یک-سایز",
+     "label": "یک سایز"
+    }
+   ],
+   "stock": {
+    "silver:یک-سایز": 0,
+    "noir:یک-سایز": 7
+   }
+  },
+  {
+   "id": "p-grand-trench",
+   "name": "ترنچ دوردکمه گرند",
+   "category": "بیرونی",
+   "garment": "coat",
+   "price": 1450,
+   "compareAt": null,
+   "description": "لایهٔ اصلی پاییز؛ با شانه‌های افتاده و برشی بلند که در حرکت باز می‌شود. پارچه پس از چند بار پوشیدن فرم بدن را می‌گیرد و نرم‌تر می‌شود.",
+   "material": "۷۰٪ پشم ویرجین، ۲۵٪ پلی‌آمید، ۵٪ کشمیر",
+   "care": "شست‌وشوی خشک با پرس گرم؛ نگهداری روی چوب‌لباس پهن",
+   "fit": "اورسایز با آستر کامل؛ دو سایز کوچک‌تر برای فرم کلاسیک",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "جدید",
+   "lookId": "look-06",
+   "lookName": "فصل شتری",
+   "lookSlug": "look-06",
+   "lookOrder": 6,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.35,
+    "zoom": 0.95
+   },
+   "colors": [
+    {
+     "id": "camel",
+     "name": "شتری",
+     "hex": "#b7905c"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "stone",
+     "name": "سنگی",
+     "hex": "#a9a39a"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "xs",
+     "label": "XS"
+    },
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "camel:xs": 9,
+    "camel:s": 7,
+    "camel:m": 5,
+    "camel:l": 4,
+    "camel:xl": 6,
+    "noir:xs": 9,
+    "noir:s": 0,
+    "noir:m": 1,
+    "noir:l": 0,
+    "noir:xl": 6,
+    "stone:xs": 2,
+    "stone:s": 6,
+    "stone:m": 8,
+    "stone:l": 9,
+    "stone:xl": 5
+   }
+  },
+  {
+   "id": "p-chocolat-rollneck",
+   "name": "بافت پشمی یقه‌لاک‌پشتی شوکولا",
+   "category": "بافت",
+   "garment": "knit",
+   "price": 260,
+   "compareAt": null,
+   "description": "بافت ساده‌ای که می‌تواند تمام فصل همراه باشد. تراکم بالا، لبه‌های کشباف و رنگ‌بندی خنثی برای لایه‌بندی بی‌زحمت.",
+   "material": "۱۰۰٪ کشمیر مغولستان، بافت تمام‌بافته",
+   "care": "شست‌وشوی دستی با آب سرد، خشک کردن افقی",
+   "fit": "فرم راحت با حجم کنترل‌شده",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "جدید",
+   "lookId": "look-06",
+   "lookName": "فصل شتری",
+   "lookSlug": "look-06",
+   "lookOrder": 6,
+   "crop": {
+    "cx": 0.5,
+    "cy": 0.21,
+    "zoom": 0.35
+   },
+   "colors": [
+    {
+     "id": "chocolate",
+     "name": "شکلاتی",
+     "hex": "#5a3a28"
+    },
+    {
+     "id": "ivory",
+     "name": "عاجی",
+     "hex": "#f1ead9"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "xs",
+     "label": "XS"
+    },
+    {
+     "id": "s",
+     "label": "S"
+    },
+    {
+     "id": "m",
+     "label": "M"
+    },
+    {
+     "id": "l",
+     "label": "L"
+    },
+    {
+     "id": "xl",
+     "label": "XL"
+    }
+   ],
+   "stock": {
+    "chocolate:xs": 0,
+    "chocolate:s": 0,
+    "chocolate:m": 9,
+    "chocolate:l": 0,
+    "chocolate:xl": 7,
+    "ivory:xs": 7,
+    "ivory:s": 9,
+    "ivory:m": 0,
+    "ivory:l": 9,
+    "ivory:xl": 0
+   }
+  },
+  {
+   "id": "p-leather-wide",
+   "name": "شلوار چرمی فراخ",
+   "category": "شلوار",
+   "garment": "trousers",
+   "price": 780,
+   "compareAt": null,
+   "description": "شلوار با فرم فراخ و خط پرس تیز؛ کفش را پنهان می‌کند و با کت کوتاه یا بلند هر دو کار می‌کند.",
+   "material": "۹۸٪ پشم، ۲٪ الاستان",
+   "care": "شست‌وشوی خشک",
+   "fit": "فراخ از کمر تا مچ؛ اندازهٔ کمر قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "جدید",
+   "lookId": "look-06",
+   "lookName": "فصل شتری",
+   "lookSlug": "look-06",
+   "lookOrder": 6,
+   "crop": {
+    "cx": 0.52,
+    "cy": 0.6,
+    "zoom": 0.55
+   },
+   "colors": [
+    {
+     "id": "espresso",
+     "name": "اسپرسو",
+     "hex": "#43291c"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "26",
+     "label": "26"
+    },
+    {
+     "id": "28",
+     "label": "28"
+    },
+    {
+     "id": "30",
+     "label": "30"
+    },
+    {
+     "id": "32",
+     "label": "32"
+    },
+    {
+     "id": "34",
+     "label": "34"
+    }
+   ],
+   "stock": {
+    "espresso:26": 9,
+    "espresso:28": 0,
+    "espresso:30": 0,
+    "espresso:32": 9,
+    "espresso:34": 3,
+    "noir:26": 2,
+    "noir:28": 8,
+    "noir:30": 0,
+    "noir:32": 9,
+    "noir:34": 7
+   }
+  },
+  {
+   "id": "p-rive-tall-boot",
+   "name": "بوت بلند سوارکاری ریو",
+   "category": "کفش",
+   "garment": "boot",
+   "price": 890,
+   "compareAt": null,
+   "description": "بوت با ساختار محکم و سیلوئت باریک؛ ترکیبی از دوام روزمره و ظرافت شهری.",
+   "material": "چرم گاوی مات، زیرهٔ لاستیکی",
+   "care": "واکس دوره‌ای و خشک کردن طبیعی",
+   "fit": "ساسات استاندارد، ساق متوسط",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "جدید",
+   "lookId": "look-06",
+   "lookName": "فصل شتری",
+   "lookSlug": "look-06",
+   "lookOrder": 6,
+   "crop": {
+    "cx": 0.55,
+    "cy": 0.92,
+    "zoom": 0.5
+   },
+   "colors": [
+    {
+     "id": "chocolate",
+     "name": "شکلاتی",
+     "hex": "#5a3a28"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "36",
+     "label": "36"
+    },
+    {
+     "id": "37",
+     "label": "37"
+    },
+    {
+     "id": "38",
+     "label": "38"
+    },
+    {
+     "id": "39",
+     "label": "39"
+    },
+    {
+     "id": "40",
+     "label": "40"
+    },
+    {
+     "id": "41",
+     "label": "41"
+    }
+   ],
+   "stock": {
+    "chocolate:36": 9,
+    "chocolate:37": 8,
+    "chocolate:38": 3,
+    "chocolate:39": 2,
+    "chocolate:40": 2,
+    "chocolate:41": 3,
+    "noir:36": 9,
+    "noir:37": 8,
+    "noir:38": 0,
+    "noir:39": 9,
+    "noir:40": 2,
+    "noir:41": 3
+   }
+  },
+  {
+   "id": "p-atelier-tote",
+   "name": "توت ساختاریافته آتلیه",
+   "category": "کیف و چرم",
+   "garment": "bag",
+   "price": 1050,
+   "compareAt": null,
+   "description": "کیفی که با گذشت زمان پتینه می‌شود. ساختار محکم، درزهای دست‌دوز و فضای کافی برای روزهای کاری.",
+   "material": "چرم گاوی دباغی‌شدهٔ گیاهی، یدک برنجی",
+   "care": "تمیز کردن با پارچهٔ نرم؛ دور از رطوبت",
+   "fit": "جیب داخلی زیپ‌دار و بند قابل تنظیم",
+   "origin": "طراحی و تولید در آتلیهٔ تهران",
+   "badge": "جدید",
+   "lookId": "look-06",
+   "lookName": "فصل شتری",
+   "lookSlug": "look-06",
+   "lookOrder": 6,
+   "crop": {
+    "cx": 0.17,
+    "cy": 0.66,
+    "zoom": 0.4
+   },
+   "colors": [
+    {
+     "id": "cognac",
+     "name": "کنیاک",
+     "hex": "#8c5a33"
+    },
+    {
+     "id": "noir",
+     "name": "مشکی",
+     "hex": "#16130f"
+    },
+    {
+     "id": "camel",
+     "name": "شتری",
+     "hex": "#b7905c"
+    }
+   ],
+   "sizes": [
+    {
+     "id": "یک-سایز",
+     "label": "یک سایز"
+    }
+   ],
+   "stock": {
+    "cognac:یک-سایز": 9,
+    "noir:یک-سایز": 4,
+    "camel:یک-سایز": 8
+   }
+  }
+ ],
+ "admin": {
+  "settings": {
+   "name": "ولور",
+   "tagline": "خانهٔ پوشاک آماده — تهران",
+   "address": "تهران، خیابان ولیعصر، پلاک ۲۴، طبقهٔ دوم",
+   "phone": "021 8888 2424",
+   "email": "client@velours.store",
+   "currency": "تومان",
+   "currencyRate": 1000,
+   "freeShipping": 200,
+   "expressCost": 25,
+   "returnDays": 14,
+   "passcode": "1234",
+   "maintenance": false
+  },
+  "orders": [],
+  "coupons": [
+   {
+    "id": "c1",
+    "code": "VELOURS10",
+    "kind": "percent",
+    "value": 10,
+    "minSpend": 0,
+    "active": true,
+    "expires": "",
+    "uses": 0
+   },
+   {
+    "id": "c2",
+    "code": "RUNWAY50",
+    "kind": "fixed",
+    "value": 50,
+    "minSpend": 400,
+    "active": true,
+    "expires": "",
+    "uses": 0
+   }
+  ],
+  "reviews": [
+   {
+    "id": "r1",
+    "product": "پالتوی پشمی اورسایز ریو",
+    "author": "آوا رادمهر",
+    "rating": 5,
+    "text": "پارچه و دوخت فوق‌العاده؛ دقیقاً مثل عکس رانوی.",
+    "at": 1793510506463,
+    "approved": true
+   },
+   {
+    "id": "r2",
+    "product": "شلوار فراخ پالازو",
+    "author": "سارا نیکخواه",
+    "rating": 4,
+    "text": "قدش برای من کمی بلند بود، بقیه‌اش عالی.",
+    "at": 1793251306463,
+    "approved": true
+   },
+   {
+    "id": "r3",
+    "product": "کیف دسته‌دار کوچک کاره",
+    "author": "میلاد صالحی",
+    "rating": 5,
+    "text": "چرم بعد از دو ماه هنوز مثل روز اول است.",
+    "at": 1792992106463,
+    "approved": false
+   },
+   {
+    "id": "r4",
+    "product": "بافت مرینوی یقه‌لاک‌پشتی کوت",
+    "author": "نگار موسوی",
+    "rating": 3,
+    "text": "کمی نازک‌تر از انتظارم بود.",
+    "at": 1792732906463,
+    "approved": false
+   }
+  ],
+  "hidden": [],
+  "featured": [],
+  "hiddenLooks": [],
+  "stock": [],
+  "lookOrder": [],
+  "customProducts": [
+   {
+    "id": "custom-scarf",
+    "name": "روسری حریر مچاله",
+    "category": "اکسسوری",
+    "garment": "accessory",
+    "lookId": "look-03",
+    "crop": {
+     "cx": 0.5,
+     "cy": 0.28,
+     "zoom": 0.55
+    },
+    "price": 120,
+    "colors": [
+     {
+      "id": "ivory",
+      "name": "عاجی",
+      "hex": "#f1ead9"
+     },
+     {
+      "id": "sand",
+      "name": "شنی",
+      "hex": "#cdbba1"
+     }
+    ],
+    "sizes": [
+     {
+      "id": "one-size",
+      "label": "یک سایز"
+     }
+    ],
+    "stock": {
+     "ivory:one-size": 24,
+     "sand:one-size": 12
+    },
+    "active": true,
+    "featured": false,
+    "createdAt": 1792041706463
+   }
+  ],
+  "productEdits": {},
+  "complements": {},
+  "movements": [],
+  "campaigns": [
+   {
+    "id": "cmp-autumn",
+    "name": "جشنوارهٔ پاییزه",
+    "start": "2026-11-02",
+    "end": "2026-11-09",
+    "kind": "percent",
+    "value": 15,
+    "minSpend": 150,
+    "scope": "all",
+    "banner": {
+     "title": "جشنوارهٔ پاییزه",
+     "text": "۱۵٪ تخفیف روی خرید بالای ۱۵۰ تومان",
+     "active": true,
+     "tone": "gold"
+    },
+    "active": true,
+    "uses": 0
+   }
+  ],
+  "rules": [
+   {
+    "id": "rule-2nd",
+    "name": "دوم کفش‌ها ۲۰٪",
+    "type": "second",
+    "value": 20,
+    "qty": 2,
+    "scope": "category",
+    "scopeId": "کفش",
+    "minItems": 2,
+    "stackable": true,
+    "active": true,
+    "priority": 10
+   },
+   {
+    "id": "rule-ship",
+    "name": "ارسال رایگان با ۲۰۰ تومان",
+    "type": "freeship",
+    "value": 200,
+    "qty": 1,
+    "scope": "all",
+    "minItems": 1,
+    "stackable": true,
+    "active": true,
+    "priority": 1
+   }
+  ],
+  "integrations": {
+   "ai": {
+    "provider": "openai",
+    "baseUrl": "https://api.openai.com/v1",
+    "apiKey": "",
+    "model": "gpt-4o-mini",
+    "enabled": false
+   },
+   "payment": {
+    "gateway": "none",
+    "key": "",
+    "mode": "test",
+    "enabled": false
+   },
+   "sms": {
+    "provider": "کاسپیس",
+    "sender": "1000543210",
+    "key": "",
+    "enabled": false
+   },
+   "email": {
+    "provider": "Resend",
+    "from": "velours@velours.store",
+    "key": "",
+    "enabled": false
+   },
+   "shipping": {
+    "courier": "تپیکس",
+    "apiKey": "",
+    "enabled": false
+   }
+  },
+  "customers": {}
+ },
+ "ops": {
+  "brand": {
+   "logoText": "VELOURS",
+   "logoImage": "",
+   "favicon": "",
+   "name": "ولور",
+   "tagline": "خانهٔ پوشاک آماده — تهران",
+   "announcement": "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان — مرجوعی تا ۱۴ روز",
+   "announcementActive": true,
+   "footerNote": "خانهٔ پوشاک آماده در تهران؛ قطعه‌های محدود، پارچه‌های طبیعی و ساخت آهسته.",
+   "socials": {
+    "instagram": "#",
+    "telegram": "#",
+    "whatsapp": "#"
+   }
+  },
+  "categories": [
+   {
+    "id": "outerwear",
+    "name": "پالتو و کاپشن",
+    "slug": "outerwear",
+    "garments": [
+     "coat",
+     "jacket"
+    ],
+    "thumbnail": "stock:hero",
+    "sizeSetId": "apparel-w",
+    "active": true,
+    "order": 1
+   },
+   {
+    "id": "knitwear",
+    "name": "بافت و تی‌شرت",
+    "slug": "knitwear",
+    "garments": [
+     "knit",
+     "tee"
+    ],
+    "thumbnail": "stock:campaign",
+    "sizeSetId": "apparel-w",
+    "active": true,
+    "order": 2
+   },
+   {
+    "id": "tailoring",
+    "name": "شلوار و دامن",
+    "slug": "tailoring",
+    "garments": [
+     "trousers",
+     "skirt"
+    ],
+    "thumbnail": "stock:look6",
+    "sizeSetId": "waist",
+    "active": true,
+    "order": 3
+   },
+   {
+    "id": "dresses",
+    "name": "پیراهن",
+    "slug": "dresses",
+    "garments": [
+     "dress"
+    ],
+    "thumbnail": "stock:look5",
+    "sizeSetId": "apparel-w",
+    "active": true,
+    "order": 4
+   },
+   {
+    "id": "shoes",
+    "name": "کفش",
+    "slug": "shoes",
+    "garments": [
+     "loafer",
+     "heel",
+     "boot",
+     "sneaker"
+    ],
+    "thumbnail": "stock:look2",
+    "sizeSetId": "shoe-w",
+    "active": true,
+    "order": 5
+   },
+   {
+    "id": "bags",
+    "name": "کیف و اکسسوری",
+    "slug": "bags",
+    "garments": [
+     "bag",
+     "accessory"
+    ],
+    "thumbnail": "stock:look1",
+    "sizeSetId": "one",
+    "active": true,
+    "order": 6
+   }
+  ],
+  "sizeSets": [
+   {
+    "id": "apparel-w",
+    "name": "پوشاک زنانه",
+    "sizes": [
+     "XS",
+     "S",
+     "M",
+     "L",
+     "XL"
+    ]
+   },
+   {
+    "id": "apparel-m",
+    "name": "پوشاک مردانه",
+    "sizes": [
+     "S",
+     "M",
+     "L",
+     "XL",
+     "XXL"
+    ]
+   },
+   {
+    "id": "waist",
+    "name": "دور کمر",
+    "sizes": [
+     "26",
+     "28",
+     "30",
+     "32",
+     "34"
+    ]
+   },
+   {
+    "id": "shoe-w",
+    "name": "کفش زنانه",
+    "sizes": [
+     "36",
+     "37",
+     "38",
+     "39",
+     "40",
+     "41"
+    ]
+   },
+   {
+    "id": "shoe-m",
+    "name": "کفش مردانه",
+    "sizes": [
+     "40",
+     "41",
+     "42",
+     "43",
+     "44"
+    ]
+   },
+   {
+    "id": "one",
+    "name": "تک‌سایز",
+    "sizes": [
+     "یک سایز"
+    ]
+   }
+  ],
+  "productImages": {},
+  "colorMedia": {},
+  "hoverMedia": {},
+  "labels": [
+   {
+    "id": "loyal",
+    "name": "مشتری وفادار",
+    "color": "#2f6f4e",
+    "rule": {
+     "type": "orders",
+     "value": 3
+    }
+   },
+   {
+    "id": "vip",
+    "name": "مشتری پرخرید",
+    "color": "#8c4a2f",
+    "rule": {
+     "type": "spend",
+     "value": 1500
+    }
+   },
+   {
+    "id": "idle",
+    "name": "مشتری منفعل",
+    "color": "#9a6b21",
+    "rule": {
+     "type": "idle",
+     "value": 90
+    }
+   },
+   {
+    "id": "new",
+    "name": "مشتری جدید",
+    "color": "#2563eb",
+    "rule": {
+     "type": "orders",
+     "value": 1
+    }
+   }
+  ],
+  "smsTemplates": [
+   {
+    "id": "s1",
+    "name": "خوش‌آمد",
+    "body": "{{name}} عزیز، به ولور خوش آمدی. کد ۱۰٪ تخفیف: VELOURS10"
+   },
+   {
+    "id": "s2",
+    "name": "سبد رها‌شده",
+    "body": "{{name}} عزیز، ست انتخابی‌ات منتظر توست. امروز تا ۲۴ ساعت رزرو شده."
+   },
+   {
+    "id": "s3",
+    "name": "جشنواره",
+    "body": "{{name}} عزیز، جشنوارهٔ پاییزه شروع شد — ۱۵٪ روی خرید بالای ۱۵۰ تومان."
+   }
+  ],
+  "smsCampaigns": [],
+  "cashbackRate": 5,
+  "cashbackTxns": [],
+  "tryonPackages": [
+   {
+    "id": "tp-starter",
+    "name": "بستهٔ شروع",
+    "credits": 3,
+    "price": 39000
+   },
+   {
+    "id": "tp-ten",
+    "name": "بستهٔ ۱۰ پرو",
+    "credits": 10,
+    "price": 100000,
+    "popular": true
+   },
+   {
+    "id": "tp-thirty",
+    "name": "بستهٔ ۳۰ پرو",
+    "credits": 30,
+    "price": 250000
+   }
+  ],
+  "tryonRequests": [],
+  "tryonCredits": {},
+  "tickets": [
+   {
+    "id": "TK-1042",
+    "at": 1793596906463,
+    "email": "ava@example.com",
+    "subject": "سایز پالتو ریو",
+    "dept": "size",
+    "status": "open",
+    "priority": "high",
+    "messages": [
+     {
+      "id": "m1",
+      "at": 1793596906463,
+      "from": "customer",
+      "author": "آوا",
+      "body": "قد ۱۷۲ و وزن ۶۸ دارم؛ بین S و M هستم. کدام را بگیرم؟"
+     },
+     {
+      "id": "m2",
+      "at": 1793683306463,
+      "from": "staff",
+      "author": "پشتیبانی ولور",
+      "body": "برای فرم اورسایز، S مناسب است؛ آستر کامل دارد."
+     }
+    ]
+   },
+   {
+    "id": "TK-1043",
+    "at": 1793751706463,
+    "email": "demo@velours.store",
+    "subject": "تغییر آدرس ارسال",
+    "dept": "order",
+    "status": "pending",
+    "priority": "normal",
+    "messages": [
+     {
+      "id": "m3",
+      "at": 1793751706463,
+      "from": "customer",
+      "author": "مشتری",
+      "body": "هنوز ارسال نشده؛ می‌خواهم آدرس را عوض کنم."
+     }
+    ]
+   }
+  ],
+  "returns": [
+   {
+    "id": "RT-201",
+    "at": 1793424106463,
+    "orderId": "VL-18422",
+    "email": "ava@example.com",
+    "items": [
+     {
+      "name": "بافت مرینوی یقه‌لاک‌پشتی کوت",
+      "qty": 1,
+      "reason": "سایز بزرگ بود"
+     }
+    ],
+    "status": "requested",
+    "refund": 280
+   }
+  ],
+  "logs": [],
+  "security": {
+   "passcode": "1234",
+   "requireOtp": false,
+   "sessionMinutes": 30,
+   "twoFactor": false,
+   "allowCustomerSignup": true,
+   "otpChannels": {
+    "sms": true,
+    "email": true
+   },
+   "failedAttempts": [],
+   "blocked": []
+  },
+  "formFields": [
+   {
+    "key": "given",
+    "label": "نام",
+    "form": "checkout",
+    "required": true,
+    "visible": true
+   },
+   {
+    "key": "family",
+    "label": "نام خانوادگی",
+    "form": "checkout",
+    "required": true,
+    "visible": true
+   },
+   {
+    "key": "email",
+    "label": "ایمیل",
+    "form": "checkout",
+    "required": true,
+    "visible": true
+   },
+   {
+    "key": "tel",
+    "label": "شمارهٔ تماس",
+    "form": "checkout",
+    "required": true,
+    "visible": true
+   },
+   {
+    "key": "street",
+    "label": "نشانی",
+    "form": "checkout",
+    "required": true,
+    "visible": true
+   },
+   {
+    "key": "city",
+    "label": "شهر",
+    "form": "checkout",
+    "required": true,
+    "visible": true
+   },
+   {
+    "key": "postal",
+    "label": "کد پستی",
+    "form": "checkout",
+    "required": false,
+    "visible": true,
+    "placeholder": "اختیاری"
+   },
+   {
+    "key": "note",
+    "label": "توضیح سفارش",
+    "form": "checkout",
+    "required": false,
+    "visible": true,
+    "placeholder": "اختیاری"
+   }
+  ],
+  "megaMenus": [
+   {
+    "id": "mmm-shop",
+    "label": "فروشگاه",
+    "active": true,
+    "columns": [
+     {
+      "title": "پوشاک",
+      "links": [
+       {
+        "label": "پالتو و کاپشن",
+        "href": "/products?collection=outerwear"
+       },
+       {
+        "label": "بافت",
+        "href": "/products?collection=knitwear"
+       },
+       {
+        "label": "شلوار و دامن",
+        "href": "/products?collection=tailoring"
+       }
+      ]
+     },
+     {
+      "title": "اکسسوری",
+      "links": [
+       {
+        "label": "کیف",
+        "href": "/products?collection=bags"
+       },
+       {
+        "label": "کفش",
+        "href": "/products?collection=shoes"
+       }
+      ]
+     }
+    ],
+    "cta": {
+     "title": "خرید بر اساس استایل",
+     "text": "شش استایل کامل روی رانو",
+     "href": "/style",
+     "image": "stock:look5"
+    }
+   }
+  ],
+  "lookProducts": {},
+  "lookImages": {}
+ }
+}

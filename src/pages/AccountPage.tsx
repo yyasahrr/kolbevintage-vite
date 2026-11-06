@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { formatJalali, formatJalaliDateTime } from "@/utils/date";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BadgeCheck,
@@ -26,6 +27,7 @@ import { useAdmin } from "@/state/admin";
 import { addTicketMessage, cashbackBalance, createTicket, createReturn, requestTryon, tryonBalance, useOps } from "@/state/ops";
 import { formatPrice } from "@/data/looks";
 import { liveGetProduct } from "@/data/catalog";
+import { commerce, type CashbackWallet, type CommerceConfig } from "@/lib/commerce";
 import { ProductThumb } from "@/components/ProductThumb";
 import { PageIntro, buttonStyles } from "@/components/ui";
 import { SmartSizeGuide } from "@/components/SmartSizeGuide";
@@ -65,10 +67,12 @@ export function AccountPage() {
     );
   }
 
+  const [openOrder, setOpenOrder] = useState<string | null>(null);
   const acc = auth.account;
   const orders = admin.orders.filter((o) => o.email.toLowerCase() === acc.email.toLowerCase());
   const tickets = ops.tickets.filter((t) => t.email === acc.email);
-  const cashback = cashbackBalance(acc.email);
+  const wallet = useServerWallet(acc.email);
+  const cashback = wallet?.balance ?? cashbackBalance(acc.email);
   const tryon = tryonBalance(acc.email);
   const spend = orders.reduce((n, o) => n + o.total, 0);
   const labels = ops.labels.filter((l) => {
@@ -149,14 +153,39 @@ export function AccountPage() {
                       <div className="acc-order-row">
                         <div>
                           <p className="acc-order-id" dir="ltr">{o.id}</p>
-                          <p className="acc-muted">{new Date(o.at).toLocaleDateString("fa-IR")} · {o.lines.length.toLocaleString("fa-IR")} قلم</p>
+                          <p className="acc-muted">{formatJalali(o.at)} · {o.lines.length.toLocaleString("fa-IR")} قلم</p>
                         </div>
-                        <span className={cn("acc-pill", o.status === "done" ? "is-done" : o.status === "cancelled" ? "is-bad" : "is-open")}>
-                          {o.status === "pending" ? "در انتظار" : o.status === "processing" ? "آماده‌سازی" : o.status === "shipped" ? "ارسال شده" : o.status === "done" ? "تحویل شده" : "لغو شده"}
+                        <span className={cn("acc-pill", o.status === "done" ? "is-done" : o.status === "cancelled" || o.status === "exception" ? "is-bad" : "is-open")}>
+                          {o.status === "pending" ? "در انتظار" : o.status === "processing" ? "آماده‌سازی" : o.status === "shipped" ? "ارسال شده" : o.status === "done" ? "تحویل شده" : o.status === "exception" ? "بررسی مالی" : "لغو شده"}
                         </span>
                         <b>{formatPrice(o.total)}</b>
-                        <button type="button" className="acc-link" onClick={() => setTab("orders")} aria-label={`سفارش ${o.id}`}>جزئیات</button>
+                        <button
+                          type="button"
+                          className="acc-link"
+                          onClick={() => setOpenOrder(openOrder === o.id ? null : o.id)}
+                          aria-expanded={openOrder === o.id}
+                          aria-label={`جزئیات سفارش ${o.id}`}
+                        >
+                          {openOrder === o.id ? "بستن" : "جزئیات"}
+                        </button>
                       </div>
+                      {openOrder === o.id && (
+                        <div className="acc-order-detail">
+                          {/* the carrier code the shop entered in the panel (decision 84) */}
+                          <p>
+                            کد رهگیری:{" "}
+                            {o.tracking ? <b className="acc-track" dir="ltr">{o.tracking}</b> : <span className="acc-muted">هنوز ثبت نشده — پس از تحویل به پست پیامک می‌شود.</span>}
+                          </p>
+                          <ul>
+                            {o.lines.map((l, i) => (
+                              <li key={i}>
+                                {l.name} · {l.color} / {l.size} × {l.qty.toLocaleString("fa-IR")}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="acc-muted">ارسال به: {o.city} — {o.address}</p>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -202,7 +231,7 @@ function OrderRowCompact({ order }: { order: ReturnType<typeof useAdmin>["orders
     <div className="acc-order-mini">
       <div>
         <p className="acc-order-id" dir="ltr">{order.id}</p>
-        <p className="acc-muted">{new Date(order.at).toLocaleDateString("fa-IR")}</p>
+        <p className="acc-muted">{formatJalali(order.at)}</p>
       </div>
       <b>{formatPrice(order.total)}</b>
     </div>
@@ -352,7 +381,7 @@ function TryOn({ acc }: { acc: string }) {
               <li key={r.id}>
                 <div>
                   <p className="acc-order-id" dir="ltr">{r.id}</p>
-                  <p className="acc-muted">{r.productName} · {new Date(r.at).toLocaleDateString("fa-IR")}</p>
+                  <p className="acc-muted">{r.productName} · {formatJalali(r.at)}</p>
                 </div>
                 <span className={cn("acc-pill", r.status === "ready" ? "is-done" : r.status === "rejected" ? "is-bad" : "is-open")}>
                   {r.status === "queued" ? "در صف" : r.status === "ready" ? "آماده" : "رد شد"}
@@ -379,17 +408,79 @@ function getFirstProducts() {
   return products as NonNullable<(typeof products)[number]>[];
 }
 
+/** the server wallet is authoritative once it answers; localStorage is the fallback */
+function useServerWallet(email: string) {
+  const [wallet, setWallet] = useState<CashbackWallet | null>(null);
+  useEffect(() => {
+    let alive = true;
+    commerce
+      .cashback()
+      .then((data) => {
+        if (alive && data.email === email) setWallet(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [email]);
+  return wallet;
+}
+
 function WalletTab({ email }: { email: string }) {
   const ops = useOps();
-  const cashes = ops.cashbackTxns.filter((t) => t.email === email);
-  const balance = cashbackBalance(email);
+  const wallet = useServerWallet(email);
+  const [cfg, setCfg] = useState<CommerceConfig | null>(null);
+  useEffect(() => {
+    commerce.config().then(setCfg).catch(() => undefined);
+  }, []);
+
+  const cashes =
+    wallet && wallet.transactions.length > 0
+      ? wallet.transactions.map((t) => ({
+          id: t.id,
+          kind: t.kind === "earn" || t.kind === "refund_credit" ? ("earn" as const) : ("spend" as const),
+          at: new Date(t.at).getTime(),
+          amount: Math.abs(t.amount),
+          orderId: t.orderId ?? "",
+        }))
+      : ops.cashbackTxns.filter((t) => t.email === email);
+  const balance = wallet?.balance ?? cashbackBalance(email);
+  const tiers = cfg?.cashback.tiers ?? [];
   return (
     <section className="acc-card">
       <header><h3><Wallet width={15} height={15} /> کیف پول و کش‌بک</h3></header>
       <div className="acc-wallet-hero">
         <span>موجودی کش‌بک</span>
         <b>{balance.toLocaleString("fa-IR")} تومان</b>
-        <small>با هر خرید، {ops.cashbackRate.toLocaleString("fa-IR")}٪ از مبلغ کالاها به کیف پول تو برمی‌گردد.</small>
+        <small>
+          موجودی کش‌بک <b>قابل برداشت نقدی نیست</b>؛ فقط برای پرداخت سفارش‌های خودت در همین فروشگاه استفاده می‌شود.
+        </small>
+        <small>
+          درصد کش‌بک به مبلغ سبد بستگی دارد
+          {tiers.length > 0 ? ":" : " و بعد از هر پرداخت به کیف پول اضافه می‌شود."}
+        </small>
+        {wallet && (
+          <small className="acc-muted" style={{ display: "block", marginTop: 6 }}>
+            قابل استفاده همین حالا: <b>{wallet.available.toLocaleString("fa-IR")}</b>
+            {wallet.pending > 0
+              ? ` · در انتظار آزادسازی: ${wallet.pending.toLocaleString("fa-IR")} (پس از تحویل و پایان مهلت مرجوعی)`
+              : ""}
+            {wallet.nextExpiry
+              ? ` · نزدیک‌ترین انقضا: ${formatJalali(wallet.nextExpiry)}`
+              : ""}
+          </small>
+        )}
+        {tiers.length > 0 && (
+          <span className="acc-cashback-tiers">
+            {tiers.map((tier, index) => (
+              <em key={`${tier.min}-${index}`}>
+                {index === 0 ? "تا " : ""}
+                {(tier.max ?? 0) > 0 ? `${tier.max?.toLocaleString("fa-IR")} → ` : "بیشتر از همه → "}
+                {tier.percent.toLocaleString("fa-IR")}٪
+              </em>
+            ))}
+          </span>
+        )}
       </div>
       {cashes.length === 0 ? (
         <p className="acc-muted">هنوز تراکنش کش‌بکی نداری. با اولین خرید فعال می‌شود.</p>
@@ -398,7 +489,7 @@ function WalletTab({ email }: { email: string }) {
           {cashes.map((t) => (
             <li key={t.id}>
               <span>{t.kind === "earn" ? "کش‌بک خرید" : "استفاده"}</span>
-              <small>{new Date(t.at).toLocaleDateString("fa-IR")} · {t.orderId}</small>
+              <small>{formatJalali(t.at)} · {t.orderId}</small>
               <b className={t.kind === "earn" ? "is-ok" : ""}>{t.kind === "earn" ? "+" : "−"} {t.amount.toLocaleString("fa-IR")}</b>
             </li>
           ))}
@@ -496,7 +587,7 @@ function Tickets({ email }: { email: string }) {
               <li key={t.id} className={cn(open === t.id && "is-open")}>
                 <button type="button" className="acc-ticket-head" onClick={() => setOpen(open === t.id ? null : t.id)} aria-expanded={open === t.id}>
                   <b>{t.subject}</b>
-                  <span className="acc-muted">{t.id} · {new Date(t.at).toLocaleDateString("fa-IR")}</span>
+                  <span className="acc-muted">{t.id} · {formatJalali(t.at)}</span>
                   <span className={cn("acc-pill", t.status === "closed" ? "is-done" : t.status === "pending" ? "is-open" : "is-bad")}>
                     {t.status === "open" ? "باز" : t.status === "pending" ? "منتظر پاسخ" : "بسته"}
                   </span>
@@ -507,7 +598,7 @@ function Tickets({ email }: { email: string }) {
                       {t.messages.map((m) => (
                         <li key={m.id} className={m.from === "customer" ? "is-me" : "is-staff"}>
                           <p>{m.body}</p>
-                          <small>{m.author} · {new Date(m.at).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}</small>
+                          <small>{m.author} · {formatJalaliDateTime(m.at)}</small>
                         </li>
                       ))}
                     </ul>

@@ -103,7 +103,7 @@ const SPECS = [
   { title: "جنس", desc: "۷۰٪ پشم ویرجین، ۵٪ کشمیر" },
   { title: "فرم", desc: "اورسایز با آستر کامل" },
   { title: "مراقبت", desc: "شست‌وشوی خشک" },
-  { title: "ساخت", desc: "آتلیهٔ پاریس" },
+  { title: "ساخت", desc: "آتلیهٔ تهران" },
 ];
 const KPIS = [
   { value: 24, suffix: "", title: "قطعه در فصل" },
@@ -171,8 +171,8 @@ export const WIDGETS_F: WidgetDef[] = [
 
   /* ---- spec / menu / offers ---- */
   L({ type: "spec-list", title: "فهرست مشخصات", icon: Ruler, category: "general", variant: "price", layouts: ["list"], items: SPECS.map((s) => ({ title: s.title, price: "", desc: s.desc, image: "" })), itemFields: [], presets: [P.list(), P.minimal()] }),
-  L({ type: "menu-card", title: "کارت منو", icon: Tag, category: "pro", variant: "price", items: [{ title: "پرو و مشاوره", price: "رایگان", desc: "یک ساعت با تیم استایل.", image: "" }, { title: "تنظیم سایز", price: "۸۰ €", desc: "اصلاح فرم روی بدن.", image: "" }], itemFields: [], presets: [P.list(), P.grid2()] }),
-  L({ type: "offer-grid", title: "گرید پیشنهاد", icon: Percent, category: "shop", variant: "icon", items: [{ icon: "Percent", title: "۱۰٪ اولین خرید", desc: "با کد VELOURS10." }, { icon: "Truck", title: "ارسال رایگان", desc: "بالای ۲۰۰ یورو." }], itemFields: [], presets: [P.grid2(), P.soft(), P.brutal()] }),
+  L({ type: "menu-card", title: "کارت منو", icon: Tag, category: "pro", variant: "price", items: [{ title: "پرو و مشاوره", price: "رایگان", desc: "یک ساعت با تیم استایل.", image: "" }, { title: "تنظیم سایز", price: "۸۰۰٬۰۰۰ تومان", desc: "اصلاح فرم روی بدن.", image: "" }], itemFields: [], presets: [P.list(), P.grid2()] }),
+  L({ type: "offer-grid", title: "گرید پیشنهاد", icon: Percent, category: "shop", variant: "icon", items: [{ icon: "Percent", title: "۱۰٪ اولین خرید", desc: "با کد VELOURS10." }, { icon: "Truck", title: "ارسال رایگان", desc: "بالای ۲۰۰٬۰۰۰ تومان." }], itemFields: [], presets: [P.grid2(), P.soft(), P.brutal()] }),
   L({ type: "deal-grid", title: "گرید تخفیف", icon: Percent, category: "shop", variant: "icon", items: [{ icon: "Flame", title: "فروش پایان فصل", desc: "تا ۴۰٪ تخفیف." }, { icon: "Gift", title: "بستهٔ هدیه", desc: "جعبهٔ دست‌ساز." }], itemFields: [], presets: [P.grid2(), P.grid3()] }),
   L({ type: "promo-grid", title: "گرید پروموشن", icon: Sparkles, category: "shop", variant: "overlay", items: WORKS.slice(0, 2), itemFields: [], presets: [P.grid2(), P.grid3()] }),
   L({ type: "category-list", title: "لیست دسته‌ها", icon: LayoutList, category: "shop", variant: "icon", layouts: ["list", "grid"], defaults: { cols: 2 }, items: [{ icon: "Layers", title: "پالتو و کاپشن", desc: "۱۲ قطعه" }, { icon: "Shirt", title: "بافت", desc: "۸ قطعه" }, { icon: "ShoppingBag", title: "کیف", desc: "۶ قطعه" }, { icon: "Footprints", title: "کفش", desc: "۵ قطعه" }], itemFields: [], presets: [P.grid2(), P.grid4(), P.list()] }),
@@ -475,7 +475,7 @@ export const WIDGETS_F: WidgetDef[] = [
     icon: AirVent,
     category: "dynamic",
     keywords: "air quality aqi هوا",
-    defaults: { city: "پاریس", aqi: 34, label: "خوب" },
+    defaults: { city: "تهران", aqi: 64, label: "متوسط" },
     sections: [
       sec("c", "داده", "content", [txt("city", "شهر"), num("aqi", "شاخص (AQI)"), sel("label", "وضعیت", [["خوب", "خوب"], ["متوسط", "متوسط"], ["ناسالم", "ناسالم"], ["خطرناک", "خطرناک"]])]),
       sec("s", "استایل", "style", [clr("bg", "پس‌زمینه", { "{{WRAPPER}} .ew-aqi": "background-color:{{VALUE}};" }), ...borderCtls("aqi", "{{WRAPPER}} .ew-aqi")]),
@@ -496,7 +496,7 @@ export const WIDGETS_F: WidgetDef[] = [
     icon: CalendarClock,
     category: "dynamic",
     keywords: "timezone clock world time ساعت",
-    defaults: { city: "پاریس", offset: 1, format: "24" },
+    defaults: { city: "تهران", offset: 3.5, format: "24" },
     sections: [
       sec("c", "ساعت", "content", [txt("city", "شهر"), num("offset", "اختلاف با UTC"), sel("format", "فرمت", [["24", "۲۴ ساعته"], ["12", "۱۲ ساعته"]]), alignFlex("align", "{{WRAPPER}} .ew-tzc")]),
       sec("s", "استایل", "style", [clr("bg", "پس‌زمینه", { "{{WRAPPER}} .ew-tzc": "background-color:{{VALUE}};" }), ...typo("t", "{{WRAPPER}} .ew-tzc-time")]),
@@ -550,7 +550,7 @@ export const WIDGETS_F: WidgetDef[] = [
     icon: MapPin,
     category: "media",
     keywords: "marker pin map نشانگر",
-    defaults: { address: "Rue Saint-Honoré 24, Paris", zoom: 15, height: 300, label: "بوتیک ولور" },
+    defaults: { address: "Valiasr St 24, Tehran", zoom: 15, height: 300, label: "بوتیک ولور" },
     sections: [
       sec("c", "نقشه", "content", [txt("address", "نشانی"), slider("zoom", "بزرگ‌نمایی", 1, 20, undefined, { unit: "", default: 15 }), slider("height", "ارتفاع", 160, 700, { "{{WRAPPER}} .ew-map iframe": "height:{{VALUE}}px;" }, { responsive: true, default: 300 }), txt("label", "برچسب نشانگر")]),
       sec("s", "استایل", "style", [...borderCtls("mk", "{{WRAPPER}} .ew-map")]),
@@ -558,7 +558,7 @@ export const WIDGETS_F: WidgetDef[] = [
     render: ({ s }) => (
       <div className="ew-map-wrap">
         <div className="ew-map">
-          <iframe title="نقشه" loading="lazy" src={`https://maps.google.com/maps?q=${encodeURIComponent(s.address || "Paris")}&t=m&z=${s.zoom || 15}&output=embed`} />
+          <iframe title="نقشه" loading="lazy" src={`https://maps.google.com/maps?q=${encodeURIComponent(s.address || "Tehran")}&t=m&z=${s.zoom || 15}&output=embed`} />
         </div>
         {s.label && <span className="ew-map-label">{s.label}</span>}
       </div>

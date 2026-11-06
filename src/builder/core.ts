@@ -87,6 +87,8 @@ export interface BDoc {
   active: boolean;
   display: DisplayCond;
   updatedAt: number;
+  /** every save keeps the previous content so the owner can walk back (decision 74) */
+  versions?: { at: number; title: string; content: BNode[] }[];
 }
 
 export interface GlobalColor {

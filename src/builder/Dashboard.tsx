@@ -1,10 +1,13 @@
 import { useMemo, useRef, useState } from "react";
+import { formatJalaliDateTime } from "@/utils/date";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  ArrowRight,
   Copy,
   Download,
   ExternalLink,
   FileText,
+  History,
   Inbox,
   LayoutPanelTop,
   LayoutTemplate,
@@ -21,12 +24,15 @@ import {
 import { DISPLAY_LABEL, KIND_LABEL, type BDoc, type DisplayCond, type DocKind } from "./core";
 import {
   clearSubmissions,
+  CORE_PAGES,
   createDoc,
+  openCorePage,
   duplicateDoc,
   exportDoc,
   importDoc,
   patchDoc,
   removeDoc,
+  restoreVersion,
   useDocs,
   useSubmissions,
 } from "./docs";
@@ -99,6 +105,7 @@ export function Dashboard() {
           <span style={{ flex: 1 }} />
           <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => { void doImport(e.target.files?.[0]); e.target.value = ""; }} />
           <button type="button" className="ebd-btn" onClick={() => fileRef.current?.click()}><Upload width={14} height={14} /> ایمپورت JSON</button>
+          <Link to="/admin" className="ebd-btn"><ArrowRight width={14} height={14} /> بازگشت به پنل</Link>
           <Link to="/" className="ebd-btn"><ExternalLink width={14} height={14} /> بازگشت به سایت</Link>
           <button type="button" className="ebd-btn is-primary" onClick={() => setCreating("page")}><Plus width={14} height={14} /> ساخت جدید</button>
         </div>
@@ -117,6 +124,37 @@ export function Dashboard() {
             <div className="ebd-stat"><b>{docs.filter((d) => d.kind === "page" || d.kind === "landing").length.toLocaleString("fa-IR")}</b><small>صفحه</small></div>
             <div className="ebd-stat"><b>{docs.filter((d) => d.status === "published").length.toLocaleString("fa-IR")}</b><small>منتشرشده</small></div>
             <div className="ebd-stat"><b>{TEMPLATES.length.toLocaleString("fa-IR")}</b><small>قالب آماده</small></div>
+          </div>
+        </section>
+
+        {/* built-in pages: the site's own screens, editable with the builder */}
+        <section className="ebd-core" aria-label="صفحه‌های خود سایت">
+          <h2 className="ebd-core-title">صفحه‌های سایت را ویرایش کن</h2>
+          <p className="ebd-core-sub">
+            هر صفحهٔ آمادهٔ سایت (مثل صفحه اصلی) می‌تواند با همین صفحه‌ساز بازنویسی شود؛ تا وقتی سند را منتشر
+            نکنی، نسخهٔ فعلی سایت دست‌نخورده می‌ماند.
+          </p>
+          <div className="ebd-core-grid">
+            {CORE_PAGES.map((p) => {
+              const doc = docs.find((d) => d.kind === "page" && d.slug === p.slug);
+              return (
+                <button
+                  key={p.slug}
+                  type="button"
+                  className="ebd-core-card"
+                  onClick={() => {
+                    const target = openCorePage(p.slug, cloneNodes(TEMPLATES.find((t) => t.id === "page-landing")!.build()));
+                    navigate(`/builder/edit/${target.id}`);
+                  }}
+                >
+                  <span className="ebd-core-name">{p.title}</span>
+                  <span className="ebd-core-hint">{p.hint}</span>
+                  <span className={`ebd-core-state ${doc?.status === "published" ? "is-live" : ""}`}>
+                    {doc ? (doc.status === "published" ? "منتشرشده — سایت را همین نشان می‌دهد" : "پیش‌نویس آماده") : "ویرایش با صفحه‌ساز"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </section>
 
@@ -171,6 +209,8 @@ export function Dashboard() {
 function DocCard({ doc, onDelete }: { doc: BDoc; onDelete: () => void }) {
   const navigate = useNavigate();
   const { notify } = useCart();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const versions = doc.versions ?? [];
   const Icon = KIND_ICON[doc.kind];
   const tpl = doc.kind === "header" || doc.kind === "footer" || doc.kind === "popup";
   const pageLike = doc.kind === "page" || doc.kind === "landing";
@@ -236,6 +276,41 @@ function DocCard({ doc, onDelete }: { doc: BDoc; onDelete: () => void }) {
           <button type="button" className="ebd-btn is-sm" aria-label="خروجی JSON" title="خروجی JSON" onClick={() => { download(`${doc.slug}.json`, exportDoc(doc)); navigate("/builder"); }}><Download width={12} height={12} /></button>
           <button type="button" className="ebd-btn is-sm is-danger" aria-label="حذف" title="حذف" onClick={onDelete}><Trash2 width={12} height={12} /></button>
         </div>
+
+        {/* rollback: the previous saves of this document (decision 74) */}
+        <button
+          type="button"
+          className="ebd-btn is-sm"
+          onClick={() => setHistoryOpen((v) => !v)}
+          aria-expanded={historyOpen}
+          style={{ alignSelf: "flex-start" }}
+        >
+          <History width={12} height={12} /> نسخه‌های قبلی ({versions.length.toLocaleString("fa-IR")})
+        </button>
+        {historyOpen && (
+          <div className="ebd-versions" role="region" aria-label="نسخه‌های قبلی">
+            {versions.length === 0 ? (
+              <p style={{ fontSize: 11.5, color: "#7d7367" }}>هنوز نسخهٔ قبلی نیست؛ هر بار «ذخیره» یکی نگه می‌دارد.</p>
+            ) : (
+              versions.map((v) => (
+                <div key={v.at} className="ebd-version">
+                  <span>{timeAgo(v.at)}</span>
+                  <span style={{ fontSize: 11, color: "#7d7367" }}>{v.title} · {v.content.length} بلوک سطح اول</span>
+                  <button
+                    type="button"
+                    className="ebd-btn is-sm"
+                    onClick={() => {
+                      if (!window.confirm(`محتوا به نسخهٔ ${new Date(v.at).toLocaleString("fa-IR")} برگردد؟ محتوای فعلی هم به‌عنوان نسخه نگه داشته می‌شود.`)) return;
+                      if (restoreVersion(doc.id, v.at)) notify("به نسخهٔ قبلی برگشت", v.title);
+                    }}
+                  >
+                    بازگردانی
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
     </article>
   );
@@ -312,7 +387,7 @@ function Submissions() {
   }
   const csv = () => {
     const keys = [...new Set(subs.flatMap((s) => Object.keys(s.data)))];
-    const rows = [["فرم", "صفحه", "زمان", ...keys], ...subs.map((s) => [s.form, s.page, new Date(s.at).toLocaleString("fa-IR"), ...keys.map((k) => s.data[k] ?? "")])];
+    const rows = [["فرم", "صفحه", "زمان", ...keys], ...subs.map((s) => [s.form, s.page, formatJalaliDateTime(s.at), ...keys.map((k) => s.data[k] ?? "")])];
     download("submissions.csv", "\uFEFF" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv");
   };
   return (
@@ -321,6 +396,7 @@ function Submissions() {
         <button type="button" className="ebd-btn is-sm" onClick={csv}><Download width={12} height={12} /> خروجی CSV</button>
         <button type="button" className="ebd-btn is-sm is-danger" onClick={() => window.confirm("همهٔ پیام‌ها پاک شود؟") && clearSubmissions()}><Trash2 width={12} height={12} /> پاک کردن همه</button>
       </div>
+      <div className="ebd-table-wrap">
       <table className="ebd-table">
         <thead>
           <tr><th>فرم</th><th>صفحه</th><th>زمان</th><th>اطلاعات</th></tr>
@@ -340,6 +416,7 @@ function Submissions() {
           ))}
         </tbody>
       </table>
+      </div>
     </>
   );
 }

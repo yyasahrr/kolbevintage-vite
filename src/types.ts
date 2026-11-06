@@ -35,6 +35,21 @@ export interface Crop {
   zoom: number;
 }
 
+/**
+ * One uploaded product image. Every image carries a colour and a role, so the
+ * same gallery can feed the product page, the card hover state and the
+ * editorial close-ups without any cropping UI.
+ */
+export type ProductImageRole = "main" | "gallery" | "hover" | "detail";
+
+export interface ProductImage {
+  id: string;
+  url: string;
+  /** a colour id of the product, or "*" for every colour */
+  colorId: string;
+  role: ProductImageRole;
+}
+
 export interface Product {
   id: string;
   name: string;

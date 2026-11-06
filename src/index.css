@@ -25,6 +25,11 @@
     scroll-behavior: smooth;
   }
 
+  html {
+    /* anchors land below the sticky header instead of behind it */
+    scroll-padding-top: 96px;
+  }
+
   body {
     margin: 0;
     overflow-x: hidden;
@@ -53,6 +58,15 @@
 
   input[type="range"] {
     accent-color: var(--color-ink);
+  }
+}
+
+/* Touch targets: icon-only controls are 36px on desktop where a cursor is
+   precise, but must reach 44px on touch screens (WCAG 2.5.5). */
+@utility tap {
+  @media (max-width: 640px) {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
@@ -94,5 +108,16 @@
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+}
+
+/* A phone zooms into any field under 16px and never zooms back out. The panel
+   and account screens set this themselves; this covers every other form on the
+   storefront (decisions 6 + 76). */
+@media (pointer: coarse), (max-width: 559px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
   }
 }

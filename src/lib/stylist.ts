@@ -1,4 +1,4 @@
-import { CATALOG, type CatalogProduct } from "@/data/catalog";
+import { liveCatalog, type CatalogProduct } from "@/data/catalog";
 import { stockOf } from "@/data/looks";
 import type { ColorOption, GarmentKind } from "@/types";
 
@@ -189,7 +189,7 @@ export function adviseSize(p: CatalogProduct, profile: Profile): SizeAdvice {
   if (shoe) {
     const eu = Math.round(profile.height / 6.6 + (profile.weight > 78 ? 1 : 0));
     const best = labels.reduce((a, b) => (Math.abs(Number(a) - eu) <= Math.abs(Number(b) - eu) ? a : b));
-    return { size: best, note: `سایز پیشنهادی اروپایی ${best}` };
+    return { size: best, note: `سایز پیشنهادی ${best}` };
   }
   const order = ["XS", "S", "M", "L", "XL"];
   const idx = bmi < 19 ? 0 : bmi < 22 ? 1 : bmi < 26 ? 2 : bmi < 30 ? 3 : 4;
@@ -245,7 +245,7 @@ export interface ChosenPiece {
 }
 
 export function suggestFor(slot: Slot, profile: Profile, chosen: ChosenPiece[], limit = 6): Suggestion[] {
-  const pool = CATALOG.filter((p) => slot.kinds.includes(p.garment) && p.sizes.some((s) => p.colors.some((c) => stockOf(p, c.id, s.id) > 0)));
+  const pool = liveCatalog().filter((p) => slot.kinds.includes(p.garment) && p.sizes.some((s) => p.colors.some((c) => stockOf(p, c.id, s.id) > 0)));
   const chosenHexes = chosen.map((c) => c.color).filter(Boolean);
   const out: Suggestion[] = [];
 

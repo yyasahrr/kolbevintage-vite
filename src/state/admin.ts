@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { GarmentKind, ColorOption, SizeOption, StockMap } from "@/types";
+import type { Crop, GarmentKind, ColorOption, SizeOption, StockMap } from "@/types";
+import { pushRemote } from "./persist";
 
 /* =====================================================================
    Admin data store — the single source of truth the admin panel edits
@@ -14,20 +15,33 @@ export interface StoreSettings {
   phone: string;
   email: string;
   currency: string;
+  /** how many Toman one stored price unit is worth (display only) */
+  currencyRate: number;
   freeShipping: number;
   expressCost: number;
   returnDays: number;
   passcode: string;
   maintenance: boolean;
+  /**
+   * a shop-floor announcement, deliberately separate from maintenance
+   * (decision 63): maintenance is "we are closed", a notice is "here is
+   * something you should know" and it shows while everything still works.
+   */
+  notice: { on: boolean; text: string; href: string; tone: "info" | "warn" };
+  /** store-wide "low stock" line; 0/undefined = the built-in default (decision 32) */
+  lowStockThreshold?: number;
 }
 
-export type OrderStatus = "pending" | "processing" | "shipped" | "done" | "cancelled";
+export const LOW_STOCK_DEFAULT = 12;
+
+export type OrderStatus = "pending" | "processing" | "shipped" | "done" | "cancelled" | "exception";
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   pending: "در انتظار پرداخت",
   processing: "در حال آماده‌سازی",
   shipped: "ارسال شده",
   done: "تحویل شده",
   cancelled: "لغو شده",
+  exception: "استثنا — بررسی مالی",
 };
 
 export interface OrderLine {
@@ -60,6 +74,10 @@ export interface Order {
   coupon?: string;
   campaign?: string;
   gateway?: string;
+  /** internal notes — the customer never sees these */
+  notes?: { id: string; at: number; by: string; text: string }[];
+  /** carrier tracking code, shown to the customer */
+  tracking?: string;
 }
 
 export interface Coupon {
@@ -68,6 +86,10 @@ export interface Coupon {
   kind: "percent" | "fixed";
   value: number;
   minSpend: number;
+  /** hard ceiling in Toman for a percent code; 0/undefined = no cap */
+  maxDiscount?: number;
+  /** how many times the code may be used in total; undefined = unlimited */
+  usageLimit?: number;
   active: boolean;
   expires: string;
   uses: number;
@@ -77,10 +99,13 @@ export interface Review {
   id: string;
   product: string;
   author: string;
+  /** 0 means the customer left a review without a star (decision 59) */
   rating: number;
   text: string;
   at: number;
   approved: boolean;
+  /** the store's public answer, written from the panel (decision 70) */
+  reply?: { text: string; at: number; by: string };
 }
 
 /* ---------------- catalogue extensions ---------------- */
@@ -102,6 +127,38 @@ export interface CustomProduct {
   active: boolean;
   featured: boolean;
   createdAt: number;
+  /** this product's own low-stock line, overriding the store-wide one (decision 32) */
+  lowStockThreshold?: number;
+  /** owner-chosen labels, shown on the product card (decision 58) */
+  badges?: string[];
+  /** what the piece cost the shop, so a margin can be shown (decision 38) */
+  cost?: number;
+}
+
+/**
+ * Override applied on top of a base-catalogue product when the admin edits it.
+ * Everything is optional: only the fields the admin actually touched differ
+ * from the original catalogue entry, so materials/editorial copy stay intact.
+ */
+export interface ProductEdit {
+  name?: string;
+  category?: string;
+  garment?: GarmentKind;
+  price?: number;
+  compareAt?: number;
+  description?: string;
+  lookId?: string;
+  crop?: Crop;
+  colors?: ColorOption[];
+  sizes?: SizeOption[];
+  /** stock snapshot for the variants shown in the form */
+  stock?: StockMap;
+  /** this product's own low-stock line, overriding the store-wide one (decision 32) */
+  lowStockThreshold?: number;
+  /** owner-chosen labels, shown on the product card (decision 58) */
+  badges?: string[];
+  /** what the piece cost the shop, so a margin can be shown (decision 38) */
+  cost?: number;
 }
 
 export const GARMENT_LABEL: Record<string, string> = {
@@ -144,6 +201,8 @@ export interface Campaign {
   kind: "percent" | "fixed" | "freeship";
   value: number;
   minSpend: number;
+  /** hard ceiling in Toman for a percent campaign; 0/undefined = no cap (decision 33) */
+  maxDiscount?: number;
   scope: Scope;
   scopeId?: string;
   code?: string;
@@ -206,6 +265,21 @@ export interface CustomerMeta {
 const KEY = "velours.admin.v2";
 const SESSION = "velours.admin.session.v1";
 
+/** a look the owner builds inside the admin panel (base runway looks stay code-side) */
+export interface CustomLook {
+  id: string;
+  name: string;
+  tagline: string;
+  season: string;
+  /** upload data-url; falls back to the first product image when empty */
+  image: string;
+  /** natural aspect (w / h) of the cut-out, keeps the runway free of layout shift */
+  aspect: number;
+  productIds: string[];
+  published: boolean;
+  createdAt: number;
+}
+
 export interface AdminState {
   settings: StoreSettings;
   orders: Order[];
@@ -216,7 +290,13 @@ export interface AdminState {
   hiddenLooks: string[];
   stock: { productId: string; colorId: string; sizeId: string; qty: number }[];
   lookOrder: string[];
+  /** owner-built looks; only `published` ones reach the storefront */
+  customLooks: CustomLook[];
   customProducts: CustomProduct[];
+  /** base product id → field overrides (base catalogue products are editable too) */
+  productEdits: Record<string, ProductEdit>;
+  /** product id → product ids that complete the look ("کالاهای مکمل") */
+  complements: Record<string, string[]>;
   movements: StockMove[];
   campaigns: Campaign[];
   rules: DiscountRule[];
@@ -229,16 +309,18 @@ const days = (n: number) => new Date(Date.now() + n * 86400000).toISOString().sl
 const DEFAULT_ADMIN: AdminState = {
   settings: {
     name: "ولور",
-    tagline: "خانهٔ پوشاک آماده — پاریس",
-    address: "پاریس، خیابان سن‌آنوره، پلاک ۲۴",
-    phone: "+33 1 84 80 24 24",
+    tagline: "خانهٔ پوشاک آماده — تهران",
+    address: "تهران، خیابان ولیعصر، پلاک ۲۴، طبقهٔ دوم",
+    phone: "021 8888 2424",
     email: "client@velours.store",
-    currency: "€",
+    currency: "تومان",
+    currencyRate: 1000,
     freeShipping: 200,
     expressCost: 25,
     returnDays: 14,
     passcode: "1234",
     maintenance: false,
+    notice: { on: false, text: "", href: "", tone: "info" },
   },
   orders: [],
   coupons: [
@@ -256,6 +338,7 @@ const DEFAULT_ADMIN: AdminState = {
   hiddenLooks: [],
   stock: [],
   lookOrder: [],
+  customLooks: [],
   customProducts: [
     {
       id: "custom-scarf",
@@ -276,6 +359,8 @@ const DEFAULT_ADMIN: AdminState = {
       createdAt: Date.now() - 86400000 * 20,
     },
   ],
+  productEdits: {},
+  complements: {},
   movements: [],
   campaigns: [
     {
@@ -287,7 +372,7 @@ const DEFAULT_ADMIN: AdminState = {
       value: 15,
       minSpend: 150,
       scope: "all",
-      banner: { title: "جشنوارهٔ پاییزه", text: "۱۵٪ تخفیف روی خرید بالای ۱۵۰ یورو", active: true, tone: "gold" },
+      banner: { title: "جشنوارهٔ پاییزه", text: "۱۵٪ تخفیف روی خرید بالای ۱۵۰ تومان", active: true, tone: "gold" },
       active: true,
       uses: 0,
     },
@@ -308,7 +393,7 @@ const DEFAULT_ADMIN: AdminState = {
     },
     {
       id: "rule-ship",
-      name: "ارسال رایگان با ۲۰۰ یورو",
+      name: "ارسال رایگان با ۲۰۰ تومان",
       type: "freeship",
       value: 200,
       qty: 1,
@@ -368,6 +453,35 @@ function commit(next: AdminState) {
     /* quota — keep in memory */
   }
   listeners.forEach((l) => l());
+  // persisted to PostgreSQL through the sync bridge (no-op when offline)
+  pushRemote("admin", next);
+}
+
+/** replaces the store with the server snapshot without echoing it back */
+export function hydrateAdmin(next: Partial<AdminState>) {
+  const merged: AdminState = {
+    ...DEFAULT_ADMIN,
+    ...next,
+    settings: { ...DEFAULT_ADMIN.settings, ...(next.settings ?? {}) },
+    integrations: {
+      ai: { ...DEFAULT_ADMIN.integrations.ai, ...(next.integrations?.ai ?? {}) },
+      payment: { ...DEFAULT_ADMIN.integrations.payment, ...(next.integrations?.payment ?? {}) },
+      sms: { ...DEFAULT_ADMIN.integrations.sms, ...(next.integrations?.sms ?? {}) },
+      email: { ...DEFAULT_ADMIN.integrations.email, ...(next.integrations?.email ?? {}) },
+      shipping: { ...DEFAULT_ADMIN.integrations.shipping, ...(next.integrations?.shipping ?? {}) },
+    },
+    customLooks: next.customLooks ?? [],
+    customProducts: next.customProducts ?? [],
+    productEdits: next.productEdits ?? {},
+    complements: next.complements ?? {},
+  };
+  cache = merged;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(merged));
+  } catch {
+    /* quota */
+  }
+  listeners.forEach((l) => l());
 }
 
 export const useAdmin = () => useSyncExternalStore(subscribe, getAdmin, getAdmin);
@@ -384,14 +498,56 @@ export const patchSettings = (p: Partial<StoreSettings>) => patch({ settings: { 
 
 /* ---------------- orders ---------------- */
 export const addOrder = (o: Order) => patch({ orders: [o, ...cache.orders].slice(0, 400) });
+/** any order field, without inventing a mutator per field */
+export const patchOrder = (id: string, change: Partial<Order>) =>
+  patch({ orders: cache.orders.map((o) => (o.id === id ? { ...o, ...change } : o)) });
+
+export const addOrderNote = (id: string, text: string, by: string) =>
+  patch({
+    orders: cache.orders.map((o) =>
+      o.id === id
+        ? { ...o, notes: [...(o.notes ?? []), { id: `n-${Math.random().toString(36).slice(2, 8)}`, at: Date.now(), by, text }] }
+        : o,
+    ),
+  });
+
 export const setOrderStatus = (id: string, status: OrderStatus) =>
   patch({ orders: cache.orders.map((o) => (o.id === id ? { ...o, status } : o)) });
 export const removeOrder = (id: string) => patch({ orders: cache.orders.filter((o) => o.id !== id) });
 
 /* ---------------- reviews / looks ---------------- */
+/** a customer review always lands as "pending": the owner decides what the shop shows */
+export const submitReview = (review: Omit<Review, "id" | "at" | "approved">) =>
+  patch({
+    reviews: [
+      { ...review, id: `r${Math.random().toString(36).slice(2, 9)}`, at: Date.now(), approved: false },
+      ...cache.reviews,
+    ],
+  });
+
+export const setReviewReply = (id: string, text: string, by: string) =>
+  patch({
+    reviews: cache.reviews.map((r) =>
+      r.id === id ? { ...r, reply: text.trim() ? { text: text.trim(), at: Date.now(), by } : undefined } : r,
+    ),
+  });
 export const setReviewApproved = (id: string, approved: boolean) =>
   patch({ reviews: cache.reviews.map((r) => (r.id === id ? { ...r, approved } : r)) });
 export const removeReview = (id: string) => patch({ reviews: cache.reviews.filter((r) => r.id !== id) });
+export const saveCustomLook = (look: CustomLook) =>
+  patch({
+    customLooks: cache.customLooks.some((l) => l.id === look.id)
+      ? cache.customLooks.map((l) => (l.id === look.id ? look : l))
+      : [look, ...cache.customLooks],
+  });
+export const removeCustomLook = (id: string) =>
+  patch({
+    customLooks: cache.customLooks.filter((l) => l.id !== id),
+    hiddenLooks: cache.hiddenLooks.filter((x) => x !== id),
+    lookOrder: cache.lookOrder.filter((x) => x !== id),
+  });
+export const setCustomLookPublished = (id: string, published: boolean) =>
+  patch({ customLooks: cache.customLooks.map((l) => (l.id === id ? { ...l, published } : l)) });
 export const toggleLookHidden = (id: string) =>
   patch({ hiddenLooks: cache.hiddenLooks.includes(id) ? cache.hiddenLooks.filter((x) => x !== id) : [...cache.hiddenLooks, id] });
 
@@ -421,6 +577,46 @@ export const updateCustomProduct = (id: string, p: Partial<CustomProduct>) =>
   patch({ customProducts: cache.customProducts.map((c) => (c.id === id ? { ...c, ...p } : c)) });
 export const removeCustomProduct = (id: string) =>
   patch({ customProducts: cache.customProducts.filter((c) => c.id !== id) });
+
+/* ---------------- base products: edit / reset ---------------- */
+export const saveProductEdit = (id: string, edit: ProductEdit) =>
+  patch({ productEdits: { ...cache.productEdits, [id]: { ...(cache.productEdits[id] ?? {}), ...edit } } });
+export const resetProductEdit = (id: string) => {
+  const next = { ...cache.productEdits };
+  delete next[id];
+  patch({ productEdits: next });
+};
+export const productEditOf = (id: string) => cache.productEdits[id];
+
+/* ---------------- product labels (decision 58) ---------------- */
+export const PRODUCT_BADGES = ["جدید", "پیشنهاد سردبیر", "حراج", "پرفروش"] as const;
+export type ProductBadge = (typeof PRODUCT_BADGES)[number];
+
+/** the first label the owner set wins, so the card never shows a pile of chips */
+export const badgesOf = (productId: string): string[] =>
+  cache.productEdits[productId]?.badges ??
+  cache.customProducts.find((p) => p.id === productId)?.badges ??
+  [];
+
+/* ---------------- low stock line (decision 32) ---------------- */
+export const lowStockLine = (settings: StoreSettings = cache.settings) =>
+  settings.lowStockThreshold && settings.lowStockThreshold > 0 ? settings.lowStockThreshold : LOW_STOCK_DEFAULT;
+
+/** a product can carry its own line; otherwise the store-wide one applies */
+export const lowStockLineOf = (productId: string) => {
+  const own =
+    cache.productEdits[productId]?.lowStockThreshold ??
+    cache.customProducts.find((p) => p.id === productId)?.lowStockThreshold;
+  return own && own > 0 ? own : lowStockLine();
+};
+
+export const isLowStock = (productId: string, total: number) => total > 0 && total <= lowStockLineOf(productId);
+export const isOutOfStock = (total: number) => total <= 0;
+
+/* ---------------- complementary products ---------------- */
+export const setComplements = (productId: string, ids: string[]) =>
+  patch({ complements: { ...cache.complements, [productId]: ids } });
+export const complementsOf = (productId: string) => cache.complements[productId] ?? [];
 
 /* ---------------- stock ---------------- */
 const variantKey = (c: string, s: string) => `${c}:${s}`;
@@ -507,6 +703,24 @@ export const saveRule = (r: DiscountRule) =>
   patch({ rules: cache.rules.some((x) => x.id === r.id) ? cache.rules.map((x) => (x.id === r.id ? r : x)) : [r, ...cache.rules] });
 export const removeRule = (id: string) => patch({ rules: cache.rules.filter((r) => r.id !== id) });
 
+/* A readable code an owner can say out loud: two syllables + a 4-char tail.
+   Generated locally, checked against existing codes so a new code is never a duplicate. */
+const CODE_SYLLABLES = ["BAR", "NO", "SA", "TAK", "PAR", "GOL", "SIM", "AB", "AT", "MAH", "NOO", "ZAR"];
+export function generateCouponCode(existing: string[] = cache.coupons.map((c) => c.code.toUpperCase())): string {
+  const taken = new Set(existing.map((c) => c.toUpperCase()));
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const head = CODE_SYLLABLES[Math.floor(Math.random() * CODE_SYLLABLES.length)];
+    const tail = CODE_SYLLABLES[Math.floor(Math.random() * CODE_SYLLABLES.length)];
+    const digits = String(Math.floor(10 + Math.random() * 90));
+    const code = `${head}${tail}${digits}`;
+    if (!taken.has(code)) return code;
+  }
+  return `KV${Date.now().toString().slice(-6)}`;
+}
+
+export const saveCoupons = (list: Coupon[]) =>
+  patch({ coupons: [...list, ...cache.coupons.filter((c) => !list.some((x) => x.id === c.id))] });
+
 export const saveCoupon = (c: Coupon) =>
   patch({ coupons: cache.coupons.some((x) => x.id === c.id) ? cache.coupons.map((x) => (x.id === c.id ? c : x)) : [c, ...cache.coupons] });
 export const removeCoupon = (id: string) => patch({ coupons: cache.coupons.filter((c) => c.id !== id) });
@@ -549,6 +763,15 @@ export function unlockAdmin(code: string) {
   }
   return true;
 }
+/** review mode: the server already said the caller is the owner */
+export function openPanelForReview() {
+  try {
+    sessionStorage.setItem(SESSION, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
 export function lockAdmin() {
   try {
     sessionStorage.removeItem(SESSION);

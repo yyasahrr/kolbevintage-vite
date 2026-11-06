@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Layers, Plus, Search, Sparkles, Wand2, X } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { CATALOG, COLLECTIONS, productsInCollection, visibleProducts } from "@/data/catalog";
+import { COLLECTIONS, liveGetProduct, productsInCollection, visibleProducts } from "@/data/catalog";
 import { firstAvailable, formatPrice } from "@/data/looks";
 import { useCart } from "@/state/cart";
+import { useAdmin } from "@/state/admin";
 import { addItem, clearBoard, setItems, useOutfit } from "@/state/outfit";
 import { uid } from "@/builder/tree";
 import { adviseSize, type Profile } from "@/lib/stylist";
@@ -12,7 +13,7 @@ import { ProductThumb } from "@/components/ProductThumb";
 import { StyleCanvas } from "@/components/StyleCanvas";
 import { OutfitSummary } from "@/components/OutfitSummary";
 import { StyleWizard } from "@/components/StyleWizard";
-import { PageIntro, Newsletter, buttonStyles } from "@/components/ui";
+import { PageIntro, buttonStyles } from "@/components/ui";
 import "@/styles/style-builder.css";
 
 type Mode = "canvas" | "wizard";
@@ -23,6 +24,8 @@ const GROUPS = [
 ];
 
 export function StyleBuilderPage() {
+  // re-render when the admin edits or adds products
+  useAdmin();
   const [mode, setMode] = useState<Mode>("canvas");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [group, setGroup] = useState("all");
@@ -39,7 +42,7 @@ export function StyleBuilderPage() {
   }, [group, query]);
 
   const addProduct = (productId: string, at?: { x: number; y: number }, slot?: string, colorId?: string, sizeId?: string) => {
-    const product = CATALOG.find((p) => p.id === productId);
+    const product = liveGetProduct(productId);
     if (!product) return;
     const fallback = firstAvailable(product);
     const id = addItem(productId, colorId ?? fallback.colorId, sizeId ?? fallback.sizeId, at, slot);
@@ -73,7 +76,7 @@ export function StyleBuilderPage() {
 
   const sizeAdviceCount = profile
     ? items.filter((i) => {
-        const p = CATALOG.find((x) => x.id === i.productId);
+        const p = liveGetProduct(i.productId);
         return p && adviseSize(p, profile).size === p.sizes.find((s) => s.id === i.sizeId)?.label;
       }).length
     : 0;
@@ -229,7 +232,6 @@ export function StyleBuilderPage() {
         </div>
       </details>
 
-      <Newsletter compact />
     </div>
   );
 }

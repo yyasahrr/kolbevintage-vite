@@ -4,10 +4,23 @@ import { CATALOG } from "@/data/catalog";
 import { useCart } from "@/state/cart";
 import { ProductCard } from "@/components/ProductCard";
 import { EmptyState, PageIntro, buttonStyles } from "@/components/ui";
+import { useOps } from "@/state/ops";
 
 export function WishlistPage() {
   const { wishlist } = useCart();
+  const features = useOps().features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
   const items = CATALOG.filter((p) => wishlist.includes(p.id));
+
+  if (!features.wishlist) {
+    return (
+      <div className="pb-14">
+        <PageIntro crumbs={[{ label: "علاقه‌مندی‌ها" }]} title="فهرست علاقه‌مندی‌ها خاموش است" description="مالک فروشگاه این بخش را از پنل خاموش کرده است." />
+        <div className="mx-auto w-full max-w-[1500px] px-4 sm:px-6 lg:px-10">
+          <EmptyState icon={<Heart className="h-5 w-5" />} title="این بخش در دسترس نیست" body="همهٔ محصولات را می‌توانی از فروشگاه ببینی." />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-14">

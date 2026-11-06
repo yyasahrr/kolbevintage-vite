@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+:root {
+  --kv-bg-app: #F7F7FB;
+  --kv-bg-surface: #FFFFFF;
+  --kv-bg-subtle: #FAFAFE;
+  --kv-text-primary: #080707;
+  --kv-text-secondary: #4B505E;
+  --kv-text-muted: #626775;
+  --kv-primary: #1813FB;
+  --kv-primary-hover: #110CD1;
+  --kv-accent-secondary: #A9A4E7;
+  --kv-accent-soft: #C1BCF2;
+  --kv-accent-surface: #F0EEFF;
+  --kv-border: #E5E7EB;
+  --kv-divider: #EFEFF5;
+  --kv-danger: #B44F40;
+}
+
+@layer base {
+  html {
+    font-family: "Vazirmatn", Tahoma, system-ui, -apple-system, sans-serif;
+    background-color: var(--kv-bg-app);
+    color: var(--kv-text-primary);
+  }
+
+  body {
+    font-family: "Vazirmatn", Tahoma, system-ui, -apple-system, sans-serif;
+    background-color: var(--kv-bg-app);
+    color: var(--kv-text-primary);
+    overflow-x: hidden;
+  }
+}
+
+/* Custom subtle scrollbars for specialist horizontal tables */
+.kv-scroll-table::-webkit-scrollbar {
+  height: 7px;
+  width: 7px;
+}
+
+.kv-scroll-table::-webkit-scrollbar-track {
+  background: #F1F1F7;
+  border-radius: 9999px;
+}
+
+.kv-scroll-table::-webkit-scrollbar-thumb {
+  background: #C1BCF2;
+  border-radius: 9999px;
+}
+
+.kv-scroll-table::-webkit-scrollbar-thumb:hover {
+  background: #A9A4E7;
+}
+
+/* Print Stylesheet for 100x150mm Shipping Labels & Packing Slips */
+@media print {
+  body {
+    background: #FFFFFF !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only-container {
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .shipping-label-100x150 {
+    width: 100mm !important;
+    height: 150mm !important;
+    page-break-after: always;
+    break-after: page;
+  }
+}

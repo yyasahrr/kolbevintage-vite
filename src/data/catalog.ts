@@ -1,5 +1,6 @@
 import { LOOKS, stockOf } from "./looks";
 import { getAdmin, type CustomProduct } from "@/state/admin";
+import { lookProductIds } from "@/state/ops";
 import type { ColorOption, Crop, GarmentKind, Look, Product } from "@/types";
 
 export interface CatalogProduct extends Product {
@@ -13,7 +14,7 @@ export interface CatalogProduct extends Product {
   care: string;
   fit: string;
   origin: string;
-  badge?: "جدید" | "پرفروش" | "آخرین موجودی" | "تخفیف";
+  badge?: "جدید" | "پرفروش" | "آخرین موجودی" | "تخفیف" | "پیشنهاد سردبیر" | "حراج";
 }
 
 interface Detail {
@@ -145,25 +146,34 @@ export const CATALOG: CatalogProduct[] = LOOKS.flatMap((look) =>
       material: detail.material,
       care: detail.care,
       fit: detail.fit,
-      origin: "طراحی و تولید در آتلیهٔ پاریس",
+      origin: "طراحی و تولید در آتلیهٔ تهران",
       badge,
     };
   }),
 );
 
-export const getProduct = (id: string | undefined) => CATALOG.find((p) => p.id === id);
+export const getProduct = (id: string | undefined) => liveGetProduct(id);
 
 export const getLook = (slug: string | undefined) => LOOKS.find((l) => l.id === slug);
 
-export const productsOfLook = (lookId: string) => CATALOG.filter((p) => p.lookId === lookId);
+export const productsOfLook = (lookId: string) => liveCatalog().filter((p) => p.lookId === lookId);
 
 export const relatedProducts = (product: CatalogProduct, count = 4) => {
-  const sameCategory = CATALOG.filter((p) => p.id !== product.id && p.category === product.category);
-  const sameLook = CATALOG.filter((p) => p.id !== product.id && p.lookId === product.lookId);
-  const rest = CATALOG.filter((p) => p.id !== product.id);
+  const all = liveCatalog();
+  const sameCategory = all.filter((p) => p.id !== product.id && p.category === product.category);
+  const sameLook = all.filter((p) => p.id !== product.id && p.lookId === product.lookId);
+  const rest = all.filter((p) => p.id !== product.id);
   const merged = [...sameLook, ...sameCategory, ...rest];
   const seen = new Set<string>();
   return merged.filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true))).slice(0, count);
+};
+
+/** admin-defined complementary products for a product, in the chosen order */
+export const complementProducts = (productId: string) => {
+  const ids = getAdmin().complements[productId] ?? [];
+  return ids
+    .map((id) => liveGetProduct(id))
+    .filter((p): p is CatalogProduct => !!p && p.id !== productId);
 };
 
 /** Three framings of the same runway photograph + one full-length frame. */
@@ -217,7 +227,7 @@ const customToCatalog = (cp: CustomProduct): CatalogProduct => {
     care: "دستورالعمل روی برچسب محصول",
     fit: "منطبق با راهنمای سایز",
     origin: "آتلیهٔ ولور",
-    badge: cp.featured ? "پرفروش" : "جدید",
+    badge: (cp.badges?.[0] as CatalogProduct["badge"] | undefined) ?? (cp.featured ? "پرفروش" : "جدید"),
     lookId: look.id,
     lookName: "محصول آتلیه",
     lookSlug: look.id,
@@ -228,12 +238,75 @@ const customToCatalog = (cp: CustomProduct): CatalogProduct => {
   };
 };
 
+/** merge an admin edit over the original catalogue entry */
+const withEdit = (p: CatalogProduct): CatalogProduct => {
+  const edit = getAdmin().productEdits[p.id];
+  if (!edit) return p;
+  const ownerBadge = edit.badges?.[0] as CatalogProduct["badge"] | undefined;
+  return {
+    ...p,
+    ...edit,
+    description: edit.description ?? p.description,
+    stock: edit.stock ? { ...p.stock, ...edit.stock } : p.stock,
+    // an owner-chosen label replaces the automatic one (decision 58)
+    badge: ownerBadge ?? p.badge,
+  };
+};
+
 export const liveCatalog = (): CatalogProduct[] => {
   const admin = getAdmin();
-  return [...CATALOG, ...admin.customProducts.filter((c) => c.active).map(customToCatalog)];
+  return [
+    ...CATALOG.map(withEdit),
+    ...admin.customProducts.filter((c) => c.active).map(customToCatalog),
+  ];
 };
 
 export const liveGetProduct = (id: string | undefined) => (id ? liveCatalog().find((p) => p.id === id) : undefined);
+
+/**
+ * The runway reads from here, so a look the owner builds in the admin panel is
+ * a first-class citizen: same shape, same product panel, same cart rules.
+ * Order of truth: hidden → explicit order → base order → newest custom.
+ */
+export const liveLooks = (): Look[] => {
+  const admin = getAdmin();
+  const hidden = new Set(admin.hiddenLooks);
+  const explicit = admin.lookOrder;
+
+  const withProducts = (look: Look): Look => {
+    const chosen = lookProductIds(look.id);
+    if (!chosen.length) return look;
+    const products = chosen.map((id) => liveGetProduct(id)).filter((p): p is CatalogProduct => Boolean(p));
+    return products.length ? { ...look, products } : look;
+  };
+
+  const base = LOOKS.filter((l) => !hidden.has(l.id)).map(withProducts);
+
+  const custom: Look[] = admin.customLooks
+    .filter((l) => l.published && !hidden.has(l.id))
+    .map((l) => {
+      const products = l.productIds.map((id) => liveGetProduct(id)).filter((p): p is CatalogProduct => Boolean(p));
+      return {
+        id: l.id,
+        order: 100 + l.createdAt / 1e12,
+        name: l.name,
+        tagline: l.tagline,
+        season: l.season,
+        image: l.image || products[0]?.image || LOOKS[0].image,
+        aspect: l.aspect || products[0]?.aspect || 1.5,
+        accent: "#bc9b70",
+        products,
+      } satisfies Look;
+    })
+    .filter((l) => l.products.length > 0);
+
+  const all = [...base, ...custom];
+  const rank = (id: string, fallback: number) => {
+    const i = explicit.indexOf(id);
+    return i === -1 ? 500 + fallback : i;
+  };
+  return all.sort((a, b) => rank(a.id, a.order) - rank(b.id, b.order));
+};
 
 const isHidden = (id: string) => {
   const admin = getAdmin();

@@ -1,20 +1,22 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { CreditCard, Lock, PackageCheck, ShieldCheck, ShoppingBag, Truck, Wallet, Zap } from "lucide-react";
+import { CreditCard, Loader2, Lock, PackageCheck, ShieldCheck, ShoppingBag, Truck, Wallet, Zap } from "lucide-react";
 import { useCart } from "@/state/cart";
 import { useAuth } from "@/state/auth";
-import { addCashback, formField, getOps } from "@/state/ops";
+import { formField } from "@/state/ops";
+import { getAdmin } from "@/state/admin";
+import { computeDiscounts } from "@/state/discounts";
+import { ApiError } from "@/lib/api";
 import {
-  addOrder,
-  bumpCampaignUse,
-  bumpCouponUse,
-  consumeStock,
-  getAdmin,
-  type Order,
-  type OrderLine,
-} from "@/state/admin";
-import { computeDiscounts, validateCode, type AppliedDiscount } from "@/state/discounts";
+  commerce,
+  type CashbackWallet,
+  type CommerceConfig,
+  type CommerceItem,
+  type ServerQuote,
+  type Shortage,
+} from "@/lib/commerce";
 import { formatPrice } from "@/data/looks";
+import { toLatinDigits } from "@/utils/date";
 
 import { PageIntro, buttonStyles } from "@/components/ui";
 import { cn } from "@/utils/cn";
@@ -37,94 +39,227 @@ export function CheckoutPage() {
   const [code, setCode] = useState("");
   const [appliedCode, setAppliedCode] = useState("");
   const [codeMsg, setCodeMsg] = useState<{ ok: boolean; message: string } | null>(null);
-  const [order, setOrder] = useState<{ id: string; total: number; items: number; discounts: AppliedDiscount[] } | null>(null);
+  const [order, setOrder] = useState<{
+    id: string;
+    total: number;
+    items: number;
+    discounts: { id: string; name: string; amount: number; note?: string }[];
+    status?: string;
+    note?: string;
+    cashback?: { amount: number; percent: number } | null;
+  } | null>(null);
+  const [serverQuote, setServerQuote] = useState<ServerQuote | null>(null);
+  const [cfg, setCfg] = useState<CommerceConfig | null>(null);
+  const [method, setMethod] = useState<"online" | "bnpl4">("online");
+  const [wallet, setWallet] = useState<CashbackWallet | null>(null);
+  const [useWallet, setUseWallet] = useState(false);
+  const [placing, setPlacing] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [shortages, setShortages] = useState<Shortage[]>([]);
+  const attemptKey = useRef(`co-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
   const linesLite = useMemo(
     () => lines.map((l) => ({ productId: l.productId, name: l.name, price: l.price, qty: l.qty })),
     [lines],
   );
 
+  const items = useMemo<CommerceItem[]>(
+    () => lines.map((l) => ({ productId: l.productId, colorId: l.colorId, sizeId: l.sizeId, quantity: l.qty })),
+    [lines],
+  );
+  const itemsKey = items.map((i) => `${i.productId}:${i.colorId}:${i.sizeId}:${i.quantity}`).join("|");
+
   const discount = useMemo(() => computeDiscounts(linesLite, appliedCode || undefined), [linesLite, appliedCode]);
   const finalShipping = lines.length === 0 ? 0 : shipping === "express" ? (discount.freeship ? 0 : settings.expressCost) : discount.freeship ? 0 : 12;
   const total = Math.max(0, discount.afterDiscount + finalShipping);
 
-  const applyCode = () => {
-    const r = validateCode(code, discount.subtotal);
-    setCodeMsg(r);
-    setAppliedCode(r.ok ? code.trim().toUpperCase() : "");
+  // authoritative totals come from the server quote; the local engine is only
+  // a placeholder until the quote arrives (or when the API is offline)
+  const viewSubtotal = serverQuote?.subtotal ?? discount.subtotal;
+  const viewDiscounts: { id: string; name: string; amount: number }[] = serverQuote
+    ? serverQuote.discounts.map((d) => ({ id: d.id, name: d.name, amount: d.amount }))
+    : discount.applied;
+  const viewShipping = serverQuote ? serverQuote.shippingTotal : finalShipping;
+  const viewTotal = serverQuote ? serverQuote.grandTotal : total;
+  const bnplPlan = serverQuote?.installments.find((i) => i.method === "bnpl4");
+
+  /* ---------- wallet (cashback) payment ----------
+     Only money already released by the server policy is offered here, and the
+     cap is a share of the goods value. The server re-checks both at pay time. */
+  const walletAvailable = wallet?.available ?? 0;
+  const walletCapPercent = cfg?.cashback.redeem.maxPercent ?? 0;
+  const goodsAfterDiscount = serverQuote
+    ? Math.max(0, serverQuote.subtotal - serverQuote.discountTotal)
+    : discount.afterDiscount;
+  const walletCap = Math.max(0, (goodsAfterDiscount * walletCapPercent) / 100);
+  const walletApplied = useWallet ? Math.min(walletAvailable, walletCap, viewTotal) : 0;
+  const payableNow = Math.max(0, viewTotal - walletApplied);
+
+  useEffect(() => {
+    commerce.config().then(setCfg).catch(() => undefined);
+  }, []);
+
+  // the wallet belongs to the signed-in account; guests simply have none
+  useEffect(() => {
+    if (!auth.account?.email) {
+      setWallet(null);
+      return;
+    }
+    commerce
+      .cashback()
+      .then(setWallet)
+      .catch(() => setWallet(null));
+  }, [auth.account?.email]);
+
+  useEffect(() => {
+    if (!items.length) {
+      setServerQuote(null);
+      return;
+    }
+    let alive = true;
+    commerce
+      .quote(items, { couponCode: appliedCode || undefined, shippingMethod: shipping })
+      .then((q) => {
+        if (alive) setServerQuote(q);
+      })
+      .catch(() => {
+        if (alive) setServerQuote(null);
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsKey, appliedCode, shipping]);
+
+  const applyCode = async () => {
+    const trimmed = code.trim();
+    if (!trimmed) {
+      setAppliedCode("");
+      setCodeMsg(null);
+      return;
+    }
+    try {
+      const q = await commerce.quote(items, { couponCode: trimmed, shippingMethod: shipping });
+      setServerQuote(q);
+      setAppliedCode(q.couponCode ?? trimmed.toUpperCase());
+      setCodeMsg({ ok: true, message: "کد تخفیف روی سرور اعمال شد." });
+    } catch (err) {
+      setAppliedCode("");
+      setCodeMsg({ ok: false, message: err instanceof Error ? err.message : "کد تخفیف اعمال نشد." });
+    }
   };
 
-  const placeOrder = (e: React.FormEvent<HTMLFormElement>) => {
+  /**
+   * Checkout against the commerce core:
+   * quote → reserve stock → payment attempt → server-side verify → order.
+   * The amount charged is the server's, never the number rendered here.
+   */
+  const placeOrder = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!lines.length) return;
+    if (!lines.length || placing) return;
     const form = new FormData(e.currentTarget);
-    void lines;
-    const id = `VL-${Math.floor(10000 + Math.random() * 89999)}`;
-    const linesFull: OrderLine[] = lines.map((l) => ({
-        name: l.name,
-        productId: l.productId,
-        color: l.colorName,
-        colorId: l.colorId,
-        size: l.sizeLabel,
-        sizeId: l.sizeId,
-        qty: l.qty,
-        price: l.price,
-    }));
-    const campaignHit = discount.applied.find((a) => a.id.startsWith("cmp-"));
-    const couponHit = discount.applied.find((a) => a.id.startsWith("cp-"));
-    const campaignId = campaignHit ? admin.campaigns.find((c) => `cmp-${c.id}` === campaignHit.id)?.id : undefined;
-    const record: Order = {
-      id,
-      at: Date.now(),
-      customer: `${form.get("given") ?? ""} ${form.get("family") ?? ""}`.trim() || "مشتری مهمان",
-      email: String(form.get("email") ?? ""),
-      phone: String(form.get("tel") ?? ""),
+    const address = {
+      receiver: `${form.get("given") ?? ""} ${form.get("family") ?? ""}`.trim(),
+      // Persian keyboards type ۰۹۱۲… — normalise before validation
+      phone: toLatinDigits(String(form.get("tel") ?? "")),
+      province: String(form.get("province") ?? ""),
       city: String(form.get("city") ?? ""),
-      address: String(form.get("street") ?? ""),
-      shipping,
-      lines: linesFull,
-      subtotal: discount.subtotal,
-      discounts: discount.applied.map((d) => ({ name: d.name, amount: d.amount })),
-      discountTotal: discount.discountTotal,
-      shippingCost: finalShipping,
-      total,
-      status: "pending",
-      coupon: appliedCode || undefined,
-      campaign: campaignHit?.name,
-      gateway: GATEWAY_LABEL[admin.integrations.payment.gateway],
+      street: String(form.get("street") ?? ""),
+      postal: toLatinDigits(String(form.get("postal") ?? "")),
+      note: String(form.get("note") ?? ""),
     };
-    addOrder(record);
-    if (campaignId) bumpCampaignUse(campaignId);
-    if (couponHit) bumpCouponUse(appliedCode);
-    consumeStock(linesFull.map((l) => ({ productId: l.productId, colorId: l.colorId, sizeId: l.sizeId, qty: l.qty, name: l.name })));
-    const cashback = Math.round((total * getOps().cashbackRate) / 100);
-    if (record.email && cashback > 0) addCashback({ email: record.email.toLowerCase(), orderId: id, amount: cashback, kind: "earn" });
-    setOrder({ id, total, items: lines.reduce((n, l) => n + l.qty, 0), discounts: discount.applied });
-    clear();
-    if (admin.integrations.sms.enabled)
-      notify("پیامک ارسال شد (شبیه‌سازی)", `کد رهگیری ${id} با ${admin.integrations.sms.provider} به ${record.phone || "مشتری"} ارسال شد.`);
-    if (admin.integrations.email.enabled)
-      notify("ایمیل تایید ارسال شد (شبیه‌سازی)", `${record.email || "ایمیل مشتری"} — ${admin.integrations.email.provider}`);
-    if (admin.integrations.shipping.enabled)
-      notify("برگهٔ بار ثبت شد (شبیه‌سازی)", `${admin.integrations.shipping.courier} — سفارش ${id}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    setPlacing(true);
+    setCheckoutError(null);
+    setShortages([]);
+    try {
+      const created = await commerce.checkout({
+        items,
+        address,
+        shippingMethod: shipping,
+        couponCode: appliedCode || undefined,
+        idempotencyKey: attemptKey.current,
+      });
+      setServerQuote(created.checkout.quote);
+
+      const pay = await commerce.pay(created.checkout.id, method, `pay-${attemptKey.current}`, {
+        useCashback: useWallet && walletApplied > 0,
+      });
+      if (pay.payment?.redirectUrl) {
+        window.location.href = pay.payment.redirectUrl;
+        return;
+      }
+      if (!pay.payment?.mock) {
+        setCheckoutError("درگاه پاسخ قابل تأیید نداد؛ سفارش ثبت نشد.");
+        return;
+      }
+
+      // the demo gateway is verified server-side, exactly like a real callback
+      const settled = await commerce.simulate(pay.attempt.id, "success");
+      if (settled.status === "settled" && settled.orderId) {
+        const paid = Number(settled.total ?? created.checkout.quote.grandTotal);
+        setOrder({
+          id: settled.orderId,
+          cashback: settled.cashback ? { amount: settled.cashback.amount, percent: settled.cashback.percent } : null,
+          total: paid,
+          items: lines.reduce((n, l) => n + l.qty, 0),
+          discounts: viewDiscounts,
+          status: settled.orderStatus,
+          note:
+            settled.orderStatus === "exception"
+              ? "پرداخت ثبت شد اما موجودی رزروشده آزاد شده بود؛ سفارش برای بررسی مالی به حالت استثنا رفت."
+              : undefined,
+        });
+        clear();
+        notify("پرداخت تأیید شد", `سفارش ${settled.orderId} ثبت شد و موجودی از انبار کسر شد.`);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      setCheckoutError(settled.message ?? "پرداخت تأیید نشد؛ دوباره تلاش کن.");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.code === "insufficient_stock") {
+          const details = err.details as { shortages?: Shortage[] } | undefined;
+          setShortages(details?.shortages ?? []);
+        }
+        if (err.code === "quote_stale") {
+          const details = err.details as { quote?: ServerQuote } | undefined;
+          if (details?.quote) setServerQuote(details.quote);
+        }
+        setCheckoutError(err.message);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      // fail closed: an order that the server never created must not be shown
+      // as placed, and stock/coupon/cashback must never be invented in the browser
+      setCheckoutError(
+        "ارتباط با سرور برقرار نشد؛ سفارش ثبت نشد. اتصال را بررسی کن و دوباره تلاش کن. هیچ مبلغی کسر نشده است.",
+      );
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } finally {
+      setPlacing(false);
+    }
   };
 
   /* ---------- success ---------- */
   if (order) {
     return (
       <div className="pb-16">
-        <PageIntro crumbs={[{ label: "تسویه حساب" }]} title="سفارش شما ثبت شد" description="این نسخه نمایشی است؛ پرداخت واقعی انجام نشده و سفارش در پنل مدیریت ثبت شد." />
+        <PageIntro
+        crumbs={[{ label: "تسویه حساب" }]}
+        title="سفارش شما ثبت شد"
+        description="مبلغ نهایی و موجودی را سرور تأیید کرده است. پرداخت درگاه شبیه‌سازی‌شده اما با همان قرارداد verify و idempotency واقعی ثبت می‌شود."
+      />
         <div className="mx-auto max-w-[520px] px-4">
           <div className="rounded-2xl border border-black/[0.08] bg-paper p-6 text-center">
             <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-ink text-bone">
               <PackageCheck width={26} height={26} />
             </span>
             <h2 className="mt-4 font-display text-[24px] font-medium text-ink">ممنون که با ولور همراه شدی.</h2>
-            <dl className="mt-4 grid grid-cols-3 gap-2 text-[12px]">
+            <dl className="mt-4 grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-3">
               <div className="rounded-xl bg-[#f4efe7] p-3">
                 <dt className="text-ink-45">شمارهٔ سفارش</dt>
-                <dd className="mt-1 font-semibold text-ink" dir="ltr">{order.id}</dd>
+                <dd className="mt-1 break-all font-semibold text-ink" dir="ltr">{order.id}</dd>
               </div>
               <div className="rounded-xl bg-[#f4efe7] p-3">
                 <dt className="text-ink-45">اقلام</dt>
@@ -135,6 +270,19 @@ export function CheckoutPage() {
                 <dd className="mt-1 font-semibold text-ink">{formatPrice(order.total)}</dd>
               </div>
             </dl>
+            {order.cashback && order.cashback.amount > 0 && (
+              <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-[11.5px] text-emerald-800">
+                {formatPrice(order.cashback.amount)} کش‌بک ({order.cashback.percent.toLocaleString("fa-IR")}٪) به کیف پول حساب تو اضافه شد.
+              </p>
+            )}
+            {order.note && (
+              <p className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2 text-[11.5px] leading-relaxed text-amber-900">
+                {order.note}
+              </p>
+            )}
+            {order.status === "exception" && (
+              <p className="mt-2 text-[11px] text-ember" dir="ltr">status: exception</p>
+            )}
             {order.discounts.length > 0 && (
               <ul className="mt-3 space-y-1 text-[11.5px] text-ink-70">
                 {order.discounts.map((d) => (
@@ -186,6 +334,27 @@ export function CheckoutPage() {
         description="اطلاعات ارسال را کامل کن. تخفیف‌های فعال فروشگاه به‌صورت خودکار روی سبد اعمال می‌شوند."
       />
 
+      {(checkoutError || shortages.length > 0) && (
+        <div className="mx-auto mb-4 w-full max-w-[1200px] px-4 sm:px-6 lg:px-8">
+          <div className="rounded-2xl border border-ember/30 bg-ember/[0.06] p-4">
+            {checkoutError && <p className="text-[12.5px] font-medium text-ember">{checkoutError}</p>}
+            {shortages.length > 0 && (
+              <ul className="mt-2 list-inside list-disc space-y-1 text-[11.5px] text-ink-70">
+                {shortages.map((item) => (
+                  <li key={item.variantId}>
+                    یکی از اقلام سبد — درخواستی {item.requested.toLocaleString("fa-IR")} عدد،
+                    موجود {item.available.toLocaleString("fa-IR")} عدد
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-[11px] text-ink-45">
+              تعداد را در سبد اصلاح کن یا محصول دیگری انتخاب کن؛ سبد خریدت حفظ می‌شود.
+            </p>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={placeOrder} className="mx-auto grid w-full max-w-[1200px] gap-6 px-4 sm:px-6 lg:grid-cols-[1.35fr_0.75fr] lg:items-start lg:px-8">
         <div className="space-y-4">
           <section className="rounded-2xl border border-black/[0.07] bg-paper p-5">
@@ -222,13 +391,13 @@ export function CheckoutPage() {
               <ShipOption
                 active={shipping === "standard"}
                 title="ارسال استاندارد"
-                note={discount.freeship ? "رایگان (تخفیف فعال)" : settings.freeShipping ? `رایگان بالای ${settings.freeShipping.toLocaleString("fa-IR")} یورو` : "۱۲ یورو"}
+                note={discount.freeship ? "رایگان (تخفیف فعال)" : settings.freeShipping ? `رایگان بالای ${settings.freeShipping.toLocaleString("fa-IR")} تومان` : "۱۲ تومان"}
                 onClick={() => setShipping("standard")}
               />
               <ShipOption
                 active={shipping === "express"}
                 title="ارسال سریع (۲۴ ساعته)"
-                note={discount.freeship ? "رایگان (تخفیف فعال)" : `${settings.expressCost.toLocaleString("fa-IR")} یورو`}
+                note={discount.freeship ? "رایگان (تخفیف فعال)" : `${settings.expressCost.toLocaleString("fa-IR")} تومان`}
                 onClick={() => setShipping("express")}
               />
             </div>
@@ -238,17 +407,78 @@ export function CheckoutPage() {
             <h3 className="mb-4 flex items-center gap-2 text-[13px] font-semibold text-ink">
               <Wallet size={15} /> پرداخت
             </h3>
-            <div className="flex items-center gap-3 rounded-xl bg-[#f4efe7] p-4">
-              <CreditCard className="h-5 w-5 text-ink-70" />
-              <div className="flex-1">
-                <p className="text-[12.5px] font-medium text-ink">{gateway}</p>
-                <p className="text-[11px] text-ink-45">
-                  {admin.integrations.payment.enabled
-                    ? `حالت ${admin.integrations.payment.mode === "test" ? "تست" : "حقیقی"} — در این نسخه پرداخت شبیه‌سازی می‌شود.`
-                    : "درگاه در پنل مدیریت پیکربندی نشده — پرداخت شبیه‌سازی می‌شود."}
-                </p>
-              </div>
-              <ShieldCheck className="h-4 w-4 text-ink-45" />
+            <div className="grid gap-2">
+              <button
+                type="button"
+                onClick={() => setMethod("online")}
+                aria-pressed={method === "online"}
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-4 text-start transition-colors",
+                  method === "online" ? "border-ink bg-ink/[0.04]" : "border-black/10 hover:border-ink/35",
+                )}
+              >
+                <CreditCard className="mt-0.5 h-5 w-5 text-ink-70" />
+                <span className="flex-1">
+                  <span className="block text-[12.5px] font-medium text-ink">پرداخت آنلاین — {gateway}</span>
+                  <span className="mt-0.5 block text-[11px] text-ink-45">
+                    {admin.integrations.payment.enabled
+                      ? `حالت ${admin.integrations.payment.mode === "test" ? "تست" : "حقیقی"}.`
+                      : "درگاه شبیه‌سازی‌شده؛ تأیید نهایی سمت سرور انجام می‌شود."}
+                  </span>
+                </span>
+                <ShieldCheck className="h-4 w-4 text-ink-45" />
+              </button>
+
+              {cfg?.bnpl4.enabled && (
+                <button
+                  type="button"
+                  onClick={() => setMethod("bnpl4")}
+                  aria-pressed={method === "bnpl4"}
+                  className={cn(
+                    "flex items-start gap-3 rounded-xl border p-4 text-start transition-colors",
+                    method === "bnpl4" ? "border-ink bg-ink/[0.04]" : "border-black/10 hover:border-ink/35",
+                  )}
+                >
+                  <Wallet className="mt-0.5 h-5 w-5 text-ink-70" />
+                  <span className="flex-1">
+                    <span className="block text-[12.5px] font-medium text-ink">
+                      پرداخت {cfg.bnpl4.installments} قسطی — کل سفارش
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-ink-45">
+                      {bnplPlan
+                        ? `هر قسط حدود ${formatPrice(bnplPlan.perInstallment)} (بدون کارمزد) · تصمیم نهایی با ارائه‌دهنده`
+                        : "مبلغ کل سفارش به اقساط مساوی تقسیم می‌شود؛ تصمیم نهایی با ارائه‌دهنده است."}
+                    </span>
+                  </span>
+                </button>
+              )}
+
+              {cfg?.cashback.redeem.enabled && walletAvailable > 0 && (
+                <label
+                  className={cn(
+                    "flex items-start gap-3 rounded-xl border p-4 text-start transition-colors",
+                    useWallet ? "border-ink bg-ink/[0.04]" : "border-black/10 hover:border-ink/35",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 accent-ink"
+                    checked={useWallet}
+                    onChange={(e) => setUseWallet(e.target.checked)}
+                  />
+                  <span className="flex-1">
+                    <span className="block text-[12.5px] font-medium text-ink">
+                      استفاده از کش‌بک — تا {formatPrice(Math.min(walletAvailable, walletCap))}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-ink-45">
+                      موجودی قابل استفاده {formatPrice(walletAvailable)}
+                      {wallet && wallet.pending > 0 ? ` · ${formatPrice(wallet.pending)} پس از تحویل آزاد می‌شود` : ""}
+                      {" · "}حداکثر {walletCapPercent.toLocaleString("fa-IR")}٪ مبلغ کالا · غیرقابل برداشت
+                    </span>
+                  </span>
+                  <Wallet className="h-4 w-4 text-ink-45" />
+                </label>
+              )}
             </div>
           </section>
         </div>
@@ -286,9 +516,9 @@ export function CheckoutPage() {
           <dl className="mt-4 space-y-1.5 border-t border-black/[0.07] pt-3 text-[12px]">
             <div className="flex justify-between">
               <dt className="text-ink-45">جمع اقلام</dt>
-              <dd className="text-ink">{formatPrice(discount.subtotal)}</dd>
+              <dd className="text-ink">{formatPrice(viewSubtotal)}</dd>
             </div>
-            {discount.applied.map((d) => (
+            {viewDiscounts.map((d) => (
               <div key={d.id} className="flex justify-between text-emerald-700">
                 <dt className="min-w-0 truncate pe-2">{d.name}</dt>
                 <dd className="shrink-0">{d.amount > 0 ? `− ${formatPrice(d.amount)}` : "ارسال رایگان"}</dd>
@@ -296,21 +526,32 @@ export function CheckoutPage() {
             ))}
             <div className="flex justify-between">
               <dt className="text-ink-45">ارسال {shipping === "express" ? "سریع" : "استاندارد"}</dt>
-              <dd className={cn("text-ink", finalShipping === 0 && "text-emerald-700")}>{finalShipping === 0 ? "رایگان" : formatPrice(finalShipping)}</dd>
+              <dd className={cn("text-ink", viewShipping === 0 && "text-emerald-700")}>{viewShipping === 0 ? "رایگان" : formatPrice(viewShipping)}</dd>
             </div>
+            {serverQuote?.cashback.enabled && serverQuote.cashback.amount > 0 && (
+              <div className="flex justify-between text-emerald-700">
+                <dt>
+                  کش‌بک این خرید{" "}
+                  <span className="text-[10.5px] text-ink-45">({serverQuote.cashback.percent.toLocaleString("fa-IR")}٪)</span>
+                </dt>
+                <dd>+ {formatPrice(serverQuote.cashback.amount)}</dd>
+              </div>
+            )}
             <div className="flex items-baseline justify-between border-t border-black/[0.07] pt-2">
               <dt className="text-[12.5px] font-medium text-ink">مبلغ نهایی</dt>
-              <dd className="font-display text-[24px] font-medium text-ink">{formatPrice(total)}</dd>
+              <dd className="font-display text-[24px] font-medium text-ink">
+                {formatPrice(walletApplied > 0 ? payableNow : viewTotal)}
+              </dd>
             </div>
           </dl>
 
-          <button type="submit" className={buttonStyles("solid", "lg", "mt-4 w-full")}>
-            <Lock className="h-3.5 w-3.5" />
-            ثبت سفارش نمایشی
+          <button type="submit" disabled={placing} className={buttonStyles("solid", "lg", "mt-4 w-full disabled:opacity-60")}>
+            {placing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
+            {placing ? "در حال رزرو موجودی و پرداخت…" : "پرداخت و ثبت سفارش"}
           </button>
           <p className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-ink-45">
             <Zap className="h-3 w-3" />
-            موجودی انبار بعد از ثبت سفارش کسر می‌شود
+            با ورود به این مرحله موجودی تا {cfg?.reservationHoldMinutes ?? 10} دقیقه رزرو می‌شود؛ سبد خرید به‌تنهایی موجودی را نگه نمی‌دارد.
           </p>
         </aside>
       </form>

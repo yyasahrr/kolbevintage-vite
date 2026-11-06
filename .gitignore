@@ -23,3 +23,22 @@ yarn-error.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Backend runtime data (PostgreSQL cluster + uploaded media)
+server/.pgdata/
+server/uploads/*
+!server/uploads/.gitkeep
+
+# Agent skill packs installed locally (npx skills add …) — not part of the app
+.agents/
+.claude/
+agent/
+skills-lock.json
+
+# Logical backups written by the server
+server/.backups/
+
+# playwright: run artefacts, never the goldens themselves
+test-results/
+playwright-report/
+blob-report/

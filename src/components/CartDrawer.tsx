@@ -52,7 +52,7 @@ export function CartDrawer({ reduced }: { reduced: boolean }) {
                 type="button"
                 onClick={() => setCartOpen(false)}
                 aria-label="بستن سبد خرید"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-ink-70 transition-colors hover:bg-ink hover:text-bone"
+                className="tap flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-ink-70 transition-colors hover:bg-ink hover:text-bone"
               >
                 <X className="h-4 w-4" />
               </button>

@@ -72,11 +72,26 @@ export const getDocs = () => docsStore.get();
 export const useDocs = () => useSyncExternalStore(docsStore.subscribe, docsStore.get, docsStore.get);
 export const getDoc = (id: string | undefined) => (id ? getDocs().find((d) => d.id === id) : undefined);
 
+/** how many earlier saves a document keeps (decision 74) */
+const MAX_VERSIONS = 12;
+
 export function saveDoc(doc: BDoc): boolean {
-  const next = { ...doc, updatedAt: Date.now() };
   const docs = getDocs();
-  const exists = docs.some((d) => d.id === doc.id);
+  const previous = docs.find((d) => d.id === doc.id);
+  const versions = previous
+    ? [{ at: previous.updatedAt, title: previous.title, content: previous.content }, ...(previous.versions ?? [])].slice(0, MAX_VERSIONS)
+    : doc.versions;
+  const next = { ...doc, updatedAt: Date.now(), versions };
+  const exists = Boolean(previous);
   return docsStore.set(exists ? docs.map((d) => (d.id === doc.id ? next : d)) : [next, ...docs]);
+}
+
+/** walk a document back to a stored snapshot; the current content is kept as a version too */
+export function restoreVersion(id: string, at: number): boolean {
+  const doc = getDoc(id);
+  const snap = doc?.versions?.find((v) => v.at === at);
+  if (!doc || !snap) return false;
+  return saveDoc({ ...doc, title: snap.title, content: snap.content });
 }
 
 export function removeDoc(id: string) {
@@ -117,12 +132,12 @@ export function uniqueSlug(base: string, ignoreId?: string): string {
   return slug;
 }
 
-export function createDoc(kind: DocKind, title: string, content: BNode[] = []): BDoc {
+export function createDoc(kind: DocKind, title: string, content: BNode[] = [], slug?: string): BDoc {
   const doc: BDoc = {
     id: uid(),
     title,
     kind,
-    slug: uniqueSlug(title),
+    slug: slug ?? uniqueSlug(title),
     status: "draft",
     content,
     page: {
@@ -240,4 +255,35 @@ export function matchesDisplay(doc: BDoc, route: RouteKind): boolean {
 
 export function activeTemplate(docs: BDoc[], kind: "header" | "footer", route: RouteKind): BDoc | undefined {
   return docs.find((d) => d.kind === kind && d.active && d.status === "published" && matchesDisplay(d, route));
+}
+
+/* ------------------------------------------------------------------ */
+/* pages the site already has                                          */
+/* ------------------------------------------------------------------ */
+
+export interface CorePage {
+  /** the builder document slug that takes over this route */
+  slug: string;
+  title: string;
+  path: string;
+  hint: string;
+}
+
+/** built-in routes the page builder is allowed to take over */
+export const CORE_PAGES: CorePage[] = [
+  { slug: "home", title: "صفحه اصلی", path: "/", hint: "هرو، محصولات و بخش‌های صفحهٔ اول" },
+  { slug: "about", title: "دربارهٔ ما", path: "/about", hint: "داستان برند، آمار و گالری" },
+];
+
+/** the published document that owns a core route, if the owner built one */
+export function corePageDoc(docs: BDoc[], slug: string): BDoc | undefined {
+  return docs.find((d) => d.kind === "page" && d.slug === slug && d.status === "published");
+}
+
+/** opens (or starts) the editable document for a built-in page */
+export function openCorePage(slug: string, content: BNode[] = []): BDoc {
+  const existing = getDocs().find((d) => d.kind === "page" && d.slug === slug);
+  if (existing) return existing;
+  const page = CORE_PAGES.find((p) => p.slug === slug);
+  return createDoc("page", page?.title ?? slug, content, slug);
 }

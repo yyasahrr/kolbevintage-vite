@@ -7,7 +7,6 @@ import { ProductCard } from "@/components/ProductCard";
 import {
   Breadcrumbs,
   Marquee,
-  Newsletter,
   Reveal,
   SectionHeading,
   buttonStyles,
@@ -95,7 +94,7 @@ export function LandingPage() {
 
       <div className="mt-4">
         <Marquee
-          items={["کمپین AW26", "ساخت پاریس", "پارچهٔ طبیعی", "تولید محدود", "سه فصل، یک ایده"]}
+          items={["کمپین AW26", "ساخت تهران", "پارچهٔ طبیعی", "تولید محدود", "سه فصل، یک ایده"]}
         />
       </div>
 
@@ -108,7 +107,7 @@ export function LandingPage() {
             «ما لباس نمی‌سازیم؛ تصمیم می‌گیریم پارچه کجای بدن بایستد. هر قطعه، یک جملهٔ کوتاه از یک فصل
             بلند است.»
           </p>
-          <p className="mt-4 text-[10.5px] text-ink-45">— استودیوی طراحی ولور، پاریس</p>
+          <p className="mt-4 text-[10.5px] text-ink-45">— استودیوی طراحی ولور، تهران</p>
         </Reveal>
       </section>
 
@@ -209,7 +208,6 @@ export function LandingPage() {
         </div>
       </section>
 
-      <Newsletter />
     </div>
   );
 }

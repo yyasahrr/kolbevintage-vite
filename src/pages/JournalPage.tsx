@@ -2,14 +2,29 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, BookOpen } from "lucide-react";
 import { POSTS } from "@/data/journal";
-import { Chip, Newsletter, PageIntro, Reveal } from "@/components/ui";
+import { Chip, EmptyState, PageIntro, Reveal } from "@/components/ui";
+import { useOps } from "@/state/ops";
 
 const CATEGORIES = ["همه", "استایل", "آتلیه", "پارچه", "رانوی"] as const;
 
 export function JournalPage() {
   const [category, setCategory] = useState<string>("همه");
+  const features = useOps().features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
   const posts = category === "همه" ? POSTS : POSTS.filter((p) => p.category === category);
   const featured = POSTS.find((p) => p.featured) ?? POSTS[0];
+
+  // the owner can switch the journal off from the panel; when it is off the
+  // section is really gone instead of showing an empty shell (decision 62)
+  if (!features.journal) {
+    return (
+      <div className="pb-14">
+        <PageIntro crumbs={[{ label: "ژورنال" }]} title="ژورنال فعلاً خاموش است" description="مالک فروشگاه این بخش را از پنل خاموش کرده است." />
+        <div className="mx-auto w-full max-w-[1500px] px-4 sm:px-6 lg:px-10">
+          <EmptyState icon={<BookOpen className="h-5 w-5" />} title="این بخش در دسترس نیست" body="از فروشگاه یا صفحهٔ استایل‌ها شروع کن." />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-14">
@@ -119,7 +134,6 @@ export function JournalPage() {
       </div>
 
       <div className="mt-12">
-        <Newsletter />
       </div>
     </div>
   );

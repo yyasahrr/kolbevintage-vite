@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { AtSign, Mail, MapPin, Phone } from "lucide-react";
 import { COLLECTIONS, productsInCollection } from "@/data/catalog";
 import { useOps } from "@/state/ops";
+import { useAdmin } from "@/state/admin";
 
 const SERVICE = [
   { label: "پیگیری سفارش", to: "/about" },
@@ -13,13 +14,16 @@ const SERVICE = [
 
 const STUDIO = [
   { label: "دربارهٔ ولور", to: "/about" },
-  { label: "آتلیهٔ پاریس", to: "/about" },
+  { label: "آتلیهٔ تهران", to: "/about" },
   { label: "پایداری", to: "/about" },
   { label: "فرصت‌های شغلی", to: "/about" },
 ];
 
 export function SiteFooter() {
   const { brand } = useOps();
+  // contact details live in admin settings so the owner edits them once
+  const { settings } = useAdmin();
+  const telHref = `tel:${settings.phone.replace(/[^\d+]/g, "")}`;
   return (
     <footer className="border-t border-black/[0.07] bg-[#efe9e1]">
       <div className="mx-auto grid max-w-[1500px] gap-9 px-4 py-11 sm:grid-cols-2 sm:px-6 lg:grid-cols-[1.5fr_1fr_1fr_1fr] lg:px-10">
@@ -36,21 +40,24 @@ export function SiteFooter() {
           </p>
           <div className="mt-4 space-y-1.5 text-[11.5px] text-ink-70">
             <p className="flex items-center gap-2">
-              <MapPin className="h-3.5 w-3.5 text-ink-45" /> پاریس، خیابان سن‌آنوره، پلاک ۲۴
+              <MapPin className="h-3.5 w-3.5 shrink-0 text-ink-45" /> {settings.address}
             </p>
             <p className="flex items-center gap-2">
-              <Phone className="h-3.5 w-3.5 text-ink-45" />
-              <span dir="ltr">+33 1 84 80 24 24</span>
+              <Phone className="h-3.5 w-3.5 shrink-0 text-ink-45" />
+              <a href={telHref} dir="ltr" className="hover:text-ink">{settings.phone}</a>
             </p>
             <p className="flex items-center gap-2">
-              <Mail className="h-3.5 w-3.5 text-ink-45" /> client@velours.store
+              <Mail className="h-3.5 w-3.5 shrink-0 text-ink-45" />
+              <a href={`mailto:${settings.email}`} dir="ltr" className="hover:text-ink">{settings.email}</a>
             </p>
           </div>
           <div className="mt-4 flex items-center gap-2">
             <a
-              href="#newsletter"
+              href="https://instagram.com"
+              target="_blank"
+              rel="noreferrer noopener"
               aria-label="اینستاگرام ولور"
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-black/12 text-ink-70 transition-colors hover:border-ink hover:text-ink"
+              className="tap flex h-8 w-8 items-center justify-center rounded-full border border-black/12 text-ink-70 transition-colors hover:border-ink hover:text-ink"
             >
               <AtSign className="h-3.5 w-3.5" />
             </a>
@@ -99,7 +106,7 @@ export function SiteFooter() {
 
       <div className="border-t border-black/[0.06]">
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-3 px-4 py-4 text-[10px] text-ink-45 sm:px-6 lg:px-10">
-          <p>© {new Date().getFullYear()} ولور پاریس — تمام حقوق محفوظ است.</p>
+          <p>© {new Date().getFullYear()} ولور — تمام حقوق محفوظ است.</p>
           <div className="flex flex-wrap items-center gap-4">
             <Link to="/about" className="transition-colors hover:text-ink">
               حریم خصوصی

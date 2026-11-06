@@ -13,7 +13,12 @@ import type { CatalogProduct } from "@/data/catalog";
  */
 export function CardMedia({ product, className }: { product: CatalogProduct; className?: string }) {
   const ops = useOps();
-  const media = ops.hoverMedia[product.id];
+  const legacy = ops.hoverMedia[product.id];
+  const gallery = ops.productImages[product.id] ?? [];
+  const media = {
+    hoverImage: gallery.find((i) => i.role === "hover")?.url ?? legacy?.hoverImage,
+    hoverVideo: legacy?.hoverVideo,
+  };
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hover, setHover] = useState(false);
   const [reduced, setReduced] = useState(false);

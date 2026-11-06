@@ -1,12 +1,14 @@
-import { Link, useParams } from "react-router-dom";
-import { LOOKS } from "@/data/looks";
+import { useMemo } from "react";
+import { useParams } from "react-router-dom";
+import { liveLooks } from "@/data/catalog";
+import { useAdmin } from "@/state/admin";
 import { RunwaySection } from "@/components/RunwaySection";
-import { Breadcrumbs, Newsletter, buttonStyles } from "@/components/ui";
-
+import { Breadcrumbs } from "@/components/ui";
 
 export function StylePage() {
   const { lookId } = useParams();
-  const look = LOOKS.find((l) => l.id === lookId);
+  const admin = useAdmin();
+  const look = useMemo(() => liveLooks().find((l) => l.id === lookId), [lookId, admin]);
 
   return (
     <>
@@ -18,17 +20,6 @@ export function StylePage() {
 
       <RunwaySection initialLookId={look?.id} />
 
-      <section className="mx-auto mt-8 flex w-full max-w-[1500px] flex-wrap items-center justify-between gap-3 border-t border-black/[0.07] px-4 pt-5 sm:px-6 lg:px-10">
-        <p className="text-[11.5px] text-ink-45">
-          این صفحه یک رانوی تعاملی است: مدل را انتخاب کن، استایلش را ببین و یک‌جا بخر.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Link to="/style-builder" className={buttonStyles("solid", "sm")}>استایل بیلدر</Link>
-          <Link to="/products" className={buttonStyles("ghost", "sm")}>همهٔ محصولات</Link>
-        </div>
-      </section>
-
-      <Newsletter compact />
     </>
   );
 }

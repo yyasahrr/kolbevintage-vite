@@ -1,5 +1,8 @@
 import { useSyncExternalStore } from "react";
-import type { GarmentKind } from "@/types";
+import type { GarmentKind, ProductImage, ProductImageRole } from "@/types";
+import { pushRemote } from "./persist";
+import { DEFAULT_THEME, type ThemeId } from "@/theme/themes";
+import type { WidgetInstance, WidgetZone } from "@/widgets/types";
 
 /* =====================================================================
    Operations store — everything the admin panel edits that is NOT the
@@ -45,8 +48,24 @@ export interface SizeSet {
 }
 
 export type MediaMap = Record<string, { hoverImage?: string; hoverVideo?: string }>;
-/** productId → colorId → image list */
+/** productId → colorId → image list (legacy, migrated into productImages) */
 export type ColorMedia = Record<string, Record<string, string[]>>;
+/** productId → ordered gallery where each image knows its colour and role */
+export type ProductImageMap = Record<string, ProductImage[]>;
+
+export const IMAGE_ROLE_LABEL: Record<ProductImageRole, string> = {
+  main: "تصویر شاخص",
+  gallery: "گالری",
+  hover: "نمایش در هاور",
+  detail: "جزئیات / بافت",
+};
+
+export const IMAGE_ROLE_HINT: Record<ProductImageRole, string> = {
+  main: "اول گالری محصول دیده می‌شود",
+  gallery: "بین بقیهٔ تصاویر گالری",
+  hover: "وقتی نشانگر روی کارت محصول می‌رود",
+  detail: "برای نمای نزدیک پارچه و دوخت",
+};
 
 export interface CustomerLabel {
   id: string;
@@ -69,7 +88,27 @@ export interface SmsCampaign {
   body: string;
   audience: string;
   recipients: number;
+  /** 0 until a real provider confirms delivery — the panel never claims a send */
   sent: number;
+  /** "prepared" = text is ready and handed to the phone's SMS app */
+  status?: "prepared" | "sent";
+}
+
+export interface IssueReport {
+  id: string;
+  at: number;
+  /** where the owner was when they hit the problem */
+  page: string;
+  text: string;
+  /** what the browser said about itself — helps the developer reproduce */
+  context: { ua: string; width: number; url: string };
+  resolved?: boolean;
+}
+
+export interface ReplyTemplate {
+  id: string;
+  name: string;
+  body: string;
 }
 
 export interface CashbackTxn {
@@ -117,6 +156,8 @@ export interface Ticket {
   status: "open" | "pending" | "closed";
   priority: "low" | "normal" | "high";
   messages: TicketMsg[];
+  /** who inside the shop owns this ticket (decision 47) */
+  assignee?: string;
 }
 
 export interface ReturnReq {
@@ -169,13 +210,52 @@ export interface MegaMenuDef {
 
 export interface OpsState {
   brand: Brand;
+  /**
+   * the storefront's visual theme — one store-level decision, applied to every
+   * visitor. Shoppers never get their own theme switch.
+   */
+  siteTheme: ThemeId;
   categories: CategoryDef[];
   sizeSets: SizeSet[];
+  /** drag order of the storefront home page blocks (decision 67) */
+  homeSections: HomeSection[];
+  /** productId → ordered gallery, each image with its own colour + role */
+  productImages: ProductImageMap;
+  /** productId → one short video (decision 23: 12 photos plus a clip) */
+  productVideos: Record<string, string>;
+  /** kept for backwards compatibility with older saved data */
   colorMedia: ColorMedia;
   hoverMedia: MediaMap;
   labels: CustomerLabel[];
   smsTemplates: SmsTemplate[];
   smsCampaigns: SmsCampaign[];
+  /** canned answers the support desk can drop into a reply (decision 29) */
+  replyTemplates: ReplyTemplate[];
+  /** per-category size guide the product page shows (decision 56) */
+  sizeGuides: Record<string, { note: string; rows: { size: string; chest: string; waist: string; hips: string }[] }>;
+  /**
+   * store-level on/off switches, flipped from the panel without shipping a new
+   * build (decision 62). Off means the feature is really gone from the shop,
+   * not greyed out.
+   */
+  features: { tryon: boolean; reviews: boolean; journal: boolean; wishlist: boolean };
+  /**
+   * default product order per category, chosen by the owner (decision 27);
+   * a shopper picking a sort still wins for that visit.
+   */
+  categorySort: Record<string, "featured" | "newest" | "price-asc" | "price-desc">;
+  /** journal articles the owner rewrote in the block editor, by slug (decision 68) */
+  journalBlocks: Record<string, import("@/data/journal").ArticleBlock[]>;
+  /** first-run wizard: five steps, resumable, and it disappears once finished (decision 93) */
+  setup: { done: boolean; step: number };
+  /** signed-off launch checks; what the panel can measure is measured, the rest is the owner's word (decision 91) */
+  launchChecks: Record<string, { at: number; by: string }>;
+  /** 'مشکل داشتم' reports, kept in the panel and copied/mailed to the developer (decisions 96 + 97) */
+  issues: IssueReport[];
+  /** where the developer wants the reports (set in settings) */
+  developerEmail: string;
+  /** search preview + the editable 404 copy (decisions 64 + 66) */
+  seo: { title: string; description: string; notFoundTitle: string; notFoundText: string };
   cashbackRate: number;
   cashbackTxns: CashbackTxn[];
   tryonPackages: TryOnPackage[];
@@ -187,6 +267,13 @@ export interface OpsState {
   security: Security;
   formFields: FormFieldPolicy[];
   megaMenus: MegaMenuDef[];
+  /**
+   * widgets the owner dropped into a storefront zone (decision 75). The list is
+   * empty on a fresh shop: nothing appears until the owner installs a widget.
+   */
+  widgets: WidgetInstance[];
+  /** questions the owner wrote for the FAQ widget (decision 75, batch 2) */
+  faqs: { id: string; q: string; a: string }[];
   /** lookId → product ids explicitly placed in that look (admin editor) */
   lookProducts: Record<string, string[]>;
   /** lookId → uploaded look image override */
@@ -213,20 +300,105 @@ const CATEGORIES: CategoryDef[] = [
   { id: "bags", name: "کیف و اکسسوری", slug: "bags", garments: ["bag", "accessory"], thumbnail: "stock:look1", sizeSetId: "one", active: true, order: 6 },
 ];
 
+/* ---------------- home page section order (decision 67) ---------------- */
+
+export interface HomeSection {
+  id: string;
+  label: string;
+  active: boolean;
+}
+
+/** the order a fresh shop starts with; the panel can reorder or hide each block */
+export const HOME_DEFAULT_ORDER = ["hero", "collections", "newArrivals", "runway", "atelier", "looks", "journal"];
+
+const HOME_SECTION_NAMES: Record<string, string> = {
+  hero: "هدر تصویری و نوار متحرک",
+  collections: "دسته‌بندی‌ها",
+  newArrivals: "تازه رسیده‌ها",
+  runway: "نوار رانوی",
+  atelier: "آتلیه و ساخت",
+  looks: "استایل‌ها",
+  journal: "ژورنال",
+};
+
+export const defaultHomeSections = (): HomeSection[] =>
+  HOME_DEFAULT_ORDER.map((id) => ({ id, label: HOME_SECTION_NAMES[id] ?? id, active: true }));
+
+export const setHomeSections = (list: HomeSection[]) => patchOps({ homeSections: list });
+
+/* ---------------- widgets (decision 75) ---------------- */
+
+const uid = () => `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+export const addWidget = (kind: string, zone: WidgetZone, defaults: Record<string, string | number | boolean> = {}) => {
+  const list = cache.widgets ?? [];
+  const instance: WidgetInstance = { id: uid(), kind, zone, title: "", active: true, options: defaults };
+  patchOps({ widgets: [...list, instance] });
+  return instance.id;
+};
+
+export const removeWidget = (id: string) => patchOps({ widgets: (cache.widgets ?? []).filter((w) => w.id !== id) });
+
+export const toggleWidget = (id: string) =>
+  patchOps({ widgets: (cache.widgets ?? []).map((w) => (w.id === id ? { ...w, active: !w.active } : w)) });
+
+export const updateWidget = (id: string, patch: Partial<Omit<WidgetInstance, "id">>) =>
+  patchOps({ widgets: (cache.widgets ?? []).map((w) => (w.id === id ? { ...w, ...patch } : w)) });
+
+/** move an instance inside its own zone; widgets never jump zones by accident */
+export const moveWidget = (id: string, direction: -1 | 1) => {
+  const list = [...(cache.widgets ?? [])];
+  const index = list.findIndex((w) => w.id === id);
+  if (index < 0) return;
+  const zone = list[index].zone;
+  const siblings = list.filter((w) => w.zone === zone);
+  const at = siblings.findIndex((w) => w.id === id);
+  const target = siblings[at + direction];
+  if (!target) return;
+  const targetIndex = list.findIndex((w) => w.id === target.id);
+  [list[index], list[targetIndex]] = [list[targetIndex], list[index]];
+  patchOps({ widgets: list });
+};
+
+export const setWidgets = (list: WidgetInstance[]) => patchOps({ widgets: list });
+
+export const saveFaq = (faq: { id: string; q: string; a: string }) =>
+  patchOps({ faqs: cache.faqs.some((f) => f.id === faq.id) ? cache.faqs.map((f) => (f.id === faq.id ? faq : f)) : [...cache.faqs, faq] });
+export const removeFaq = (id: string) => patchOps({ faqs: cache.faqs.filter((f) => f.id !== id) });
+
+/** move one block up/down; used by the drag handle and the keyboard buttons */
+export const moveHomeSection = (id: string, direction: -1 | 1) => {
+  const list = cache.homeSections?.length ? [...cache.homeSections] : defaultHomeSections();
+  const index = list.findIndex((s) => s.id === id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= list.length) return;
+  [list[index], list[target]] = [list[target], list[index]];
+  patchOps({ homeSections: list });
+};
+
+export const toggleHomeSection = (id: string) => {
+  const list = cache.homeSections?.length ? [...cache.homeSections] : defaultHomeSections();
+  patchOps({ homeSections: list.map((s) => (s.id === id ? { ...s, active: !s.active } : s)) });
+};
+
 const DEFAULT: OpsState = {
+  siteTheme: DEFAULT_THEME,
   brand: {
     logoText: "VELOURS",
     logoImage: "",
     favicon: "",
     name: "ولور",
-    tagline: "خانهٔ پوشاک آماده — پاریس",
-    announcement: "ارسال رایگان بالای ۲۰۰ یورو — مرجوعی تا ۱۴ روز",
+    tagline: "خانهٔ پوشاک آماده — تهران",
+    announcement: "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان — مرجوعی تا ۱۴ روز",
     announcementActive: true,
-    footerNote: "خانهٔ پوشاک آماده در پاریس؛ قطعه‌های محدود، پارچه‌های طبیعی و ساخت آهسته.",
+    footerNote: "خانهٔ پوشاک آماده در تهران؛ قطعه‌های محدود، پارچه‌های طبیعی و ساخت آهسته.",
     socials: { instagram: "#", telegram: "#", whatsapp: "#" },
   },
   categories: CATEGORIES,
   sizeSets: SIZE_SETS,
+  homeSections: defaultHomeSections(),
+  productImages: {},
+  productVideos: {},
   colorMedia: {},
   hoverMedia: {},
   labels: [
@@ -238,9 +410,28 @@ const DEFAULT: OpsState = {
   smsTemplates: [
     { id: "s1", name: "خوش‌آمد", body: "{{name}} عزیز، به ولور خوش آمدی. کد ۱۰٪ تخفیف: VELOURS10" },
     { id: "s2", name: "سبد رها‌شده", body: "{{name}} عزیز، ست انتخابی‌ات منتظر توست. امروز تا ۲۴ ساعت رزرو شده." },
-    { id: "s3", name: "جشنواره", body: "{{name}} عزیز، جشنوارهٔ پاییزه شروع شد — ۱۵٪ روی خرید بالای ۱۵۰ یورو." },
+    { id: "s3", name: "جشنواره", body: "{{name}} عزیز، جشنوارهٔ پاییزه شروع شد — ۱۵٪ روی خرید بالای ۱۵۰ تومان." },
   ],
   smsCampaigns: [],
+  replyTemplates: [
+    { id: "rt1", name: "اطلاع ارسال", body: "سفارش شما بسته‌بندی شد و تا ۴۸ ساعت آینده به پست تحویل می‌شود. کد رهگیری پس از ثبت، پیامک می‌شود." },
+    { id: "rt2", name: "راهنمای سایز", body: "برای انتخاب دقیق سایز، جدول اندازهٔ همین محصول را در صفحهٔ محصول ببینید؛ اگر بین دو سایز بودید، سایز بزرگ‌تر راحت‌تر است." },
+    { id: "rt3", name: "پیگیری مرجوعی", body: "درخواست مرجوعی شما ثبت شد. پس از دریافت بسته و کنترل کیفیت، طی ۷۲ ساعت کاری تعیین وضعیت می‌شود." },
+  ],
+  sizeGuides: {},
+  features: { tryon: true, reviews: true, journal: true, wishlist: true },
+  categorySort: {},
+  journalBlocks: {},
+  setup: { done: false, step: 0 },
+  launchChecks: {},
+  issues: [],
+  developerEmail: "",
+  seo: {
+    title: "ولور | پوشاک آمادهٔ زنانه — تهران",
+    description: "پالتو، بافت و کیف چرم دست‌دوز؛ ساخت محدود در آتلیهٔ تهران با ارسال سراسری و مرجوعی ۱۴ روزه.",
+    notFoundTitle: "این صفحه پیدا نشد",
+    notFoundText: "ممکن است نشانی عوض شده باشد. از منوی بالا یا جست‌وجو دوباره شروع کن.",
+  },
   cashbackRate: 5,
   cashbackTxns: [],
   tryonPackages: [
@@ -319,9 +510,36 @@ const DEFAULT: OpsState = {
       cta: { title: "خرید بر اساس استایل", text: "شش استایل کامل روی رانو", href: "/style", image: "stock:look5" },
     },
   ],
+  widgets: [],
+  faqs: [],
   lookProducts: {},
   lookImages: {},
 };
+
+/** fold the old per-colour / hover uploads into the unified image gallery */
+function migrateImages(p: Partial<OpsState>): ProductImageMap {
+  const out: ProductImageMap = {};
+  for (const [productId, list] of Object.entries(p.productImages ?? {})) {
+    if (Array.isArray(list)) out[productId] = list.filter((i) => !!i?.url);
+  }
+  for (const [productId, perColor] of Object.entries(p.colorMedia ?? {})) {
+    if (out[productId]?.length) continue;
+    const list: ProductImage[] = [];
+    for (const [colorId, urls] of Object.entries(perColor ?? {})) {
+      (urls ?? []).forEach((url, i) => {
+        if (url) list.push({ id: `mig-${productId}-${colorId}-${i}`, url, colorId, role: "gallery" });
+      });
+    }
+    const hover = p.hoverMedia?.[productId];
+    if (hover?.hoverImage) list.push({ id: `mig-hover-${productId}`, url: hover.hoverImage, colorId: "*", role: "hover" });
+    if (list.length) out[productId] = list;
+  }
+  for (const [productId, hover] of Object.entries(p.hoverMedia ?? {})) {
+    if (!hover?.hoverImage || out[productId]?.some((i) => i.role === "hover")) continue;
+    out[productId] = [...(out[productId] ?? []), { id: `mig-hover-${productId}`, url: hover.hoverImage, colorId: "*", role: "hover" }];
+  }
+  return out;
+}
 
 function read(): OpsState {
   try {
@@ -331,6 +549,7 @@ function read(): OpsState {
     return {
       ...DEFAULT,
       ...p,
+      productImages: migrateImages(p),
       brand: { ...DEFAULT.brand, ...(p.brand ?? {}) },
       security: { ...DEFAULT.security, ...(p.security ?? {}) },
     };
@@ -346,6 +565,25 @@ function commit(next: OpsState) {
   cache = next;
   try {
     localStorage.setItem(KEY, JSON.stringify(next));
+  } catch {
+    /* quota */
+  }
+  listeners.forEach((l) => l());
+  pushRemote("ops", next);
+}
+
+/** replaces the store with the server snapshot without echoing it back */
+export function hydrateOps(next: Partial<OpsState>) {
+  const merged: OpsState = {
+    ...DEFAULT,
+    ...next,
+    brand: { ...DEFAULT.brand, ...(next.brand ?? {}) },
+    security: { ...DEFAULT.security, ...(next.security ?? {}) },
+    productImages: migrateImages(next),
+  };
+  cache = merged;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(merged));
   } catch {
     /* quota */
   }
@@ -382,6 +620,34 @@ export const sizesForGarment = (g: GarmentKind): string[] => {
 };
 
 /* ---------------- media ---------------- */
+export const productImagesOf = (productId: string): ProductImage[] => cache.productImages[productId] ?? [];
+export const setProductImages = (productId: string, images: ProductImage[]) =>
+  patchOps({ productImages: { ...cache.productImages, [productId]: images } });
+export const productVideoOf = (productId: string): string | undefined => cache.productVideos[productId];
+export const setProductVideo = (productId: string, url: string | undefined) => {
+  const next = { ...cache.productVideos };
+  if (url) next[productId] = url;
+  else delete next[productId];
+  return patchOps({ productVideos: next });
+};
+
+export const updateProductImage = (productId: string, imageId: string, p: Partial<ProductImage>) =>
+  setProductImages(productId, productImagesOf(productId).map((i) => (i.id === imageId ? { ...i, ...p } : i)));
+export const removeProductImage = (productId: string, imageId: string) =>
+  setProductImages(productId, productImagesOf(productId).filter((i) => i.id !== imageId));
+
+/** gallery images for a colour, main first, then gallery, then close-ups */
+export const galleryImagesOf = (productId: string, colorId?: string) => {
+  const rank: Record<ProductImageRole, number> = { main: 0, gallery: 1, detail: 2, hover: 9 };
+  return productImagesOf(productId)
+    .filter((i) => i.role !== "hover" && (!colorId || i.colorId === "*" || i.colorId === colorId))
+    .sort((a, b) => rank[a.role] - rank[b.role]);
+};
+/** the picture a product card shows while hovered */
+export const hoverImageOf = (productId: string) => productImagesOf(productId).find((i) => i.role === "hover")?.url;
+/** the picture that replaces the runway crop as the product's visual */
+export const coverImageOf = (productId: string) => galleryImagesOf(productId)[0]?.url;
+
 export const setColorMedia = (productId: string, colorId: string, images: string[]) =>
   patchOps({ colorMedia: { ...cache.colorMedia, [productId]: { ...(cache.colorMedia[productId] ?? {}), [colorId]: images } } });
 export const removeColorMedia = (productId: string, colorId: string) => {
@@ -402,6 +668,52 @@ export const removeLabel = (id: string) => patchOps({ labels: cache.labels.filte
 export const saveSmsTemplate = (t: SmsTemplate) =>
   patchOps({ smsTemplates: cache.smsTemplates.some((x) => x.id === t.id) ? cache.smsTemplates.map((x) => (x.id === t.id ? t : x)) : [...cache.smsTemplates, t] });
 export const removeSmsTemplate = (id: string) => patchOps({ smsTemplates: cache.smsTemplates.filter((t) => t.id !== id) });
+export const saveReplyTemplate = (t: ReplyTemplate) =>
+  patchOps({
+    replyTemplates: cache.replyTemplates.some((x) => x.id === t.id)
+      ? cache.replyTemplates.map((x) => (x.id === t.id ? t : x))
+      : [...cache.replyTemplates, t],
+  });
+export const removeReplyTemplate = (id: string) => patchOps({ replyTemplates: cache.replyTemplates.filter((t) => t.id !== id) });
+
+export const setTicketAssignee = (id: string, assignee: string) =>
+  patchOps({ tickets: cache.tickets.map((t) => (t.id === id ? { ...t, assignee: assignee || undefined } : t)) });
+
+export const setSizeGuide = (categoryId: string, guide: OpsState["sizeGuides"][string]) =>
+  patchOps({ sizeGuides: { ...cache.sizeGuides, [categoryId]: guide } });
+
+export const setCategorySort = (category: string, sort: OpsState["categorySort"][string]) =>
+  patchOps({ categorySort: { ...cache.categorySort, [category]: sort } });
+
+export const setJournalBlocks = (slug: string, blocks: import("@/data/journal").ArticleBlock[]) =>
+  patchOps({ journalBlocks: { ...cache.journalBlocks, [slug]: blocks } });
+
+export const resetJournalBlocks = (slug: string) => {
+  const next = { ...cache.journalBlocks };
+  delete next[slug];
+  return patchOps({ journalBlocks: next });
+};
+
+export const setFeature = (key: keyof OpsState["features"], on: boolean) =>
+  patchOps({ features: { ...cache.features, [key]: on } });
+
+export const setSetup = (patchSetup: Partial<OpsState["setup"]>) => patchOps({ setup: { ...cache.setup, ...patchSetup } });
+
+export const signLaunchCheck = (id: string, by: string, ok = true) => {
+  const next = { ...cache.launchChecks };
+  if (ok) next[id] = { at: Date.now(), by };
+  else delete next[id];
+  return patchOps({ launchChecks: next });
+};
+
+export const addIssue = (issue: IssueReport) => patchOps({ issues: [issue, ...cache.issues].slice(0, 200) });
+export const resolveIssue = (id: string) =>
+  patchOps({ issues: cache.issues.map((i) => (i.id === id ? { ...i, resolved: !i.resolved } : i)) });
+export const removeIssue = (id: string) => patchOps({ issues: cache.issues.filter((i) => i.id !== id) });
+export const setDeveloperEmail = (developerEmail: string) => patchOps({ developerEmail });
+
+export const setSeo = (patchSeo: Partial<OpsState["seo"]>) => patchOps({ seo: { ...cache.seo, ...patchSeo } });
+
 export const logSmsCampaign = (c: SmsCampaign) => patchOps({ smsCampaigns: [c, ...cache.smsCampaigns].slice(0, 60) });
 
 /* ---------------- cashback ---------------- */
@@ -432,6 +744,10 @@ export const removeTryonPackage = (id: string) => patchOps({ tryonPackages: cach
 /* ---------------- tickets & returns ---------------- */
 export const addTicketMessage = (ticketId: string, msg: Omit<TicketMsg, "id" | "at">) =>
   patchOps({ tickets: cache.tickets.map((t) => (t.id === ticketId ? { ...t, messages: [...t.messages, { ...msg, id: Math.random().toString(36).slice(2, 9), at: Date.now() }], status: msg.from === "staff" ? "pending" : "open" } : t)) });
+export const setTicketDept = (id: string, dept: Ticket["dept"]) =>
+  patchOps({ tickets: cache.tickets.map((t) => (t.id === id ? { ...t, dept } : t)) });
+export const setTicketPriority = (id: string, priority: Ticket["priority"]) =>
+  patchOps({ tickets: cache.tickets.map((t) => (t.id === id ? { ...t, priority } : t)) });
 export const setTicketStatus = (id: string, status: Ticket["status"]) =>
   patchOps({ tickets: cache.tickets.map((t) => (t.id === id ? { ...t, status } : t)) });
 export const createTicket = (t: Omit<Ticket, "id" | "at" | "messages" | "status"> & { body: string; author?: string }) => {

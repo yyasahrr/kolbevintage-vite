@@ -268,7 +268,7 @@
 .sb-item-dot {
   position: absolute;
   top: -4px;
-  right: -4px;
+  inset-inline-end: -4px;
   width: 13px;
   height: 13px;
   border-radius: 999px;
@@ -1329,7 +1329,7 @@
 .sb-sugg-rank {
   position: absolute;
   top: 9px;
-  left: 9px;
+  inset-inline-start: 9px;
   font-size: 8.5px;
   padding: 2px 8px;
   border-radius: 999px;

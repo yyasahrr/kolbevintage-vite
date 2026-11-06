@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useEscape, useScrollLock } from "@/hooks/useOverlay";
 import { Check, Ruler, Sparkles, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { useAuth } from "@/state/auth";
@@ -119,6 +120,8 @@ function BodyFigure({ a }: { a: Answers }) {
 }
 
 export function SmartSizeGuide({ sizes, garment, onPick, onClose }: Props) {
+  useEscape(true, onClose);
+  useScrollLock(true);
   const { account } = useAuth();
   const [step, setStep] = useState(0);
   const [a, setA] = useState<Answers>(() => {

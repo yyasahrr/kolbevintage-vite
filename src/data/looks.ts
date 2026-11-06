@@ -467,8 +467,52 @@ export const BACKDROPS = [
   { id: "ink", name: "شب", value: "#1b1916", dark: true },
 ] as const;
 
+/* ------------------------------------------------------------------ */
+/* money — the shop trades in Toman, Rial is only a display echo        */
+/* ------------------------------------------------------------------ */
+
+export const CURRENCY = {
+  main: "تومان",
+  sub: "ریال",
+  /** one Toman is ten Rial */
+  rialPerToman: 10,
+  /** default Toman value of one stored price unit — editable in the admin panel */
+  defaultRate: 1000,
+} as const;
+
+/** the shop's own Toman rate, so every label on the site agrees with the panel */
+export const tomanRate = () => {
+  const rate = Number(getAdmin().settings?.currencyRate ?? CURRENCY.defaultRate);
+  return Number.isFinite(rate) && rate > 0 ? rate : CURRENCY.defaultRate;
+};
+
+export const formatNumber = (value: number, digits = 0) =>
+  value.toLocaleString("fa-IR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
+/** the canonical money label used everywhere on the storefront */
 export const formatPrice = (value: number) =>
-  `${value.toLocaleString("fa-IR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`;
+  `${formatNumber(Math.round(value * tomanRate()))} ${CURRENCY.main}`;
+
+/** the Rial echo shown under the headline price */
+export const formatRial = (value: number) =>
+  `${formatNumber(Math.round(value * tomanRate() * CURRENCY.rialPerToman))} ${CURRENCY.sub}`;
+
+/**
+ * Commerce settings store an ISO currency code; the panel is Persian, so the
+ * code is translated once here instead of every screen inventing its own label.
+ */
+const CURRENCY_LABELS: Record<string, string> = {
+  IRT: CURRENCY.main,
+  IRR: CURRENCY.sub,
+  EUR: "یورو",
+  USD: "دلار",
+};
+
+export const currencyLabel = (code: string | undefined | null) =>
+  (code && CURRENCY_LABELS[code.toUpperCase()]) || CURRENCY.main;
+
+/** compact form for tight UI (cart rows, chips) */
+export const formatPriceShort = (value: number) => formatNumber(Math.round(value * tomanRate()));
 
 export const variantKey = (colorId: string, sizeId: string) => `${colorId}:${sizeId}`;
 

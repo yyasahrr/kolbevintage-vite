@@ -11,34 +11,45 @@ import {
   Truck,
   Undo2,
 } from "lucide-react";
-import { getProduct, productsOfLook, relatedProducts, totalStock } from "@/data/catalog";
+import { rememberView } from "@/widgets/recent";
+import { WidgetZone } from "@/widgets/WidgetZone";
+import { COLLECTIONS, complementProducts, getProduct, liveGetProduct, relatedProducts, totalStock } from "@/data/catalog";
 import { ProductGallery } from "@/components/ProductGallery";
 import { SmartSizeGuide } from "@/components/SmartSizeGuide";
 import { useAuth } from "@/state/auth";
+import { submitReview, useAdmin } from "@/state/admin";
 import { useOps, requestTryon, tryonBalance, type TryOnPackage } from "@/state/ops";
-import { formatPrice, stockOf } from "@/data/looks";
+import { formatPrice, formatRial, stockOf } from "@/data/looks";
 import { useCart } from "@/state/cart";
-import { addItem } from "@/state/outfit";
 import { ProductCard } from "@/components/ProductCard";
-import {
-  Accordion,
-  Breadcrumbs,
-  Newsletter,
-  Reveal,
-  SectionHeading,
-  buttonStyles,
-} from "@/components/ui";
+import { CardMedia } from "@/components/CardMedia";
+import { Accordion, Breadcrumbs, Reveal, SectionHeading, buttonStyles } from "@/components/ui";
 import { NotFoundPage } from "./NotFoundPage";
 import { cn } from "@/utils/cn";
 
 export function ProductPage() {
   const { productId } = useParams();
-  const product = getProduct(productId);
-  const { add, toggleWish, isWished, setCartOpen, notify } = useCart();
+  // subscribe to the admin store so edits, new products and complements render live
+  useAdmin();
+  const product = liveGetProduct(productId);
+  const admin = useAdmin();
+  const { add, toggleWish, isWished, setCartOpen } = useCart();
+
+  // approved reviews for this product; a review without a star is not averaged (decisions 59 + 70)
+  const reviews = admin.reviews.filter((r) => r.approved && r.product === product?.name);
+  const ratedReviews = reviews.filter((r) => r.rating > 0);
+  const reviewAvg = ratedReviews.length
+    ? ratedReviews.reduce((sum, r) => sum + r.rating, 0) / ratedReviews.length
+    : 0;
 
   const [colorId, setColorId] = useState(product?.colors[0]?.id ?? "");
   const [sizeId, setSizeId] = useState(product?.sizes[0]?.id ?? "");
   const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
+  // per-category measurements the owner maintains in the panel (decision 56)
+  const opsForGuide = useOps();
+  const categoryGuide = product ? opsForGuide.sizeGuides[product.category] : undefined;
+  const features = opsForGuide.features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
+  const video = product ? opsForGuide.productVideos?.[product.id] : undefined;
   const [tryonOpen, setTryonOpen] = useState(false);
   const priceRef = useRef<HTMLDivElement>(null);
   const [pastPrice, setPastPrice] = useState(false);
@@ -54,10 +65,18 @@ export function ProductPage() {
     const firstSize = product.sizes.find((s) => stockOf(product, color?.id ?? product.colors[0].id, s.id) > 0);
     setSizeId(firstSize?.id ?? product.sizes[0].id);
     document.title = `${product.name} — فروشگاه ولور`;
+    // remembered in this browser only, for the «بازدیدهای اخیر» widget
+    rememberView(product.id);
     return () => {
       document.title = "ولور — خرید بر اساس استایل | رانوی تعاملی";
     };
-  }, [product]);
+  }, [productId]);
+
+  useEffect(() => {
+    if (!product) return;
+    if (!product.colors.some((c) => c.id === colorId)) setColorId(product.colors[0]?.id ?? "");
+    if (!product.sizes.some((s) => s.id === sizeId)) setSizeId(product.sizes[0]?.id ?? "");
+  }, [product, colorId, sizeId]);
 
   if (!product) return <NotFoundPage />;
 
@@ -67,16 +86,16 @@ export function ProductPage() {
   const soldOut = stock === 0;
   const wished = isWished(product.id);
 
-  const lookProducts = productsOfLook(product.lookId).filter((p) => p.id !== product.id);
+  const complements = complementProducts(product.id);
   const related = relatedProducts(product, 4);
   const colorAvailability = (id: string) => product.sizes.some((s) => stockOf(product, id, s.id) > 0);
 
+  // a size only exists inside a colour: picking a new colour resets the size to the
+  // first one that colour actually has, so the old choice is never carried over silently
   const selectColor = (id: string) => {
     setColorId(id);
-    if (stockOf(product, id, sizeId) === 0) {
-      const next = product.sizes.find((s) => stockOf(product, id, s.id) > 0);
-      if (next) setSizeId(next.id);
-    }
+    const next = product.sizes.find((s) => stockOf(product, id, s.id) > 0) ?? product.sizes[0];
+    if (next) setSizeId(next.id);
   };
 
   useEffect(() => {
@@ -99,6 +118,8 @@ export function ProductPage() {
       title: `${product.name} به سبد اضافه شد`,
       detail: `${color.name} · سایز ${size.label} · ${formatPrice(product.price)}`,
     });
+    // one action, one obvious next step: the drawer opens on the cart
+    setCartOpen(true);
   };
 
   return (
@@ -107,45 +128,67 @@ export function ProductPage() {
         <Breadcrumbs
           items={[
             { label: "فروشگاه", to: "/products" },
-            { label: product.category, to: `/products?category=${encodeURIComponent(product.category)}` },
+            {
+              label: COLLECTIONS.find((c) => c.garments.includes(product.garment))?.label ?? "فروشگاه",
+              to: `/products?collection=${COLLECTIONS.find((c) => c.garments.includes(product.garment))?.id ?? "all"}`,
+            },
             { label: product.name },
           ]}
         />
       </div>
 
-      <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 pt-5 sm:px-6 lg:grid-cols-[1.15fr_0.85fr] lg:gap-10 lg:px-10">
+      <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 pt-5 sm:px-6 md:grid-cols-[1.15fr_0.85fr] md:gap-8 lg:gap-10 lg:px-10">
         {/* ---------------- gallery ---------------- */}
         <div>
-          <div className="relative">
-            <ProductGallery product={product} color={color} />
-
-            {product.badge && (
-              <span className={cn("absolute top-3 right-3 z-10 rounded-full px-3 py-1 text-[10px] font-medium backdrop-blur", product.badge === "تخفیف" ? "bg-ember text-white" : "bg-white/85 text-ink")}>
-                {product.badge}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => toggleWish(product.id)}
-              aria-label={wished ? "حذف از علاقه‌مندی‌ها" : "افزودن به علاقه‌مندی‌ها"}
-              aria-pressed={wished}
-              className={cn("absolute top-3 left-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur transition-colors", wished ? "border-ember/30 bg-white text-ember" : "border-white/60 bg-white/80 text-ink-70 hover:text-ink")}
-            >
-              <Heart className={cn("h-4 w-4", wished && "fill-ember")} />
-            </button>
-            <Link to={`/style/${product.lookSlug}`} className="absolute bottom-3 left-3 z-10 rounded-full bg-paper/90 px-3 py-1.5 text-[10px] text-ink backdrop-blur transition-colors hover:bg-paper">
+          <ProductGallery
+            product={product}
+            color={color}
+            overlay={
+              <>
+                {product.badge && (
+                  <span className={cn("pointer-events-auto absolute top-3 start-3 rounded-full px-3 py-1 text-[10px] font-medium backdrop-blur", product.badge === "تخفیف" ? "bg-ember text-white" : "bg-white/85 text-ink")}>
+                    {product.badge}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => toggleWish(product.id)}
+                  aria-label={wished ? "حذف از علاقه‌مندی‌ها" : "افزودن به علاقه‌مندی‌ها"}
+                  aria-pressed={wished}
+                  className={cn("pointer-events-auto tap absolute top-3 end-3 flex h-11 w-11 items-center justify-center rounded-full border backdrop-blur transition-colors", wished ? "border-ember/30 bg-white text-ember" : "border-white/60 bg-white/80 text-ink-70 hover:text-ink")}
+                >
+                  <Heart className={cn("h-4 w-4", wished && "fill-ember")} />
+                </button>
+              </>
+            }
+          />
+          <div className="mt-2 flex justify-end">
+            <Link to={`/style/${product.lookSlug}`} className="inline-flex min-h-11 items-center rounded-full px-3 text-[10px] text-ink-70 transition-colors hover:bg-ink/[0.04] hover:text-ink">
               دیدن روی رانوی
             </Link>
           </div>
 
-          <p className="mt-3 hidden text-[10.5px] leading-relaxed text-ink-45 lg:block">
+          {video && (
+            <figure className="mt-3">
+              <video
+                src={video}
+                controls
+                preload="metadata"
+                playsInline
+                className="w-full rounded-[var(--radius-lg)] border border-black/10 bg-black/5"
+              />
+              <figcaption className="mt-1.5 text-[10px] text-ink-45">ویدیوی کوتاه همین قطعه</figcaption>
+            </figure>
+          )}
+
+          <p className="mt-3 hidden text-[10.5px] leading-relaxed text-ink-45 md:block">
             تصاویر از عکاسی رسمی رانوی پاییز / زمستان ۲۶ گرفته شده‌اند. رنگ واقعی ممکن است بسته به نمایشگر
             کمی متفاوت دیده شود.
           </p>
         </div>
 
         {/* ---------------- buy box ---------------- */}
-        <div className="lg:sticky lg:top-[112px] lg:self-start">
+        <div className="md:sticky md:top-[112px] md:self-start">
           <div className="flex items-center justify-between gap-3">
             <Link
               to={`/style/${product.lookSlug}`}
@@ -161,19 +204,34 @@ export function ProductPage() {
             {product.name}
           </h1>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <p className="text-[13px] text-ink-70">{product.category}</p>
+            <p className="text-[13px] text-ink-70">
+              {COLLECTIONS.find((c) => c.garments.includes(product.garment))?.label ?? product.category}
+            </p>
             <span className="h-1 w-1 rounded-full bg-clay" />
             <div className="flex items-center gap-1 text-[11px] text-ink-70">
-              <div className="flex">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Star key={i} className="h-3 w-3 fill-ink text-ink" />
-                ))}
-              </div>
-              <span className="text-ink-45">۴.۸ · ۲۳ نظر</span>
+              {reviews.length > 0 ? (
+                <>
+                  <div className="flex" aria-hidden>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Star
+                        key={i}
+                        className={cn("h-3 w-3", reviewAvg && i < Math.round(reviewAvg) ? "fill-ink text-ink" : "fill-none text-ink-45/40")}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-ink-45">
+                    {reviewAvg ? reviewAvg.toFixed(1).replace(".", "٫") : "بدون امتیاز"} ·{" "}
+                    {reviews.length.toLocaleString("fa-IR")} نظر
+                  </span>
+                </>
+              ) : (
+                <span className="text-ink-45">اولین نظر را تو بنویس</span>
+              )}
             </div>
           </div>
 
-          <div ref={priceRef} className="mt-3.5 flex items-baseline gap-2.5">
+          <div className="mt-3">
+          <div ref={priceRef} className="flex flex-wrap items-baseline gap-2.5">
             <span className="font-display text-[24px] font-medium text-ink">{formatPrice(product.price)}</span>
             {product.compareAt && (
               <>
@@ -183,6 +241,8 @@ export function ProductPage() {
                 </span>
               </>
             )}
+          </div>
+          <p className="mt-1 text-[10.5px] text-ink-45">{formatRial(product.price)}</p>
           </div>
 
           <p className="mt-3 text-[12.5px] leading-[1.95] text-ink-70">{product.description}</p>
@@ -257,6 +317,37 @@ export function ProductPage() {
               })}
             </div>
 
+            {categoryGuide && (
+              <details className="mt-3 rounded-lg border border-black/10 bg-white/60">
+                <summary className="cursor-pointer px-3 py-2 text-[11px] text-ink">
+                  جدول اندازهٔ {product.category} (سانتی‌متر)
+                </summary>
+                <div className="overflow-x-auto px-3 pb-3">
+                  <table className="w-full text-[10.5px]">
+                    <thead>
+                      <tr className="text-ink-45">
+                        <th className="py-1 text-start font-normal">سایز</th>
+                        <th className="py-1 text-start font-normal">دور سینه</th>
+                        <th className="py-1 text-start font-normal">دور کمر</th>
+                        <th className="py-1 text-start font-normal">دور باسن</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categoryGuide.rows.map((row) => (
+                        <tr key={row.size} className="border-t border-black/5">
+                          <td className="py-1 text-ink">{row.size}</td>
+                          <td className="py-1 text-ink-70" dir="ltr">{row.chest}</td>
+                          <td className="py-1 text-ink-70" dir="ltr">{row.waist}</td>
+                          <td className="py-1 text-ink-70" dir="ltr">{row.hips}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {categoryGuide.note && <p className="mt-2 text-[10px] leading-relaxed text-ink-45">{categoryGuide.note}</p>}
+                </div>
+              </details>
+            )}
+
             <p className="mt-2 text-[10.5px] leading-relaxed text-ink-45">
               مطمئن نیستی؟ <button type="button" className="underline underline-offset-4 hover:text-ink" onClick={() => setSizeGuideOpen(true)}>راهنمای سایز هوشمند</button> با قد، وزن و اندازه‌های بدنت سایز درست را پیدا می‌کند.
             </p>
@@ -283,7 +374,7 @@ export function ProductPage() {
               disabled={soldOut}
               className={buttonStyles("solid", "lg", "flex-1")}
             >
-              {soldOut ? "ناموجود" : "افزودن به سبد"}
+              {soldOut ? "ناموجود" : "خرید آنلاین — افزودن به سبد"}
               {!soldOut && <ArrowLeft className="h-4 w-4" />}
             </button>
             <button
@@ -300,39 +391,23 @@ export function ProductPage() {
             </button>
           </div>
 
-          <Link
-            to="/style-builder"
-            onClick={() => {
-              addItem(product.id, color.id, size.id);
-              notify("به بوم استایل اضافه شد", "در استایل بیلدر جابه‌جایش کن و با بقیهٔ قطعه‌ها بسنج.");
-            }}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-full border border-dashed border-ink/30 px-5 py-3 text-[11.5px] text-ink transition-colors hover:border-ink hover:bg-ink/[0.04]"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            افزودن به بوم استایل بیلدر
-          </Link>
-
+          {features.tryon && (
           <button
             type="button"
-            onClick={() => {
-              handleAdd();
-              setCartOpen(true);
-            }}
-            className="mt-2 w-full rounded-full border border-ink/20 px-5 py-3 text-[11.5px] font-medium text-ink transition-colors hover:border-ink hover:bg-ink/[0.04] disabled:opacity-50"
-            disabled={soldOut}
+            onClick={() => setTryonOpen(true)}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-full bg-ink/[0.055] px-4 py-3 text-[11.5px] font-medium text-ink transition-colors hover:bg-ink/[0.1]"
           >
-            خرید فوری — رفتن به سبد
+            <Sparkles className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">پرو آنلاین — ببین رویت چطور می‌شود</span>
+            <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[9.5px] text-ink-70">
+              {myCredits.toLocaleString("fa-IR")} اعتبار
+            </span>
           </button>
-
-          <button type="button" onClick={() => setTryonOpen(true)} className="mt-2 flex w-full items-center justify-center gap-2 rounded-full bg-ink/[0.055] px-5 py-3 text-[11.5px] font-medium text-ink transition-colors hover:bg-ink/[0.1]">
-            <Sparkles className="h-3.5 w-3.5" />
-            پرو آنلاین — ببین رویت چطور می‌شود
-            <span className="rounded-full bg-white px-2 py-0.5 text-[9.5px] text-ink-70">{myCredits.toLocaleString("fa-IR")} اعتبار</span>
-          </button>
+          )}
 
           <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-[#f3ede4] p-3">
             {[
-              { icon: Truck, t: "ارسال رایگان", s: "بالای ۲۰۰ یورو" },
+              { icon: Truck, t: "ارسال رایگان", s: "بالای ۲۰۰٬۰۰۰ تومان" },
               { icon: Undo2, t: "مرجوعی", s: "تا ۱۴ روز" },
               { icon: ShieldCheck, t: "اصالت", s: "ساخت ولور" },
             ].map((item) => (
@@ -343,6 +418,29 @@ export function ProductPage() {
               </div>
             ))}
           </div>
+
+          {complements.length > 0 && (
+            <div className="mt-5 rounded-xl border border-black/[0.08] bg-[#fbf7f1] p-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-[11px] font-medium text-ink">با اینا می‌تونی ست کنی</p>
+                <span className="text-[9.5px] text-ink-45">انتخاب استایلیست</span>
+              </div>
+              <ul className="mt-2.5 grid grid-cols-4 gap-2">
+                {complements.slice(0, 4).map((p) => (
+                  <li key={p.id}>
+                    <Link to={`/product/${p.id}`} className="group/item block outline-offset-4">
+                      {/* CardMedia renders a block element, so the frame is a div — no div inside span */}
+                      <div className="overflow-hidden rounded-lg bg-[#efe9e0] ring-1 ring-black/[0.05] transition-transform duration-500 group-hover/item:-translate-y-0.5">
+                        <CardMedia product={p} />
+                      </div>
+                      <div className="mt-1 truncate text-[9.5px] text-ink-70 group-hover/item:text-ink">{p.name}</div>
+                      <div className="text-[9.5px] text-ink-45">{formatPrice(p.price)}</div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="mt-5">
             <Accordion
@@ -376,32 +474,58 @@ export function ProductPage() {
         </div>
       </div>
 
-      {/* ---------------- complete the look ---------------- */}
-      {lookProducts.length > 0 && (
-        <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
-          <div className="rounded-2xl border border-black/[0.07] bg-[#f1ebe2] p-4 sm:p-6">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="text-[10px] text-ink-45">استایل کامل</p>
-                <h2 className="mt-1.5 font-display text-[clamp(1.3rem,2.6vw,1.8rem)] font-medium text-ink">
-                  همین قطعه با بقیهٔ «{product.lookName}»
-                </h2>
-              </div>
-              <Link
-                to={`/style/${product.lookSlug}`}
-                className={buttonStyles("solid", "md", "gap-1.5")}
-              >
-                دیدن روی رانوی <ArrowLeft className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
-              {lookProducts.slice(0, 4).map((p) => (
-                <ProductCard key={p.id} product={p} />
-              ))}
-            </div>
-          </div>
-        </section>
+
+      {/* ---------------- reviews (decisions 59 + 70) ---------------- */}
+      {features.reviews && (
+      <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
+        <SectionHeading
+          eyebrow="تجربهٔ خریداران"
+          title="نظرها"
+          description={
+            reviews.length
+              ? `${reviews.length.toLocaleString("fa-IR")} نظر تأییدشده برای این محصول. پاسخ فروشگاه زیر همان نظر نوشته می‌شود.`
+              : "هنوز نظری برای این محصول تأیید نشده است."
+          }
+        />
+        <div className="mt-5 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+          <ul className="grid gap-3">
+            {reviews.map((review) => (
+              <li key={review.id} className="rounded-[var(--radius-lg)] border border-line/60 p-4">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-45">
+                  {review.rating > 0 ? (
+                    <span className="flex" aria-label={`${review.rating} از ۵ ستاره`}>
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Star key={i} className={cn("h-3 w-3", i < review.rating ? "fill-ink text-ink" : "fill-none text-ink-45/40")} />
+                      ))}
+                    </span>
+                  ) : (
+                    <span>بدون امتیاز</span>
+                  )}
+                  <b className="text-ink">{review.author}</b>
+                  <span>{new Date(review.at).toLocaleDateString("fa-IR")}</span>
+                </div>
+                <p className="mt-2 text-[12.5px] leading-[1.95] text-ink-70">{review.text}</p>
+                {review.reply && (
+                  <div className="mt-3 rounded-[var(--radius-md)] bg-[#f2ede5] p-3">
+                    <b className="text-[10.5px] text-ink">پاسخ فروشگاه</b>
+                    <p className="mt-1 text-[12px] leading-[1.9] text-ink-70">{review.reply.text}</p>
+                  </div>
+                )}
+              </li>
+            ))}
+            {reviews.length === 0 && (
+              <li className="rounded-[var(--radius-lg)] border border-dashed border-line/70 p-5 text-[12px] text-ink-45">
+                وقتی نظرها تأیید شوند همین‌جا با پاسخ فروشگاه نمایش داده می‌شوند.
+              </li>
+            )}
+          </ul>
+          <ReviewForm product={product.name} />
+        </div>
+      </section>
       )}
+
+      {/* widgets the owner installed for product pages (decision 75) */}
+      <WidgetZone zone="product-side" productId={product.id} />
 
       {/* ---------------- related ---------------- */}
       <section className="mx-auto w-full max-w-[1500px] px-4 pt-12 sm:px-6 lg:px-10">
@@ -455,8 +579,6 @@ export function ProductPage() {
       )}
 
       {tryonOpen && <TryOnSheet product={product} onClose={() => setTryonOpen(false)} />}
-
-      <Newsletter compact />
     </div>
   );
 }
@@ -530,6 +652,99 @@ function TryOnSheet({ product, onClose }: { product: NonNullable<ReturnType<type
           </button>
         </footer>
       </div>
+    </div>
+  );
+}
+
+/* =====================================================================
+   The customer writes a review; the owner decides whether it goes live.
+   The star is optional (decision 59) — a customer may simply describe the fit.
+   ===================================================================== */
+
+function ReviewForm({ product }: { product: string }) {
+  const auth = useAuth();
+  const admin = useAdmin();
+  const [rating, setRating] = useState(0);
+  const [text, setText] = useState("");
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  if (!auth.account) {
+    return (
+      <div className="rounded-[var(--radius-lg)] border border-line/60 p-4 text-[12px] leading-[1.9] text-ink-45">
+        برای نوشتن نظر وارد حساب خودت شو. نظرها پس از تأیید فروشگاه منتشر می‌شوند.
+      </div>
+    );
+  }
+
+  if (sent) {
+    return (
+      <div className="rounded-[var(--radius-lg)] border border-line/60 p-4 text-[12px] leading-[1.9] text-ink-70">
+        نظرت ثبت شد و بعد از تأیید فروشگاه منتشر می‌شود. ممنون که تجربه‌ات را نوشتی.
+        <button
+          type="button"
+          className="mt-2 block text-[11px] underline underline-offset-4"
+          onClick={() => { setSent(false); setText(""); setRating(0); }}
+        >
+          نوشتن نظر دیگر
+        </button>
+      </div>
+    );
+  }
+
+  const submit = () => {
+    const account = auth.account;
+    if (!account) return;
+    if (text.trim().length < 8) {
+      setError("کمی بیشتر بنویس (حداقل ۸ نویسه).");
+      return;
+    }
+    // a review always lands as pending; nothing appears on the shop before the owner approves it
+    submitReview({
+      product,
+      author: account.name || account.email,
+      rating,
+      text: text.trim(),
+    });
+    setError("");
+    setSent(true);
+    void admin;
+  };
+
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-line/60 p-4">
+      <p className="text-[12px] font-medium text-ink">نظر تو</p>
+      <div className="mt-2 flex items-center gap-1.5" role="radiogroup" aria-label="امتیاز (اختیاری)">
+        {Array.from({ length: 5 }).map((_, i) => {
+          const value = i + 1;
+          return (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={rating === value}
+              aria-label={`${value} ستاره`}
+              className="tap p-0.5"
+              onClick={() => setRating(rating === value ? 0 : value)}
+            >
+              <Star className={cn("h-4 w-4", value <= rating ? "fill-ink text-ink" : "fill-none text-ink-45/50")} />
+            </button>
+          );
+        })}
+        <span className="text-[10.5px] text-ink-45">{rating ? `${rating} از ۵` : "بدون امتیاز (اختیاری)"}</span>
+      </div>
+      <textarea
+        className="mt-2 w-full rounded-[var(--radius-md)] border border-line/70 bg-transparent p-2.5 text-[12.5px] leading-[1.9] outline-none focus:border-ink/40"
+        rows={4}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="از جنس پارچه، اندازه و دوخت بنویس…"
+        aria-label="متن نظر"
+      />
+      {error && <p className="mt-1 text-[11px] text-ember">{error}</p>}
+      <button type="button" onClick={submit} className={buttonStyles("solid", "sm", "mt-2 w-full")}>
+        ثبت نظر برای تأیید
+      </button>
     </div>
   );
 }

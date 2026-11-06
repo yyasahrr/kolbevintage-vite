@@ -48,7 +48,7 @@ const heroBg = (): BNode[] => [
       col(
         [
           w("heading", { title: "سکوتِ ساختار. حضورِ پارچه.", tag: "h1", tSize: 56, tSizeMobile: 34, tWeight: "600", color: "#ffffff", align: "start", animation: "fadeInUp" }),
-          w("text-editor", { content: "<p>مجموعهٔ پاییز / زمستان ۲۶ — پالتو، کشمیر و چرم، ساخت آتلیهٔ پاریس.</p>", color: "rgba(255,255,255,.85)", tSize: 18, align: "start" }),
+          w("text-editor", { content: "<p>مجموعهٔ پاییز / زمستان ۲۶ — پالتو، کشمیر و چرم، ساخت آتلیهٔ تهران.</p>", color: "rgba(255,255,255,.85)", tSize: 18, align: "start" }),
           w("button", { text: "خرید کالکشن", link: "/products", size: "lg", bg: "#ffffff", color: "#16130f", align: "flex-start" }),
         ],
         60,
@@ -90,7 +90,7 @@ const features3 = (): BNode[] => [
     [
       col([w("icon-box", { icon: "Gem", title: "پارچهٔ طبیعی", desc: "پشم، کشمیر، پنبه و کتان؛ بیش از ۹۰٪ کالکشن." })], 33.33, { widthMobile: 100 }),
       col([w("icon-box", { icon: "Scissors", title: "دوخت دستی", desc: "هر قطعه سه هفته زیر دست خیاط آتلیه است." })], 33.33, { widthMobile: 100 }),
-      col([w("icon-box", { icon: "Truck", title: "ارسال و مرجوعی", desc: "ارسال رایگان بالای ۲۰۰ یورو و مرجوعی تا ۱۴ روز." })], 33.33, { widthMobile: 100 }),
+      col([w("icon-box", { icon: "Truck", title: "ارسال و مرجوعی", desc: "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان و مرجوعی تا ۱۴ روز." })], 33.33, { widthMobile: 100 }),
     ],
     { padding: pad(0, 70) },
   ),
@@ -153,7 +153,7 @@ const pricing3 = (): BNode[] => [
   ),
   sec(
     [
-      col([w("price-table", { title: "پایه", subtitle: "برای شروع", price: "۰", period: "/ همیشه", featured: false, ribbon: "", btn: "ثبت‌نام رایگان", features: [{ text: "خبرنامه ماهانه", on: true }, { text: "ارسال رایگان", on: false }, { text: "پرو اختصاصی", on: false }] })], 33.33, { widthMobile: 100 }),
+      col([w("price-table", { title: "پایه", subtitle: "برای شروع", price: "۰", period: "/ همیشه", featured: false, ribbon: "", btn: "ثبت‌نام رایگان", features: [{ text: "گزارش ماهانه فروش", on: true }, { text: "ارسال رایگان", on: false }, { text: "پرو اختصاصی", on: false }] })], 33.33, { widthMobile: 100 }),
       col([w("price-table", {})], 33.33, { widthMobile: 100 }),
       col([w("price-table", { title: "پلاتینیوم", subtitle: "تجربهٔ کامل", price: "۱۲۹", featured: false, ribbon: "", btn: "تماس با مشاور", features: [{ text: "همهٔ مزایای طلایی", on: true }, { text: "مشاور استایل شخصی", on: true }, { text: "دعوت به رانوهای خصوصی", on: true }] })], 33.33, { widthMobile: 100 }),
     ],
@@ -172,36 +172,14 @@ const faq = (): BNode[] => [
 
 const ctaBanner = (): BNode[] => [sec([col([w("call-to-action", {})])], { padding: pad(40) })];
 
-const newsletter = (): BNode[] => [
-  sec(
-    [
-      col(
-        [
-          w("heading", { title: "اول از همه، نمایش بعدی را ببین.", align: "center", tSize: 30 }),
-          w("form", {
-            formName: "خبرنامه",
-            submit: "عضویت",
-            success: "عضو شدی! ممنون.",
-            showLabels: false,
-            fields: [{ type: "email", label: "ایمیل", placeholder: "نشانی ایمیل", required: true, width: 100 }],
-          }),
-        ],
-        100,
-        { padding: pad(0) },
-      ),
-    ],
-    { ...dark, padding: pad(64), contentWidth: 620 },
-  ),
-];
-
 const contact = (): BNode[] => [
   sec(
     [
       col([h("تماس با ما", { align: "start" }), w("form", {}), ], 55, { widthMobile: 100 }),
       col(
         [
-          w("icon-list", { items: [{ text: "پاریس، خیابان سن‌آنوره، پلاک ۲۴", icon: "MapPin", link: "" }, { text: "+33 1 84 80 24 24", icon: "Phone", link: "" }, { text: "client@velours.store", icon: "Mail", link: "" }, { text: "همه‌روزه ۱۱ تا ۱۹", icon: "Clock", link: "" }] }),
-          w("google-maps", { address: "Rue Saint-Honoré 24, Paris", height: 280 }),
+          w("icon-list", { items: [{ text: "تهران، خیابان ولیعصر، پلاک ۲۴", icon: "MapPin", link: "" }, { text: "021 8888 2424", icon: "Phone", link: "tel:02188882424" }, { text: "client@velours.store", icon: "Mail", link: "" }, { text: "همه‌روزه ۱۱ تا ۱۹", icon: "Clock", link: "" }] }),
+          w("google-maps", { address: "Valiasr St 24, Tehran", height: 280 }),
         ],
         45,
         { widthMobile: 100, vAlign: "center" },
@@ -294,7 +272,7 @@ const footer4 = (): BNode[] => [
       col(
         [
           w("site-logo", { align: "flex-start", c: "#ffffff" }),
-          w("text-editor", { content: "<p>خانهٔ پوشاک آماده در پاریس؛ قطعه‌های محدود، پارچه‌های طبیعی و ساخت آهسته.</p>", align: "start", color: "rgba(255,255,255,.65)" }),
+          w("text-editor", { content: "<p>خانهٔ پوشاک آماده در تهران؛ قطعه‌های محدود، پارچه‌های طبیعی و ساخت آهسته.</p>", align: "start", color: "rgba(255,255,255,.65)" }),
           w("social-icons", { align: "flex-start" }),
         ],
         34,
@@ -318,8 +296,8 @@ const footer4 = (): BNode[] => [
       ),
       col(
         [
-          w("heading", { title: "خبرنامه", tag: "h4", tSize: 15, align: "start", color: "#ffffff" }),
-          w("form", { formName: "خبرنامه فوتر", submit: "عضویت", success: "عضو شدی!", showLabels: false, fields: [{ type: "email", label: "ایمیل", placeholder: "ایمیل", required: true, width: 100 }] }),
+          w("heading", { title: "پشتیبانی", tag: "h4", tSize: 15, align: "start", color: "#ffffff" }),
+          w("icon-list", { items: [{ text: "پیگیری سفارش", icon: "", link: "/account" }, { text: "ارسال و مرجوعی", icon: "", link: "/about" }, { text: "تماس با ما", icon: "", link: "/about" }], color: "rgba(255,255,255,.7)" }),
         ],
         22,
         { widthMobile: 100 },
@@ -328,7 +306,7 @@ const footer4 = (): BNode[] => [
     { ...dark, padding: pad(56, 28), headingColor: undefined },
   ),
   sec(
-    [col([w("text-editor", { content: "<p>© {{year}} ولور پاریس — تمام حقوق محفوظ است.</p>", align: "center", tSize: 12, color: "rgba(255,255,255,.5)" })])],
+    [col([w("text-editor", { content: "<p>© {{year}} ولور — تمام حقوق محفوظ است.</p>", align: "center", tSize: 12, color: "rgba(255,255,255,.5)" })])],
     { bgType: "color", bgColor: "#0d0b09", padding: pad(14) },
   ),
 ];
@@ -431,9 +409,9 @@ const bentoStats = (): BNode[] => [
 const darkPortfolio = (): BNode[] => [sec([col([w("portfolio-grid", { layout: "grid", cols: 3, colsTablet: 2, colsMobile: 1 })])], { ...dark, padding: pad(50) })];
 
 export const TEMPLATES: Template[] = [
-  { id: "page-landing", title: "لندینگ مد (کامل)", desc: "هرو، ویژگی‌ها، محصولات، رانوی، نظرات و خبرنامه", category: "page", kinds: ["page", "landing"], build: concat(heroBg, features3, productsGrid, runwayBand, testimonials, ctaBanner, newsletter) },
+  { id: "page-landing", title: "لندینگ مد (کامل)", desc: "هرو، ویژگی‌ها، محصولات، رانوی و نظرات", category: "page", kinds: ["page", "landing"], build: concat(heroBg, features3, productsGrid, runwayBand, testimonials, ctaBanner) },
   { id: "page-sale", title: "صفحهٔ فروش ویژه", desc: "شمارش معکوس، محصولات و سؤالات متداول", category: "page", kinds: ["page", "landing"], build: concat(heroSlides, countdownOffer, productsGrid, faq) },
-  { id: "page-about", title: "دربارهٔ ما", desc: "داستان برند، آمار و گالری", category: "page", kinds: ["page"], build: concat(heroSplit, aboutSplit, stats, galleryBlock, newsletter) },
+  { id: "page-about", title: "دربارهٔ ما", desc: "داستان برند، آمار و گالری", category: "page", kinds: ["page"], build: concat(heroSplit, aboutSplit, stats, galleryBlock) },
   { id: "page-contact", title: "تماس با ما", desc: "فرم تماس، اطلاعات و نقشه", category: "page", kinds: ["page"], build: concat(contact, faq) },
   { id: "hero-bg", title: "هرو با تصویر پس‌زمینه", desc: "عنوان بزرگ + دکمه روی تصویر", category: "hero", build: heroBg },
   { id: "hero-slides", title: "هرو اسلایدر", desc: "اسلایدر تمام‌عرض", category: "hero", build: heroSlides },
@@ -451,11 +429,10 @@ export const TEMPLATES: Template[] = [
   { id: "pricing", title: "جدول قیمت سه‌تایی", desc: "سه پلن", category: "pricing", build: pricing3 },
   { id: "testimonials", title: "کاروسل نظرات", desc: "نظر مشتریان", category: "social", build: testimonials },
   { id: "cta", title: "فراخوان (CTA)", desc: "بنر با دکمه", category: "cta", build: ctaBanner },
-  { id: "newsletter", title: "خبرنامه", desc: "فرم ایمیل روی زمینهٔ تیره", category: "cta", build: newsletter },
   { id: "countdown", title: "فروش ویژه + شمارش معکوس", desc: "گرادیان و تایمر", category: "cta", build: countdownOffer },
   { id: "header-simple", title: "هدر ساده", desc: "لوگو، منو و سبد خرید (چسبان)", category: "header", kinds: ["header"], build: headerSimple },
   { id: "header-search", title: "هدر تیره با جست‌وجو", desc: "لوگو، جست‌وجو و سبد", category: "header", kinds: ["header"], build: headerSearch },
-  { id: "footer-4", title: "فوتر چهارستونه", desc: "لینک‌ها، شبکه‌ها و خبرنامه", category: "footer", kinds: ["footer"], build: footer4 },
+  { id: "footer-4", title: "فوتر چهارستونه", desc: "لینک‌ها و شبکه‌ها", category: "footer", kinds: ["footer"], build: footer4 },
   { id: "footer-simple", title: "فوتر ساده", desc: "یک ردیف", category: "footer", kinds: ["footer"], build: footerSimple },
 
   /* ---------- trendy blocks ---------- */

@@ -1,19 +1,15 @@
-import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
-import { DEFAULT_THEME, THEMES, getTheme, type ThemeDef, type ThemeId } from "./themes";
+import { THEMES, getTheme, type ThemeDef, type ThemeId } from "./themes";
+import { getOps, patchOps, useOps } from "@/state/ops";
 
-const STORAGE_KEY = "velours.theme.v1";
+/*
+  The visual theme is a store-level decision, not a visitor preference: it lives
+  in the synced ops document, so the admin's choice reaches every shopper and an
+  ordinary visitor has no way to switch it.
+*/
+
 const SWITCH_CLASS = "theme-switching";
-
-function readStored(): ThemeId {
-  try {
-    const value = localStorage.getItem(STORAGE_KEY);
-    if (value && THEMES.some((t) => t.id === value)) return value as ThemeId;
-  } catch {
-    /* storage unavailable — fall back to default */
-  }
-  return DEFAULT_THEME;
-}
 
 /** Writes the theme's tokens as CSS variables and marks <html> with its id. */
 function applyTheme(def: ThemeDef) {
@@ -27,24 +23,20 @@ function applyTheme(def: ThemeDef) {
 interface ThemeContextValue {
   theme: ThemeDef;
   themes: ThemeDef[];
+  /** admin-only: persists the store-wide theme through the ops document */
   setTheme: (id: ThemeId) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [id, setId] = useState<ThemeId>(readStored);
-  const theme = getTheme(id);
+  const ops = useOps();
+  const theme = getTheme(ops.siteTheme);
   const mounted = useRef(false);
   const timer = useRef<number | undefined>(undefined);
 
   useLayoutEffect(() => {
     applyTheme(theme);
-    try {
-      localStorage.setItem(STORAGE_KEY, theme.id);
-    } catch {
-      /* ignore */
-    }
 
     // Briefly enable colour/shadow transitions so the switch feels like a
     // material change rather than a hard cut. Skipped on first paint.
@@ -59,7 +51,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useLayoutEffect(() => () => window.clearTimeout(timer.current), []);
 
-  const setTheme = useCallback((next: ThemeId) => setId(next), []);
+  const setTheme = useCallback((next: ThemeId) => {
+    if (getOps().siteTheme !== next) patchOps({ siteTheme: next });
+  }, []);
 
   const value = useMemo<ThemeContextValue>(() => ({ theme, themes: THEMES, setTheme }), [theme, setTheme]);
 

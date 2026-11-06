@@ -4,9 +4,10 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { Pencil, X } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import type { BDoc } from "./core";
-import { activeTemplate, routeKind, useDocs } from "./docs";
+import { activeTemplate, corePageDoc, routeKind, useDocs } from "./docs";
 import { LiveDoc } from "./Renderer";
 import { Header } from "@/components/Header";
+import { ShopNotice } from "@/components/ShopNotice";
 import { SiteFooter } from "@/components/SiteFooter";
 import { CartDrawer } from "@/components/CartDrawer";
 import { Toasts } from "@/components/Toasts";
@@ -51,6 +52,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
         رفتن به محتوای اصلی
       </a>
       {header ? <LiveDoc doc={header} className="eb-site-header" /> : <Header />}
+      <ShopNotice />
       <main id="main" className="flex-1">
         {children}
       </main>
@@ -59,6 +61,22 @@ export function SiteShell({ children }: { children: ReactNode }) {
       <Toasts reduced={reduced} />
       <PopupHost />
       {(header || footer) && <AdminPill to={`/builder/edit/${(header ?? footer)!.id}`} label="ویرایش هدر / فوتر" />}
+    </div>
+  );
+}
+
+/**
+ * A built-in page can be replaced by a builder document with the same slug.
+ * Until the owner publishes one, the hand-written page keeps rendering.
+ */
+export function CorePageSlot({ slug, children }: { slug: string; children: ReactNode }) {
+  const docs = useDocs();
+  const doc = corePageDoc(docs, slug);
+  if (!doc) return <>{children}</>;
+  return (
+    <div className="eb-core-override">
+      <LiveDoc doc={doc} />
+      <AdminPill to={`/builder/edit/${doc.id}`} />
     </div>
   );
 }

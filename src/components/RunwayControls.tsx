@@ -1,20 +1,17 @@
 import { ArrowLeft, ArrowRight, ShoppingBag } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { TRANSITIONS } from "@/lib/transitions";
-import type { Look, TransitionMode } from "@/types";
+import type { Look } from "@/types";
 
 interface Props {
   looks: Look[];
   activeIndex: number;
-  mode: TransitionMode;
   panelOpen: boolean;
   onStep: (dir: 1 | -1) => void;
   onSelect: (index: number) => void;
-  onMode: (mode: TransitionMode) => void;
   onShop: () => void;
 }
 
-export function RunwayControls({ looks, activeIndex, mode, panelOpen, onStep, onSelect, onMode, onShop }: Props) {
+export function RunwayControls({ looks, activeIndex, panelOpen, onStep, onSelect, onShop }: Props) {
   const active = looks[activeIndex];
 
   return (
@@ -93,33 +90,9 @@ export function RunwayControls({ looks, activeIndex, mode, panelOpen, onStep, on
         })}
       </div>
 
-      {/* transition engine switch */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
-        <span className="text-[9.5px] text-ink-45">حالت حرکت</span>
-        <div
-          role="radiogroup"
-          aria-label="حالت حرکت رانوی"
-          className="inline-flex rounded-full border border-black/[0.09] bg-white/55 p-0.5 backdrop-blur"
-        >
-          {TRANSITIONS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="radio"
-              aria-checked={mode === t.id}
-              title={t.hint}
-              onClick={() => onMode(t.id)}
-              className={cn(
-                "rounded-full px-3 py-1.5 text-[10.5px] font-medium tracking-[0.1em] transition-all duration-300 sm:px-4 sm:tracking-[0.14em]",
-                mode === t.id ? "bg-ink text-bone shadow-sm" : "text-ink-45 hover:text-ink",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <p className="hidden text-[11px] text-ink-45 lg:block">{active?.tagline}</p>
-      </div>
+      {active?.tagline && (
+        <p className="text-[11px] text-ink-45">{active.tagline}</p>
+      )}
     </div>
   );
 }

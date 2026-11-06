@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { galleryFor, type CatalogProduct } from "@/data/catalog";
-import { useOps } from "@/state/ops";
+import { IMAGE_ROLE_LABEL, useOps } from "@/state/ops";
 import type { ColorOption, Crop } from "@/types";
 
 interface Slide {
@@ -23,29 +24,48 @@ interface Slide {
  * On mobile it is a snap carousel sized to 84% so the next photo peeks in
  * from the side instead of being hidden behind a slider control.
  */
-export function ProductGallery({ product, color }: { product: CatalogProduct; color: ColorOption }) {
+export function ProductGallery({
+  product,
+  color,
+  overlay,
+}: {
+  product: CatalogProduct;
+  color: ColorOption;
+  overlay?: ReactNode;
+}) {
   const ops = useOps();
   const [index, setIndex] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
 
   const slides = useMemo<Slide[]>(() => {
     const out: Slide[] = [];
-    const colorMap = ops.colorMedia[product.id] ?? {};
-    const push = (urls: string[], c?: ColorOption) => {
-      urls.filter(Boolean).forEach((url) => {
-        out.push({ kind: "image", image: url, label: c ? c.name : "تصویر", colorName: c?.name, colorHex: c?.hex });
+    const all = ops.productImages[product.id] ?? [];
+    const rank = { main: 0, gallery: 1, detail: 2, hover: 9 } as const;
+    // hover-only pictures never enter the gallery
+    const usable = all.filter((i) => i.role !== "hover").sort((a, b) => rank[a.role] - rank[b.role]);
+    const forColor = (colorId: string) => usable.filter((i) => i.colorId === "*" || i.colorId === colorId);
+    const push = (list: typeof usable) => {
+      list.forEach((img) => {
+        const c = product.colors.find((x) => x.id === img.colorId);
+        out.push({
+          kind: "image",
+          image: img.url,
+          label: IMAGE_ROLE_LABEL[img.role],
+          colorName: c?.name,
+          colorHex: c?.hex,
+        });
       });
     };
-    push(colorMap[color.id] ?? [], color);
+    push(forColor(color.id));
     for (const c of product.colors) {
       if (c.id === color.id) continue;
-      push(colorMap[c.id] ?? [], c);
+      push(usable.filter((i) => i.colorId === c.id));
     }
     if (out.length === 0) {
       for (const f of galleryFor(product)) out.push({ kind: "frame", crop: f, label: f.label });
     }
     return out;
-  }, [ops.colorMedia, product, color]);
+  }, [ops.productImages, product, color]);
 
   useEffect(() => {
     setIndex(0);
@@ -99,6 +119,9 @@ export function ProductGallery({ product, color }: { product: CatalogProduct; co
           {slides.map((s, i) => (
             <div key={i} className="pg-slide">
               {renderSlide(s, i)}
+              {i === index && overlay && (
+                <div className="pointer-events-none absolute inset-0 z-10">{overlay}</div>
+              )}
             </div>
           ))}
         </div>
@@ -123,6 +146,7 @@ export function ProductGallery({ product, color }: { product: CatalogProduct; co
       <div className="pg-desktop">
         <div className="pg-main">
           {slides[index] ? renderSlide(slides[index], index) : <div className="pg-frame" />}
+          {overlay && <div className="pointer-events-none absolute inset-0 z-10">{overlay}</div>}
           {slides.length > 1 && (
             <>
               <button type="button" className="pg-arrow is-prev" aria-label="تصویر قبلی" onClick={() => go(-1)} disabled={index === 0}>

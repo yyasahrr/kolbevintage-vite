@@ -1,3 +1,4 @@
+import { formatJalali } from "@/utils/date";
 import { createContext, useContext, useEffect, useState } from "react";
 import type { Device, Settings } from "./core";
 
@@ -37,6 +38,6 @@ export function dyn(text: unknown): string {
   return t
     .replace(/\{\{\s*site-title\s*\}\}/g, "ولور")
     .replace(/\{\{\s*year\s*\}\}/g, new Date().getFullYear().toLocaleString("fa-IR", { useGrouping: false }))
-    .replace(/\{\{\s*date\s*\}\}/g, new Date().toLocaleDateString("fa-IR"))
+    .replace(/\{\{\s*date\s*\}\}/g, formatJalali(new Date()))
     .replace(/\{\{\s*page-title\s*\}\}/g, typeof document !== "undefined" ? document.title : "");
 }

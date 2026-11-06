@@ -635,7 +635,7 @@ const newsTicker: WidgetDef = {
   icon: Zap,
   category: "dynamic",
   keywords: "ticker marquee news تیکر",
-  defaults: { label: "تازه‌ها", speed: 26, items: [{ text: "ارسال رایگان بالای ۲۰۰ یورو", link: "/products" }, { text: "کالکشن AW26 رسید", link: "/landing" }, { text: "کد VELOURS10 برای تخفیف", link: "" }] },
+  defaults: { label: "تازه‌ها", speed: 26, items: [{ text: "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان", link: "/products" }, { text: "کالکشن AW26 رسید", link: "/landing" }, { text: "کد VELOURS10 برای تخفیف", link: "" }] },
   sections: [
     sec("c", "اخبار", "content", [txt("label", "برچسب"), rep("items", "مورد", [txt("text", "متن"), url("link")], { text: "خبر", link: "" }, "text"), num("speed", "سرعت (ثانیه)", { min: 8, max: 90 })]),
     sec("s", "استایل", "style", [clr("labelBg", "پس‌زمینهٔ برچسب", { "{{WRAPPER}} .ew-tk-label": "background-color:{{VALUE}};" }), clr("bg", "پس‌زمینه", { "{{WRAPPER}} .ew-ticker": "background-color:{{VALUE}};" }), ...typo("t", "{{WRAPPER}} .ew-tk-item")]),
@@ -666,7 +666,7 @@ const weather: WidgetDef = {
   icon: Wind,
   category: "dynamic",
   keywords: "weather climate آب و هوا",
-  defaults: { city: "پاریس", temp: 14, cond: "ابری", icon: "Cloud", unit: "°C" },
+  defaults: { city: "تهران", temp: 22, cond: "آفتابی", icon: "Sun", unit: "°C" },
   sections: [
     sec("c", "شهر", "content", [txt("city", "شهر"), num("temp", "دمای نمایشی"), txt("cond", "وضعیت"), icn("icon"), sel("unit", "واحد", [["°C", "سلسیوس"], ["°F", "فارنهایت"]])]),
     sec("s", "استایل", "style", [clr("bg", "پس‌زمینه", { "{{WRAPPER}} .ew-weather": "background-color:{{VALUE}};" }), clr("tc", "رنگ دما", { "{{WRAPPER}} .ew-w-temp": "color:{{VALUE}};" }), ...typo("t", "{{WRAPPER}} .ew-w-city"), ...borderCtls("wt", "{{WRAPPER}} .ew-weather")]),
@@ -754,8 +754,8 @@ const priceMenu = makeCardWidget({
   keywords: "price menu list منو قیمت",
   layouts: ["list", "grid"],
   items: [
-    { title: "تنظیم سایز اختصاصی", price: "۸۰ €", desc: "اصلاح فرم روی بدن.", image: "" },
-    { title: "بسته‌بندی هدیه", price: "۱۵ €", desc: "جعبهٔ دست‌ساز با کارت.", image: "" },
+    { title: "تنظیم سایز اختصاصی", price: "۸۰۰٬۰۰۰ تومان", desc: "اصلاح فرم روی بدن.", image: "" },
+    { title: "بسته‌بندی هدیه", price: "۱۵۰٬۰۰۰ تومان", desc: "جعبهٔ دست‌ساز با کارت.", image: "" },
     { title: "مشاورهٔ استایل", price: "رایگان", desc: "یک ساعت با تیم.", image: "" },
   ],
   itemFields: [],

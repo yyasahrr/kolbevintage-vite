@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from "motion/react";
 import { SlidersHorizontal, RotateCcw, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { BACKDROPS } from "@/data/looks";
-import { TRANSITIONS } from "@/lib/transitions";
 import type { SceneSettings as Settings } from "@/types";
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -93,27 +92,6 @@ export function SceneSettingsPopover({ open, settings, onToggle, onChange, onRes
                 </button>
               </div>
             </div>
-
-            <Field label="نوع حرکت">
-              <div className="grid gap-1">
-                {TRANSITIONS.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => onChange({ mode: t.id })}
-                    className={cn(
-                      "rounded-lg border px-3 py-2 text-left transition-all duration-200",
-                      settings.mode === t.id
-                        ? "border-ink/80 bg-ink/[0.04]"
-                        : "border-black/[0.08] hover:border-ink/30",
-                    )}
-                  >
-                    <span className="block text-[12px] font-medium text-ink">{t.label}</span>
-                    <span className="mt-0.5 block text-[10.5px] leading-snug text-ink-45">{t.hint}</span>
-                  </button>
-                ))}
-              </div>
-            </Field>
 
             <Field label={`سرعت انیمیشن · ${settings.speed.toFixed(2)}×`}>
               <Slider
