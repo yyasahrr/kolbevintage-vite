@@ -12,6 +12,7 @@ import { ProductPage } from "@/pages/ProductPage";
 import { StylePage } from "@/pages/StylePage";
 import { LandingPage } from "@/pages/LandingPage";
 import { JournalPage } from "@/pages/JournalPage";
+import { GalleryPage } from "@/pages/GalleryPage";
 import { ArticlePage } from "@/pages/ArticlePage";
 import { AboutPage } from "@/pages/AboutPage";
 import { WishlistPage } from "@/pages/WishlistPage";
@@ -126,6 +127,7 @@ function SiteRoutes() {
         <Route path="/style/:lookId" element={<StylePage />} />
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/journal" element={<JournalPage />} />
+        <Route path="/gallery" element={<GalleryPage />} />
         <Route path="/journal/:slug" element={<ArticlePage />} />
         <Route path="/about" element={<CorePageSlot slug="about"><AboutPage /></CorePageSlot>} />
         <Route path="/wishlist" element={<WishlistPage />} />

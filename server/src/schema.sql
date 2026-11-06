@@ -291,6 +291,10 @@ alter table orders add column if not exists payment_status text default 'unpaid'
 alter table orders add column if not exists fulfillment_status text default 'unfulfilled';
 alter table orders add column if not exists exception_reason text;
 alter table orders add column if not exists coupon_code text;
+-- carrier data is relational as well as mirrored in the legacy document, so
+-- the warehouse, print centre and customer account all read the same values
+alter table orders add column if not exists tracking_code text;
+alter table orders add column if not exists carrier_name text;
 create unique index if not exists orders_checkout_idx on orders (checkout_id) where checkout_id is not null;
 
 create sequence if not exists order_number_seq start 100001;
@@ -530,3 +534,19 @@ create table if not exists newsletter_subscribers (
   created_at timestamptz not null default now()
 );
 create index if not exists newsletter_created_idx on newsletter_subscribers (created_at desc);
+
+-- Customer style gallery. Public submissions stay pending until a content
+-- editor approves both the image and the recorded publication consent.
+create table if not exists gallery_items (
+  id text primary key,
+  customer_handle text not null,
+  email text,
+  image_url text not null,
+  caption text not null default '',
+  moderation_status text not null default 'pending',
+  consent_verified boolean not null default false,
+  submitted_at timestamptz not null default now(),
+  moderated_at timestamptz,
+  moderated_by text
+);
+create index if not exists gallery_items_status_idx on gallery_items (moderation_status, submitted_at desc);

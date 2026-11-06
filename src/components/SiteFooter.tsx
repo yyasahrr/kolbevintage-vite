@@ -5,11 +5,11 @@ import { useOps } from "@/state/ops";
 import { useAdmin } from "@/state/admin";
 
 const SERVICE = [
-  { label: "پیگیری سفارش", to: "/about" },
-  { label: "ارسال و مرجوعی", to: "/about" },
-  { label: "راهنمای سایز", to: "/products" },
-  { label: "پرسش‌های متداول", to: "/about" },
-  { label: "تماس با ما", to: "/about" },
+  { label: "پیگیری سفارش", to: "/account/orders" },
+  { label: "ارسال و مرجوعی", to: "/account/returns" },
+  { label: "راهنمای سایز", to: "/account/size" },
+  { label: "پرسش‌های متداول", to: "/about#faq" },
+  { label: "تماس با ما", to: "/account/tickets" },
 ];
 
 const STUDIO = [
@@ -98,6 +98,7 @@ export function SiteFooter() {
           <li>
             <FooterLink to="/journal">ژورنال ولور</FooterLink>
           </li>
+          <li><FooterLink to="/gallery">گالری استایل مشتریان</FooterLink></li>
           <li>
             <FooterLink to="/landing">کمپین پاییز / زمستان</FooterLink>
           </li>

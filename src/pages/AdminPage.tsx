@@ -66,14 +66,14 @@ import { computeDiscounts } from "@/state/discounts";
 import { fileToDataUrl } from "@/builder/ControlsUI";
 import { ProductThumb } from "@/components/ProductThumb";
 import { ProductMediaEditor } from "@/components/ProductMediaEditor";
-import { adminLogin, adminLogout, ApiError } from "@/lib/api";
+import { adminLogin, adminLogout, api, ApiError } from "@/lib/api";
 import { download, timeAgo } from "@/builder/util";
 import { useTheme } from "@/theme/ThemeProvider";
 import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
 import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
-import { addLog, logSmsCampaign, removeSmsTemplate, resetJournalBlocks, saveSmsTemplate, setFeature, setJournalBlocks, setSeo, setSizeGuide } from "@/state/ops";
+import { addLog, logSmsCampaign, removeSmsTemplate, resetJournalBlocks, saveSmsTemplate, setFeature, setJournalBlocks, setJournalVideo, setSeo, setSizeGuide } from "@/state/ops";
 import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, openPanelForReview, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
@@ -81,7 +81,8 @@ import { resolveImg } from "@/builder/stock";
 import { useCart as useNotifyCart } from "@/state/cart";
 import type { AdminState, Campaign, DiscountRule, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
 import type { GarmentKind, ProductImage } from "@/types";
-import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, AnalyticsPanel, BackupPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel, InventoryPanel} from "./AdminOps";
+import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, AnalyticsPanel, BackupPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel} from "./AdminOps";
+import { ColorLibraryPanel, FulfillmentPanel, GalleryModerationPanel, InventoryLedgerPanel, InventoryOperationsPanel, InventoryWorkspace, ManualOrderPanel, PrintCenterPanel } from "./AdminV3";
 import { CashbackPanel } from "./AdminCashback";
 import { CommercePanel } from "./AdminCommercePanel";
 import { StaffPanel } from "./AdminRbac";
@@ -109,6 +110,13 @@ type Tab =
   | "orders"
   | "products"
   | "inventory"
+  | "inventoryops"
+  | "ledger"
+  | "colors"
+  | "manualorder"
+  | "fulfillment"
+  | "print"
+  | "gallery"
   | "customers"
   | "campaigns"
   | "reports"
@@ -166,6 +174,9 @@ const TABS: NavItem[] = [
     icon: ShoppingBag,
     children: [
       { id: "orders", label: "سفارش‌ها" },
+      { id: "manualorder", label: "سفارش دستی" },
+      { id: "fulfillment", label: "برداشت و ارسال" },
+      { id: "print", label: "مرکز چاپ" },
       { id: "campaigns", label: "تخفیف و کمپین" },
       { id: "commerce", label: "پرداخت و مالی" },
       { id: "returns", label: "مرجوعی‌ها" },
@@ -180,7 +191,10 @@ const TABS: NavItem[] = [
     icon: Package,
     children: [
       { id: "products", label: "محصولات" },
-      { id: "inventory", label: "انبار" },
+      { id: "inventory", label: "موجودی SKU" },
+      { id: "inventoryops", label: "دریافت و اصلاح" },
+      { id: "ledger", label: "دفتر گردش" },
+      { id: "colors", label: "کتابخانه رنگ" },
       { id: "categories", label: "دسته‌بندی و سایز" },
       { id: "media", label: "تصاویر" },
     ],
@@ -194,7 +208,8 @@ const TABS: NavItem[] = [
       { id: "brand", label: "برند و لوگو" },
       { id: "megamenu", label: "مگا منو" },
       { id: "content", label: "محتوا" },
-      { id: "journal", label: "ژورنال" },
+      { id: "journal", label: "ژورنال و ویدیو" },
+      { id: "gallery", label: "گالری مشتریان" },
       { id: "appearance", label: "ظاهر سایت" },
       { id: "forms", label: "فرم‌ها" },
     ],
@@ -597,6 +612,9 @@ export function AdminPage() {
             <GroupShell
               sections={[
                 { id: "orders", label: "سفارش‌ها", node: <Orders /> },
+                { id: "manualorder", label: "سفارش دستی", node: <ManualOrderPanel /> },
+                { id: "fulfillment", label: "برداشت و ارسال", node: <FulfillmentPanel /> },
+                { id: "print", label: "مرکز چاپ", node: <PrintCenterPanel /> },
                 { id: "campaigns", label: "تخفیف و کمپین", node: <Campaigns /> },
                 { id: "commerce", label: "پرداخت و مالی", node: <CommercePanel /> },
                 { id: "returns", label: "مرجوعی‌ها", node: <ReturnsPanel /> },
@@ -612,7 +630,10 @@ export function AdminPage() {
             <GroupShell
               sections={[
                 { id: "products", label: "محصولات", node: <Products /> },
-                { id: "inventory", label: "انبار", node: <InventoryPanel /> },
+                { id: "inventory", label: "موجودی SKU", node: <InventoryWorkspace /> },
+                { id: "inventoryops", label: "دریافت و اصلاح", node: <InventoryOperationsPanel /> },
+                { id: "ledger", label: "دفتر گردش", node: <InventoryLedgerPanel /> },
+                { id: "colors", label: "کتابخانه رنگ", node: <ColorLibraryPanel /> },
                 { id: "categories", label: "دسته‌بندی و سایز", node: <CategoriesPanel /> },
                 { id: "media", label: "تصاویر", node: <MediaPanel /> },
               ]}
@@ -627,7 +648,8 @@ export function AdminPage() {
                 { id: "brand", label: "برند و لوگو", node: <BrandPanel /> },
                 { id: "megamenu", label: "مگا منو", node: <MegaMenuPanel /> },
                 { id: "content", label: "محتوا", node: <Content /> },
-                { id: "journal", label: "ژورنال", node: <JournalEditor /> },
+                { id: "journal", label: "ژورنال و ویدیو", node: <JournalEditor /> },
+                { id: "gallery", label: "گالری مشتریان", node: <GalleryModerationPanel /> },
                 { id: "appearance", label: "ظاهر سایت", node: <Appearance /> },
                 { id: "forms", label: "فرم‌ها", node: <FormsPanel /> },
               ]}
@@ -1510,6 +1532,7 @@ function OrderPage({ orderId }: { orderId: string }) {
   const [note, setNote] = useState("");
   const [tracking, setTracking] = useState(order?.tracking ?? "");
   const [saved, setSaved] = useState(false);
+  const [trackingError, setTrackingError] = useState("");
 
   if (!order) {
     return (
@@ -1620,11 +1643,23 @@ function OrderPage({ orderId }: { orderId: string }) {
               type="button"
               className="ad-btn is-sm is-primary"
               disabled={tracking === (order.tracking ?? "")}
-              onClick={() => { patchOrder(order.id, { tracking: tracking.trim() || undefined }); setSaved(true); }}
+              onClick={() => {
+                setTrackingError("");
+                void api.patch(`/api/commerce/admin/orders/${order.id}/shipment`, { tracking: tracking.trim(), carrier: order.carrier ?? "" })
+                  .then(() => {
+                    patchOrder(order.id, { tracking: tracking.trim() || undefined });
+                    setSaved(true);
+                  })
+                  .catch((error) => {
+                    setSaved(false);
+                    setTrackingError(error instanceof Error ? error.message : "کد رهگیری ذخیره نشد.");
+                  });
+              }}
             >
               ذخیره
             </button>
             {saved && <span className="ad-hint">ذخیره شد؛ در صفحهٔ سفارش مشتری همین کد دیده می‌شود.</span>}
+            {trackingError && <span className="ad-hint is-warn">{trackingError}</span>}
           </div>
         </section>
       </div>
@@ -2537,6 +2572,23 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
             <div className="ad-form-grid">
               <div className="ad-form-col">
                 <p className="ad-field-label">رنگ‌ها</p>
+                <label className="ad-field">افزودن از کتابخانهٔ رنگ
+                  <select
+                    className="ad-select"
+                    value=""
+                    onChange={(e) => {
+                      const item = ops.colorLibrary.find((color) => color.id === e.target.value);
+                      if (item && !colors.some((color) => color.id === item.id)) {
+                        setColors([...colors, { id: item.id, name: item.name, hex: item.hex }]);
+                      }
+                    }}
+                  >
+                    <option value="">انتخاب رنگ استاندارد…</option>
+                    {ops.colorLibrary.filter((color) => color.active).map((color) => (
+                      <option key={color.id} value={color.id}>{color.name} — {color.family}</option>
+                    ))}
+                  </select>
+                </label>
                 {colors.map((c, i) => (
                   <div key={c.id} className="ad-color-row">
                     <input type="color" value={c.hex} aria-label={`رنگ ${i + 1}`} onChange={(e) => setColors(colors.map((x, n) => (n === i ? { ...x, hex: e.target.value } : x)))} />
@@ -4776,6 +4828,18 @@ function JournalEditor() {
         <small className="ad-hint">
           {saved ? "این مقاله نسخهٔ ویرایش‌شدهٔ خودت را دارد." : "نسخهٔ اصلی مقاله؛ هر تغییری که ذخیره کنی جای آن را می‌گیرد."}
         </small>
+      </label>
+
+      <label className="ad-field">ویدیوی لوک‌بوک (اختیاری)
+        <input
+          className="ad-input"
+          dir="ltr"
+          type="url"
+          value={ops.journalVideos[slug] ?? ""}
+          placeholder="https://…/lookbook.mp4"
+          onChange={(e) => setJournalVideo(slug, e.target.value)}
+        />
+        <small className="ad-hint">با افزودنش، همین مقاله در فروشگاه به یک لوک‌بوک ویدیویی تبدیل می‌شود.</small>
       </label>
 
       <div className="ad-blocks">

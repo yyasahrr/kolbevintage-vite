@@ -88,10 +88,22 @@ export async function stateRoutes(app: FastifyInstance) {
     }
 
     const isAdmin = session?.kind === "admin";
+    const responseAdmin = isAdmin
+      ? (redact(map.admin ?? null) as Record<string, unknown> | null)
+      : publicAdminDoc((map.admin as Record<string, unknown> | null) ?? null);
+
+    // Orders are relational financial records, not a public state document.
+    // Administrators receive the full book; a signed-in customer receives only
+    // their own orders; anonymous visitors receive none.
+    if (responseAdmin && (isAdmin || session?.kind === "customer")) {
+      const orderRows = isAdmin
+        ? await query<{ data: unknown }>("select data from orders order by created_at desc limit 400")
+        : await query<{ data: unknown }>("select data from orders where email = $1 order by created_at desc limit 100", [session?.subject]);
+      responseAdmin.orders = orderRows.rows.map((row) => row.data);
+    }
+
     return {
-      admin: isAdmin
-        ? redact(map.admin ?? null)
-        : publicAdminDoc((map.admin as Record<string, unknown> | null) ?? null),
+      admin: responseAdmin,
       // the ops document can carry the same staff passcode under security
       ops: isAdmin
         ? redact(map.ops ?? null)

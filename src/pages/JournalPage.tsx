@@ -9,7 +9,8 @@ const CATEGORIES = ["همه", "استایل", "آتلیه", "پارچه", "را�
 
 export function JournalPage() {
   const [category, setCategory] = useState<string>("همه");
-  const features = useOps().features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
+  const ops = useOps();
+  const features = ops.features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
   const posts = category === "همه" ? POSTS : POSTS.filter((p) => p.category === category);
   const featured = POSTS.find((p) => p.featured) ?? POSTS[0];
 
@@ -112,7 +113,7 @@ export function JournalPage() {
                     }
                   />
                   <span className="absolute top-3 right-3 rounded-full bg-white/85 px-2.5 py-1 text-[9.5px] text-ink backdrop-blur">
-                    {post.category}
+                    {ops.journalVideos[post.slug] ? "لوک‌بوک ویدیویی" : post.category}
                   </span>
                 </div>
                 <div className="mt-3 flex flex-1 flex-col">

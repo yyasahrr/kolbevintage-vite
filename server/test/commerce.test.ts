@@ -235,7 +235,7 @@ beforeEach(async () => {
     `delete from refunds; delete from fulfillment_events; delete from order_lines; delete from orders;
      delete from payment_attempts; delete from checkout_sessions; delete from cart_lines; delete from carts;
      delete from stock_reservations; delete from inventory_movements; delete from inventory_adjustments;
-     delete from outbox_events;
+     delete from outbox_events; delete from gallery_items;
      -- every test starts from a known shelf: seeded campaigns must not leak into
      -- coupon tests (on a fresh CI database they do, on a long-lived one they don't)
      delete from price_rules;
@@ -1865,4 +1865,63 @@ test("review mode opens the panel without a passcode, and only when asked to", a
     body: JSON.stringify({ shippingFlat: 12 }),
   });
   assert.equal(refused.status, 401);
+});
+
+test("manual orders reserve and consume real stock once, then share shipment tracking", async () => {
+  const admin = await adminClient();
+  await setStock(SKU, 5);
+  const inventory = await admin.get("/api/commerce/admin/inventory");
+  assert.equal(inventory.status, 200, JSON.stringify(inventory.body));
+  const variant = inventory.body.find((row: any) => row.sku === SKU);
+  assert.equal(variant.sellable, 5);
+
+  const body = {
+    items: [{ variantId: variant.id, quantity: 2 }],
+    customerEmail: "ava@example.com",
+    address: { receiver: "آوا رادمهر", phone: "09121234567", province: "تهران", city: "تهران", street: "ولیعصر، پلاک ۱", postal: "1234567890" },
+    shippingMethod: "standard",
+    paymentReference: "BANK-12345",
+    idempotencyKey: "manual-test-1",
+  };
+  const created = await admin.post("/api/commerce/admin/orders/manual", body);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  assert.equal(created.body.order.paymentStatus, "settled");
+  assert.equal(created.body.order.lines[0].quantity, 2);
+  assert.equal(created.body.legacy.manual, true);
+  assert.equal((await stockOf(SKU)).onHand, 3);
+
+  const repeated = await admin.post("/api/commerce/admin/orders/manual", body);
+  assert.equal(repeated.status, 200);
+  assert.equal(repeated.body.order.id, created.body.order.id);
+  assert.equal((await stockOf(SKU)).onHand, 3);
+
+  const shipment = await admin.patch(`/api/commerce/admin/orders/${created.body.order.id}/shipment`, { tracking: "POST-9988", carrier: "پست" });
+  assert.equal(shipment.status, 200, JSON.stringify(shipment.body));
+  const order = await admin.get(`/api/commerce/orders/${created.body.order.id}`);
+  assert.equal(order.body.tracking, "POST-9988");
+  assert.equal(order.body.carrier, "پست");
+
+  const customer = await customerClient();
+  const forbidden = await customer.post("/api/commerce/admin/orders/manual", { ...body, idempotencyKey: "manual-test-2" });
+  assert.equal(forbidden.status, 401);
+});
+
+test("customer gallery requires consent and publishes only moderated images", async () => {
+  const visitor = makeClient();
+  const imageUrl = "data:image/png;base64,iVBORw0KGgo=";
+  const refused = await visitor.post("/api/gallery", { handle: "آوا", imageUrl, consent: false });
+  assert.equal(refused.status, 400);
+  const submitted = await visitor.post("/api/gallery", { handle: "آوا", imageUrl, caption: "استایل پاییزی", consent: true });
+  assert.equal(submitted.status, 201, JSON.stringify(submitted.body));
+  assert.deepEqual((await visitor.get("/api/gallery")).body, []);
+
+  const admin = await adminClient();
+  const queue = await admin.get("/api/admin/gallery");
+  assert.equal(queue.status, 200);
+  assert.equal(queue.body[0].status, "pending");
+  const approved = await admin.patch(`/api/admin/gallery/${submitted.body.id}`, { status: "approved" });
+  assert.equal(approved.status, 200);
+  const published = await visitor.get("/api/gallery");
+  assert.equal(published.body.length, 1);
+  assert.equal(published.body[0].handle, "آوا");
 });

@@ -1,6 +1,6 @@
 import { LOOKS, stockOf } from "./looks";
 import { getAdmin, type CustomProduct } from "@/state/admin";
-import { lookProductIds } from "@/state/ops";
+import { getOps, lookProductIds } from "@/state/ops";
 import type { ColorOption, Crop, GarmentKind, Look, Product } from "@/types";
 
 export interface CatalogProduct extends Product {
@@ -322,6 +322,14 @@ export const visibleProducts = () => liveCatalog().filter((p) => !isHidden(p.id)
 export const productsInCollection = (id: string) => {
   const base = visibleProducts();
   if (id === "all") return base;
+  const categoryTree = getOps().categories;
+  const dynamic = categoryTree.find((category) => category.id === id);
+  if (dynamic) {
+    const children = categoryTree.filter((category) => category.parentId === dynamic.id);
+    const garments = new Set([dynamic, ...children].flatMap((category) => category.garments));
+    const names = new Set([dynamic, ...children].map((category) => category.name));
+    return base.filter((product) => garments.has(product.garment) || names.has(product.category));
+  }
   const collection = COLLECTIONS.find((c) => c.id === id);
   return collection ? base.filter((p) => collection.garments.includes(p.garment)) : base;
 };
@@ -363,7 +371,12 @@ export interface ProductFilters {
 export function filterProducts(filters: ProductFilters): CatalogProduct[] {
   let list = productsInCollection(filters.collection ?? "all");
 
-  if (filters.category) list = list.filter((p) => p.category === filters.category);
+  if (filters.category) {
+    const categoryTree = getOps().categories;
+    const parent = categoryTree.find((category) => category.name === filters.category);
+    const accepted = new Set([filters.category, ...categoryTree.filter((category) => category.parentId === parent?.id).map((category) => category.name)]);
+    list = list.filter((p) => accepted.has(p.category));
+  }
   if (filters.size) list = list.filter((p) => p.sizes.some((s) => s.label === filters.size));
   if (filters.color)
     list = list.filter((p) =>

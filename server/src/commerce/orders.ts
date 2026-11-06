@@ -46,6 +46,8 @@ export interface OrderRow {
   exception_reason: string | null;
   coupon_code: string | null;
   checkout_id: string | null;
+  tracking_code: string | null;
+  carrier_name: string | null;
 }
 
 export interface OrderLineRow {
@@ -89,6 +91,15 @@ export function publicOrder(order: OrderRow, lines: OrderLineRow[]) {
     total: Number(order.total ?? 0),
     coupon: order.coupon_code,
     checkoutId: order.checkout_id,
+    // shipment/customer snapshot used by the admin workstation and print centre
+    phone: typeof order.data?.phone === "string" ? order.data.phone : "",
+    city: typeof order.data?.city === "string" ? order.data.city : "",
+    address: typeof order.data?.address === "string" ? order.data.address : "",
+    shipping: order.data?.shipping === "express" ? "express" : "standard",
+    tracking: order.tracking_code ?? (typeof order.data?.tracking === "string" ? order.data.tracking : ""),
+    carrier: order.carrier_name ?? "",
+    manual: order.data?.manual === true,
+    externalPaymentRef: typeof order.data?.externalPaymentRef === "string" ? order.data.externalPaymentRef : "",
     lines: lines.map((line) => ({
       id: line.id,
       variantId: line.variant_id,

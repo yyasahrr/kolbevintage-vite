@@ -18,6 +18,7 @@ const NAV = [
   { to: "/style", label: "خرید بر اساس استایل" },
   { to: "/style-builder", label: "استایل بیلدر" },
   { to: "/journal", label: "ژورنال" },
+  { to: "/gallery", label: "گالری مشتریان" },
 ];
 
 /** category groups, used when the owner has not curated a mega menu yet */

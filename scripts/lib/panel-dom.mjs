@@ -19,6 +19,10 @@ function installGlobals(window) {
   globalThis.location = window.location;
   globalThis.history = window.history;
   globalThis.HTMLElement = window.HTMLElement;
+  // React's legacy input-value watcher probes these IE-era methods after
+  // programmatic focus; jsdom does not provide them (real browsers never need them).
+  window.HTMLElement.prototype.attachEvent ??= () => {};
+  window.HTMLElement.prototype.detachEvent ??= () => {};
   globalThis.Element = window.Element;
   globalThis.Node = window.Node;
   globalThis.getComputedStyle = window.getComputedStyle.bind(window);

@@ -14,7 +14,9 @@ export function ArticlePage() {
   const { slug } = useParams();
   const post = getPost(slug);
   // the owner's block-editor version wins over the shipped article (decision 68)
-  const edited = useOps().journalBlocks ?? {};
+  const ops = useOps();
+  const edited = ops.journalBlocks ?? {};
+  const lookbookVideo = post ? ops.journalVideos[post.slug] : undefined;
   const { notify } = useCart();
   const [progress, setProgress] = useState(0);
 
@@ -92,6 +94,20 @@ export function ArticlePage() {
             />
           </div>
         </div>
+
+        {lookbookVideo && (
+          <div className="mx-auto mt-6 w-full max-w-[1100px] px-4 sm:px-6">
+            <video
+              src={lookbookVideo}
+              controls
+              playsInline
+              preload="metadata"
+              poster={post.image}
+              className="aspect-video w-full rounded-2xl border border-black/[0.07] bg-ink object-cover"
+              aria-label={`لوک‌بوک ویدیویی ${post.title}`}
+            />
+          </div>
+        )}
 
         <div className="mx-auto max-w-[42rem] px-4 pt-9 sm:px-6">
           {(edited[post.slug] ?? post.blocks).map((block, i) => {

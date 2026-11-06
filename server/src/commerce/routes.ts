@@ -63,6 +63,7 @@ import { loadCommerceSettings, saveCommerceSettings, type CommerceSettings } fro
 import { providerCapabilities, verifyCallbackSignature } from "./payments";
 import { diffSettings, listAudit, recordAudit } from "./audit";
 import { productVariants, publicVariant } from "./variants";
+import { createManualOrder, type ManualOrderInput } from "./manual";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -404,6 +405,108 @@ export async function commerceRoutes(app: FastifyInstance) {
      Admin: settings, variants, inventory, payments, outbox, refunds
      --------------------------------------------------------------- */
 
+  /** Back-office order entry: real server quote + reservation + paid snapshot. */
+  app.post<{ Body: ManualOrderInput }>("/api/commerce/admin/orders/manual", async (req, reply) => {
+    const session = await requirePermission(req, "orders:edit");
+    const result = await createManualOrder(req.body, actorOf(session));
+    await recordAudit({
+      actor: actorOf(session),
+      action: "order.manual_create",
+      targetType: "order",
+      targetId: result.order.id,
+      after: { total: result.order.total, paymentReference: req.body.paymentReference, reused: result.reused },
+      requestId: req.id,
+    });
+    return reply.code(result.reused ? 200 : 201).send(result);
+  });
+
+  /** Carrier values are shared by the warehouse, print centre and account. */
+  app.patch<{
+    Params: { id: string };
+    Body: { tracking?: string; carrier?: string };
+  }>("/api/commerce/admin/orders/:id/shipment", async (req) => {
+    const session = await requirePermission(req, "orders:edit");
+    const tracking = String(req.body?.tracking ?? "").trim().slice(0, 120);
+    const carrier = String(req.body?.carrier ?? "").trim().slice(0, 120);
+    const result = await query(
+      `update orders
+          set tracking_code = $2, carrier_name = $3,
+              data = jsonb_set(jsonb_set(data, '{tracking}', to_jsonb($2::text), true), '{carrier}', to_jsonb($3::text), true)
+        where id = $1 returning id`,
+      [req.params.id, tracking, carrier],
+    );
+    if (!result.rows[0]) throw notFound("سفارش پیدا نشد.");
+    await query(
+      `insert into fulfillment_events (order_id, stage, accepted, actor, note)
+       values ($1, 'shipment_details', true, $2, $3)`,
+      [req.params.id, actorOf(session), tracking ? `tracking:${tracking}` : "tracking cleared"],
+    );
+    await recordAudit({
+      actor: actorOf(session),
+      action: "order.shipment_update",
+      targetType: "order",
+      targetId: req.params.id,
+      after: { tracking, carrier },
+      requestId: req.id,
+    });
+    return { ok: true, id: req.params.id, tracking, carrier };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/commerce/admin/orders/:id/events", async (req) => {
+    await requirePermission(req, "orders:view");
+    const rows = await query(
+      `select id, stage, sku, accepted, actor, note, created_at
+         from fulfillment_events where order_id = $1 order by id desc limit 200`,
+      [req.params.id],
+    );
+    return rows.rows;
+  });
+
+  /** Physical, quarantined, reserved and sellable stock in one SKU-centred view. */
+  app.get("/api/commerce/admin/inventory", async (req) => {
+    await requirePermission(req, "inventory:view");
+    const rows = await query<any>(
+      `select v.id, v.product_id, v.color_id, v.size_id, v.sku, v.on_hand, v.quarantined, v.active,
+              p.name, p.category, p.price, p.colors, p.sizes,
+              coalesce((select sum(r.quantity) from stock_reservations r
+                where r.variant_id = v.id and r.status = 'active' and r.expires_at > now()), 0)::int as reserved
+         from product_variants v join products p on p.id = v.product_id
+        order by p.name, v.sku`,
+    );
+    const { getDocument } = await import("../seed");
+    const admin = await getDocument<any>("admin");
+    const threshold = Number(admin?.settings?.lowStockThreshold) > 0 ? Number(admin.settings.lowStockThreshold) : 12;
+    return rows.rows.map((row) => {
+      const onHand = Number(row.on_hand);
+      const quarantined = Number(row.quarantined);
+      const reserved = Number(row.reserved);
+      const sellable = Math.max(0, onHand - quarantined - reserved);
+      const color = (row.colors ?? []).find((item: any) => item.id === row.color_id);
+      const size = (row.sizes ?? []).find((item: any) => item.id === row.size_id);
+      return {
+        id: row.id,
+        productId: row.product_id,
+        name: row.name,
+        category: row.category,
+        price: Number(row.price),
+        sku: row.sku,
+        colorId: row.color_id,
+        colorName: color?.name ?? row.color_id,
+        colorHex: color?.hex ?? "#888888",
+        sizeId: row.size_id,
+        sizeLabel: size?.label ?? row.size_id,
+        onHand,
+        quarantined,
+        reserved,
+        sellable,
+        threshold,
+        active: row.active,
+        lowStock: sellable > 0 && sellable <= threshold,
+        outOfStock: sellable === 0,
+      };
+    });
+  });
+
   /** the signed-in customer's wallet (tiered cashback balance + history) */
   app.get("/api/commerce/cashback", async (req) => {
     const session = await currentSession(req);
@@ -569,9 +672,14 @@ export async function commerceRoutes(app: FastifyInstance) {
       where = "where variant_id = $1";
     }
     params.push(Math.min(500, Number(req.query.limit ?? 200)));
+    const movementWhere = where ? `where m.variant_id = $1` : "";
     const rows = await query(
-      `select id, variant_id, delta, reason, ref_type, ref_id, actor, note, created_at
-         from inventory_movements ${where} order by id desc limit $${params.length}`,
+      `select m.id, m.variant_id, m.delta, m.reason, m.ref_type, m.ref_id, m.actor, m.note, m.created_at,
+              v.sku, p.name as product_name, v.color_id, v.size_id
+         from inventory_movements m
+         join product_variants v on v.id = m.variant_id
+         join products p on p.id = v.product_id
+         ${movementWhere} order by m.id desc limit $${params.length}`,
       params,
     );
     return rows.rows;

@@ -78,6 +78,7 @@ export interface Order {
   notes?: { id: string; at: number; by: string; text: string }[];
   /** carrier tracking code, shown to the customer */
   tracking?: string;
+  carrier?: string;
 }
 
 export interface Coupon {
@@ -497,7 +498,8 @@ const patch = (p: Partial<AdminState>) => commit({ ...cache, ...p });
 export const patchSettings = (p: Partial<StoreSettings>) => patch({ settings: { ...cache.settings, ...p } });
 
 /* ---------------- orders ---------------- */
-export const addOrder = (o: Order) => patch({ orders: [o, ...cache.orders].slice(0, 400) });
+export const addOrder = (o: Order) =>
+  patch({ orders: [o, ...cache.orders.filter((order) => order.id !== o.id)].slice(0, 400) });
 /** any order field, without inventing a mutator per field */
 export const patchOrder = (id: string, change: Partial<Order>) =>
   patch({ orders: cache.orders.map((o) => (o.id === id ? { ...o, ...change } : o)) });

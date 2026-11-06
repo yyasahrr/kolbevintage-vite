@@ -3,12 +3,12 @@ import { Link, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { SlidersHorizontal, X, PackageSearch, RotateCcw } from "lucide-react";
 import {
-  ALL_COLORS,
   ALL_SIZES,
   COLLECTIONS,
   SORTS,
   filterProducts,
   productsInCollection,
+  visibleProducts,
   type SortKey,
 } from "@/data/catalog";
 import { ProductCard } from "@/components/ProductCard";
@@ -36,6 +36,12 @@ export function ProductsPage() {
   useScrollLock(filtersOpen);
   const ops = useOps();
   const { categories } = ops;
+  const inactiveColors = new Set(ops.colorLibrary.filter((item) => !item.active).map((item) => item.id));
+  const colorOptions = [...new Map(
+    visibleProducts().flatMap((product) => product.colors)
+      .filter((item) => !inactiveColors.has(item.id))
+      .map((item) => [item.id, item]),
+  ).values()];
 
   const collection = COLLECTIONS.find((c) => c.id === params.get("collection"))?.id ?? "all";
   const category = params.get("category") ?? "";
@@ -80,7 +86,7 @@ export function ProductsPage() {
     size && { key: "size", label: `سایز ${size}` },
     color && {
       key: "color",
-      label: `رنگ ${ALL_COLORS.find((c) => c.id === color)?.name ?? color}`,
+      label: `رنگ ${colorOptions.find((c) => c.id === color)?.name ?? color}`,
     },
     query && { key: "q", label: `جست‌وجو: ${query}` },
   ].filter(Boolean) as { key: string; label: string }[];
@@ -120,7 +126,7 @@ export function ProductsPage() {
       <div>
         <p className="mb-2 text-[10px] text-ink-45">رنگ</p>
         <div className="flex flex-wrap items-center gap-2">
-          {ALL_COLORS.map((c) => (
+          {colorOptions.map((c) => (
             <button
               key={c.id}
               type="button"
@@ -174,7 +180,7 @@ export function ProductsPage() {
           {categories.filter((c) => c.active).map((c) => (
             <button key={c.id} type="button" onClick={() => patch({ collection: c.id, category: null })} aria-pressed={collection === c.id} className={cn("sb-cat-tile shrink-0", collection === c.id && "is-on")}>
               <span className="sb-cat-thumb">{c.thumbnail ? <img src={resolveImg(c.thumbnail)} alt={c.name} /> : c.name.slice(0, 2)}</span>
-              <span className="sb-cat-name">{c.name}</span>
+              <span className="sb-cat-name">{c.parentId ? `↳ ${c.name}` : c.name}</span>
             </button>
           ))}
         </div>

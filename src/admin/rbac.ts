@@ -87,10 +87,16 @@ export const SCREEN_PERMISSION: Record<string, Permission> = {
   system: "settings:view",
 
   orders: "orders:view",
+  manualorder: "orders:view",
+  fulfillment: "orders:view",
+  print: "orders:view",
 
   catalog: "catalog:view",
   products: "catalog:view",
   inventory: "inventory:view",
+  inventoryops: "inventory:view",
+  ledger: "inventory:view",
+  colors: "catalog:view",
   categories: "catalog:view",
   media: "catalog:view",
   reviews: "content:view",
@@ -101,6 +107,7 @@ export const SCREEN_PERMISSION: Record<string, Permission> = {
   brand: "design:view",
   megamenu: "design:view",
   content: "content:view",
+  gallery: "content:view",
   appearance: "design:view",
   forms: "content:view",
 

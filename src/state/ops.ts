@@ -29,12 +29,23 @@ export interface CategoryDef {
   id: string;
   name: string;
   slug: string;
+  /** optional parent for the catalogue tree; empty means a root collection */
+  parentId?: string;
   /** which garment kinds belong to this category */
   garments: GarmentKind[];
   /** thumbnail image (data URL or stock: token) */
   thumbnail: string;
   /** size set id */
   sizeSetId: string;
+  active: boolean;
+  order: number;
+}
+
+export interface ColorLibraryItem {
+  id: string;
+  name: string;
+  hex: string;
+  family: "خنثی" | "گرم" | "سرد" | "خاکی";
   active: boolean;
   order: number;
 }
@@ -216,6 +227,8 @@ export interface OpsState {
    */
   siteTheme: ThemeId;
   categories: CategoryDef[];
+  /** reusable colour definitions available to every product editor */
+  colorLibrary: ColorLibraryItem[];
   sizeSets: SizeSet[];
   /** drag order of the storefront home page blocks (decision 67) */
   homeSections: HomeSection[];
@@ -246,6 +259,8 @@ export interface OpsState {
   categorySort: Record<string, "featured" | "newest" | "price-asc" | "price-desc">;
   /** journal articles the owner rewrote in the block editor, by slug (decision 68) */
   journalBlocks: Record<string, import("@/data/journal").ArticleBlock[]>;
+  /** optional video lookbook URL per journal article, shown on the public page */
+  journalVideos: Record<string, string>;
   /** first-run wizard: five steps, resumable, and it disappears once finished (decision 93) */
   setup: { done: boolean; step: number };
   /** signed-off launch checks; what the panel can measure is measured, the rest is the owner's word (decision 91) */
@@ -395,6 +410,14 @@ const DEFAULT: OpsState = {
     socials: { instagram: "#", telegram: "#", whatsapp: "#" },
   },
   categories: CATEGORIES,
+  colorLibrary: [
+    { id: "noir", name: "مشکی", hex: "#16130f", family: "خنثی", active: true, order: 1 },
+    { id: "ivory", name: "عاجی", hex: "#f1ead9", family: "خنثی", active: true, order: 2 },
+    { id: "camel", name: "شتری", hex: "#b68b5e", family: "خاکی", active: true, order: 3 },
+    { id: "sand", name: "شنی", hex: "#cdbba1", family: "خاکی", active: true, order: 4 },
+    { id: "terracotta", name: "تراکوتا", hex: "#a5543a", family: "گرم", active: true, order: 5 },
+    { id: "navy", name: "سرمه‌ای", hex: "#26364a", family: "سرد", active: true, order: 6 },
+  ],
   sizeSets: SIZE_SETS,
   homeSections: defaultHomeSections(),
   productImages: {},
@@ -422,6 +445,7 @@ const DEFAULT: OpsState = {
   features: { tryon: true, reviews: true, journal: true, wishlist: true },
   categorySort: {},
   journalBlocks: {},
+  journalVideos: {},
   setup: { done: false, step: 0 },
   launchChecks: {},
   issues: [],
@@ -619,6 +643,15 @@ export const sizesForGarment = (g: GarmentKind): string[] => {
   return set?.sizes ?? ["S", "M", "L"];
 };
 
+export const saveColorLibraryItem = (item: ColorLibraryItem) =>
+  patchOps({
+    colorLibrary: cache.colorLibrary.some((color) => color.id === item.id)
+      ? cache.colorLibrary.map((color) => (color.id === item.id ? item : color))
+      : [...cache.colorLibrary, item],
+  });
+export const removeColorLibraryItem = (id: string) =>
+  patchOps({ colorLibrary: cache.colorLibrary.filter((color) => color.id !== id) });
+
 /* ---------------- media ---------------- */
 export const productImagesOf = (productId: string): ProductImage[] => cache.productImages[productId] ?? [];
 export const setProductImages = (productId: string, images: ProductImage[]) =>
@@ -687,6 +720,13 @@ export const setCategorySort = (category: string, sort: OpsState["categorySort"]
 
 export const setJournalBlocks = (slug: string, blocks: import("@/data/journal").ArticleBlock[]) =>
   patchOps({ journalBlocks: { ...cache.journalBlocks, [slug]: blocks } });
+
+export const setJournalVideo = (slug: string, url: string) => {
+  const next = { ...cache.journalVideos };
+  if (url.trim()) next[slug] = url.trim();
+  else delete next[slug];
+  patchOps({ journalVideos: next });
+};
 
 export const resetJournalBlocks = (slug: string) => {
   const next = { ...cache.journalBlocks };

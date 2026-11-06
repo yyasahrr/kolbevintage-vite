@@ -28,7 +28,6 @@ import {
   Users,
   Wallet,
   X,
-  XCircle,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { liveCatalog, liveGetProduct } from "@/data/catalog";
@@ -85,9 +84,6 @@ import {
 } from "@/state/ops";
 import {
   useAdmin,
-  isLowStock,
-  setStockUnified,
-  restock,
   saveCustomLook,
   removeCustomLook,
   setCustomLookPublished,
@@ -291,6 +287,7 @@ export function CategoriesPanel() {
               <div className="ad-cat-main">
                 <b>{c.name || "بدون نام"}</b>
                 <small>
+                  {c.parentId ? `زیرمجموعهٔ ${ops.categories.find((parent) => parent.id === c.parentId)?.name ?? "دستهٔ حذف‌شده"} · ` : "دستهٔ اصلی · "}
                   {c.garments.length.toLocaleString("fa-IR")} نوع قطعه · سایز: {ops.sizeSets.find((s) => s.id === c.sizeSetId)?.name ?? "—"}
                 </small>
                 <small className="ad-reset">{c.garments.join(" · ") || "بدون نوع"}</small>
@@ -347,6 +344,14 @@ export function CategoriesPanel() {
                 <label className="ad-field">نام<input className="ad-input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value, slug: e.target.value.trim().replace(/\s+/g, "-") })} /></label>
                 <label className="ad-field">اسلاگ<input className="ad-input" dir="ltr" value={draft.slug} onChange={(e) => setDraft({ ...draft, slug: e.target.value })} /></label>
               </div>
+              <label className="ad-field">دستهٔ مادر
+                <select className="ad-select" value={draft.parentId ?? ""} onChange={(e) => setDraft({ ...draft, parentId: e.target.value || undefined })}>
+                  <option value="">دستهٔ اصلی</option>
+                  {ops.categories.filter((category) => category.id !== draft.id && !category.parentId).map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                  ))}
+                </select>
+              </label>
               <label className="ad-field">مجموعهٔ سایز
                 <select className="ad-select" value={draft.sizeSetId} onChange={(e) => setDraft({ ...draft, sizeSetId: e.target.value })}>
                   {ops.sizeSets.map((ss) => <option key={ss.id} value={ss.id}>{ss.name} — {ss.sizes.join(" · ")}</option>)}
@@ -2135,130 +2140,6 @@ export function MegaMenuPanel() {
       )}
     </>
   );
-}
-
-/* =====================================================================
-   inventory with expandable variant rows
-   ===================================================================== */
-
-export function InventoryPanel() {
-  const admin = useAdmin();
-  const catalog = liveCatalog();
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState<string | null>(null);
-  const [bulkQty, setBulkQty] = useState(5);
-
-  const totalStock = (p: { id: string; colors: { id: string }[]; sizes: { id: string }[] }) => {
-    const product = liveGetProduct(p.id);
-    if (!product) return 0;
-    let n = 0;
-    for (const c of product.colors) for (const s of product.sizes) n += require_stock(product, c.id, s.id);
-    return n;
-  };
-
-  const list = catalog.filter((p) => !q.trim() || p.name.includes(q.trim()));
-
-  return (
-    <>
-      <PanelHead title="انبارداری" sub="روی هر محصول بزن تا واریانت‌هایش باز شود و بتوانی موجودی هر رنگ/سایز یا کل کالا را تغییر دهی." />
-      <div className="ad-kpis">
-        <div className="ad-kpi ad-kpi-static"><b>{fa(catalog.length)}</b><span className="ad-kpi-label">کالا</span></div>
-        <div className="ad-kpi ad-kpi-static"><b>{fa(catalog.reduce((n, p) => n + totalStock(p), 0))}</b><span className="ad-kpi-label">واحد در انبار</span></div>
-        <div className="ad-kpi ad-kpi-static"><b>{fa(catalog.filter((p) => totalStock(p) === 0).length)}</b><span className="ad-kpi-label">ناموجود</span></div>
-        <div className="ad-kpi ad-kpi-static"><b>{fa(catalog.filter((p) => isLowStock(p.id, totalStock(p))).length)}</b><span className="ad-kpi-label">کم‌موجود</span></div>
-      </div>
-
-      <div className="ad-toolbar">
-        <input className="ad-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="جست‌وجوی کالا…" aria-label="جست‌وجوی کالا" />
-        <label className="ad-field ad-inline" style={{ flexDirection: "row", alignItems: "center", gap: 8, margin: 0 }}>
-          شارژ سریع همه:
-          <input className="ad-input" type="number" min={1} max={99} value={bulkQty} onChange={(e) => setBulkQty(Math.max(1, Number(e.target.value) || 1))} style={{ width: 70 }} aria-label="مقدار شارژ سریع" />
-        </label>
-      </div>
-
-      <div className="ad-cards">
-        {list.map((p) => {
-          const isOpen = open === p.id;
-          const total = totalStock(p);
-          return (
-            <article key={p.id} className={cn("ad-inv", isOpen && "is-open")}>
-              <button type="button" className="ad-inv-head" onClick={() => setOpen(isOpen ? null : p.id)} aria-expanded={isOpen}>
-                <ProductThumb product={p} className="w-[46px]" />
-                <span className="ad-inv-main">
-                  <b>{p.name}</b>
-                  <small>{p.colors.length.toLocaleString("fa-IR")} رنگ · {p.sizes.length.toLocaleString("fa-IR")} سایز</small>
-                </span>
-                <span className={cn("ad-pill", total === 0 ? "is-cancelled" : total <= 12 ? "is-pending" : "is-done")}>{total === 0 ? "ناموجود" : `${fa(total)} عدد`}</span>
-                <span className="ad-inv-toggle">{isOpen ? "بستن" : "واریانت‌ها"}</span>
-              </button>
-
-              {isOpen && (
-                <div className="ad-inv-body">
-                  <div className="ad-actions" style={{ marginBottom: 10 }}>
-                    <button
-                      type="button"
-                      className="ad-btn is-sm is-primary"
-                      onClick={() => {
-                        for (const c of p.colors) for (const s of p.sizes) restock(p.id, p.name, c.id, s.id, bulkQty);
-                        addLog({ actor: "مدیر", action: "شارژ کل کالا", target: p.name, meta: `+${fa(bulkQty)}` });
-                      }}
-                    >
-                      <Plus width={12} height={12} /> شارژ همهٔ واریانت‌ها (+{fa(bulkQty)})
-                    </button>
-                    <button type="button" className="ad-btn is-sm" onClick={() => { for (const c of p.colors) for (const s of p.sizes) setStockUnified(p.id, c.id, s.id, 0); addLog({ actor: "مدیر", action: "صفر کردن موجودی", target: p.name }); }}>
-                      <XCircle width={12} height={12} /> صفر کردن
-                    </button>
-                  </div>
-
-                  {p.colors.map((c) => (
-                    <div key={c.id} className="ad-inv-variant-row">
-                      <span className="ad-stock-color" style={{ margin: 0 }}><i style={{ background: c.hex }} /> {c.name}</span>
-                      <div className="ad-inv-cells">
-                        {p.sizes.map((s) => (
-                          <label key={s.id} className="ad-inv-cell">
-                            <span>{s.label}</span>
-                            <input
-                              type="number"
-                              min={0}
-                              max={999}
-                              defaultValue={require_stock(p, c.id, s.id)}
-                              aria-label={`موجودی ${p.name} ${c.name} ${s.label}`}
-                              onBlur={(e) => setStockUnified(p.id, c.id, s.id, Math.max(0, Number(e.target.value) || 0))}
-                            />
-                            <button type="button" className="ad-inv-plus" aria-label={`افزودن ${fa(bulkQty)} به ${s.label}`} onClick={() => restock(p.id, p.name, c.id, s.id, bulkQty)}>+</button>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </article>
-          );
-        })}
-      </div>
-      {admin.movements.length > 0 && (
-        <Panel title="آخرین تحرکات">
-          <ul className="ad-mini-list">
-            {admin.movements.slice(0, 8).map((m) => (
-              <li key={m.id}>
-                <b className={m.delta < 0 ? "text-ember" : undefined}>{m.delta > 0 ? `+${fa(m.delta)}` : fa(m.delta)}</b>
-                <span>{m.name}</span>
-                <em>{m.reason === "sale" ? "فروش" : m.reason === "restock" ? "شارژ" : m.reason === "create" ? "ایجاد" : "ویرایش"}</em>
-                <small>{timeAgo(m.at)}</small>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      )}
-    </>
-  );
-}
-
-/* local helper to avoid an extra import cycle */
-import { stockOf as stockOfBase } from "@/data/looks";
-function require_stock(p: Parameters<typeof stockOfBase>[0], colorId: string, sizeId: string) {
-  return stockOfBase(p, colorId, sizeId);
 }
 
 export const _unusedOps = { Bot, BadgePercent, Copy, Mail, Megaphone, MessageSquare, RotateCcw, ShieldCheck, Undo2, Users, Wallet, Layers };
