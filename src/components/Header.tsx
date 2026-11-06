@@ -549,8 +549,8 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
                 <button type="button" onClick={() => { onClose(); onSearch(); }} className="flex min-h-11 items-center gap-1.5 hover:text-ink">
                   <Search className="h-3.5 w-3.5" /> جست‌وجو
                 </button>
-                <Link to="/admin" onClick={onClose} className="flex min-h-11 items-center gap-1.5 hover:text-ink">
-                  <ShieldCheck className="h-3.5 w-3.5" /> پنل مدیریت
+                <Link to="/admin/stock/inventory" onClick={onClose} className="flex min-h-11 items-center gap-1.5 hover:text-ink">
+                  <ShieldCheck className="h-3.5 w-3.5" /> پنل مدیریت جدید
                 </Link>
               </div>
 
