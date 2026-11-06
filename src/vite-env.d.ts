@@ -15,6 +15,8 @@ declare module "*.jpg" {
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE?: string;
+  /** public URL of the separate Next.js admin V3 */
+  readonly VITE_ADMIN_PANEL_URL?: string;
 }
 
 interface ImportMeta {

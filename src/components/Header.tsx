@@ -13,6 +13,16 @@ import { useAdmin } from "@/state/admin";
 import { useEscape, useScrollLock } from "@/hooks/useOverlay";
 import { UserRound } from "lucide-react";
 
+/** The separate Next.js admin V3, not the legacy Vite administration shell. */
+function adminV3Href() {
+  const configured = import.meta.env.VITE_ADMIN_PANEL_URL as string | undefined;
+  if (configured) return configured;
+  const { protocol, hostname } = window.location;
+  // Arena previews expose each process as `<port>-<sandbox>.e2b.app`.
+  if (/^5173-/.test(hostname)) return `${protocol}//${hostname.replace(/^5173-/, "3000-")}`;
+  return `${protocol}//${hostname}:3000`;
+}
+
 const NAV = [
   { to: "/products", label: "فروشگاه", mega: true },
   { to: "/style", label: "خرید بر اساس استایل" },
@@ -549,9 +559,9 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
                 <button type="button" onClick={() => { onClose(); onSearch(); }} className="flex min-h-11 items-center gap-1.5 hover:text-ink">
                   <Search className="h-3.5 w-3.5" /> جست‌وجو
                 </button>
-                <Link to="/admin/stock/inventory" onClick={onClose} className="flex min-h-11 items-center gap-1.5 hover:text-ink">
+                <a href={adminV3Href()} onClick={onClose} className="flex min-h-11 items-center gap-1.5 hover:text-ink">
                   <ShieldCheck className="h-3.5 w-3.5" /> پنل مدیریت جدید
-                </Link>
+                </a>
               </div>
 
             </nav>
