@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ProductImage } from "./ProductImage";
 import { cn } from "@/utils/cn";
@@ -14,7 +13,6 @@ interface Slide {
   image?: string;
   crop?: Crop;
   colorName?: string;
-  colorHex?: string;
 }
 
 /**
@@ -29,11 +27,9 @@ interface Slide {
 export function ProductGallery({
   product,
   color,
-  overlay,
 }: {
   product: CatalogProduct;
   color: ColorOption;
-  overlay?: ReactNode;
 }) {
   const catalog = useLiveCatalog();
   const [index, setIndex] = useState(0);
@@ -54,7 +50,6 @@ export function ProductGallery({
           image: img.url,
           label: IMAGE_ROLE_LABEL[img.role],
           colorName: c?.name,
-          colorHex: c?.hex,
         });
       });
     };
@@ -84,19 +79,13 @@ export function ProductGallery({
     }
   };
 
-  const renderSlide = (s: Slide, i: number, small = false) => (
+  const renderSlide = (s: Slide, i: number) => (
     <div className="pg-frame">
       {s.kind === "image" ? (
         <ProductImage src={s.image} alt={`${product.name} — ${s.label}`} className="pg-img" />
       ) : (
         <FramedCrop image={product.image} name={product.name} aspect={product.aspect} crop={s.crop!} />
       )}
-      {!small && s.colorHex && (
-        <span className="pg-color-chip">
-          <i style={{ background: s.colorHex }} /> {s.colorName}
-        </span>
-      )}
-      {!small && <span className="pg-label">{s.label}</span>}
       <span className="sr-only">
         تصویر {(i + 1).toLocaleString("fa-IR")} از {slides.length.toLocaleString("fa-IR")}
       </span>
@@ -110,6 +99,9 @@ export function ProductGallery({
         <div
           ref={trackRef}
           className="pg-track"
+          role="region"
+          aria-label="گالری تصاویر محصول"
+          tabIndex={0}
           onScroll={(e) => {
             const el = e.currentTarget;
             const track = el.getBoundingClientRect();
@@ -126,9 +118,6 @@ export function ProductGallery({
           {slides.map((s, i) => (
             <div key={i} className="pg-slide">
               {renderSlide(s, i)}
-              {i === index && overlay && (
-                <div className="pointer-events-none absolute inset-0 z-10">{overlay}</div>
-              )}
             </div>
           ))}
         </div>
@@ -153,7 +142,6 @@ export function ProductGallery({
       <div className="pg-desktop">
         <div className="pg-main">
           {slides[index] ? renderSlide(slides[index], index) : <div className="pg-frame" />}
-          {overlay && <div className="pointer-events-none absolute inset-0 z-10">{overlay}</div>}
           {slides.length > 1 && (
             <>
               <button type="button" className="pg-arrow is-prev" aria-label="تصویر قبلی" onClick={() => go(-1)} disabled={index === 0}>
@@ -169,7 +157,7 @@ export function ProductGallery({
           <div className="pg-thumbs">
             {slides.map((s, i) => (
               <button key={i} type="button" className={cn("pg-thumb", i === index && "is-on")} onClick={() => setIndex(i)} aria-label={`نمای ${s.label}${s.colorName ? " " + s.colorName : ""}`} aria-pressed={i === index}>
-                {renderSlide(s, i, true)}
+                {renderSlide(s, i)}
               </button>
             ))}
           </div>

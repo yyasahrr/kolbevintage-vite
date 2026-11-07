@@ -150,28 +150,7 @@ export function ProductPage() {
       <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 pt-5 sm:px-6 md:grid-cols-[1.15fr_0.85fr] md:gap-8 lg:gap-10 lg:px-10">
         {/* ---------------- gallery ---------------- */}
         <div>
-          <ProductGallery
-            product={product}
-            color={color}
-            overlay={
-              <>
-                {product.badge && (
-                  <span className={cn("pointer-events-auto absolute top-3 start-3 rounded-full px-3 py-1 text-[10px] font-medium backdrop-blur", product.badge === "تخفیف" ? "bg-ember text-white" : "bg-white/85 text-ink")}>
-                    {product.badge}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => toggleWish(product.id)}
-                  aria-label={wished ? "حذف از علاقه‌مندی‌ها" : "افزودن به علاقه‌مندی‌ها"}
-                  aria-pressed={wished}
-                  className={cn("pointer-events-auto tap absolute top-3 end-3 flex h-11 w-11 items-center justify-center rounded-full border backdrop-blur transition-colors", wished ? "border-ember/30 bg-white text-ember" : "border-white/60 bg-white/80 text-ink-70 hover:text-ink")}
-                >
-                  <Heart className={cn("h-4 w-4", wished && "fill-ember")} />
-                </button>
-              </>
-            }
-          />
+          <ProductGallery product={product} color={color} />
           <div className="mt-2 flex justify-end">
             <Link to={`/style/${product.lookSlug}`} className="inline-flex min-h-11 items-center rounded-full px-3 text-[10px] text-ink-70 transition-colors hover:bg-ink/[0.04] hover:text-ink">
               دیدن روی رانوی

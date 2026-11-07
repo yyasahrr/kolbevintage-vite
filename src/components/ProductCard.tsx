@@ -51,13 +51,13 @@ export function ProductCard({ product, className }: Props) {
 
   return (
     <article className={cn("group relative flex flex-col", className)}>
-      <div className="relative overflow-hidden rounded-xl bg-[#efe9e0] ring-1 ring-black/[0.05]">
+      <div className="isolate relative overflow-hidden rounded-xl bg-[#efe9e0] ring-1 ring-black/[0.05]">
         <CardMedia product={product} interactive />
 
         {product.badge && (
           <span
             className={cn(
-              "pointer-events-none absolute top-2.5 start-2.5 rounded-full px-2.5 py-1 text-[9.5px] font-medium backdrop-blur",
+              "product-card-badge pointer-events-none absolute z-10 top-2.5 start-2.5 rounded-full px-2.5 py-1 text-[9.5px] font-medium backdrop-blur",
               product.badge === "تخفیف"
                 ? "bg-ember text-white"
                 : product.badge === "آخرین موجودی"
@@ -75,7 +75,7 @@ export function ProductCard({ product, className }: Props) {
           aria-label={wished ? `حذف ${product.name} از علاقه‌مندی‌ها` : `افزودن ${product.name} به علاقه‌مندی‌ها`}
           aria-pressed={wished}
           className={cn(
-            "tap absolute top-2 end-2 flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur transition-colors duration-250",
+            "product-card-wish tap absolute z-10 top-2 end-2 flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur transition-colors duration-250",
             wished
               ? "border-ember/30 bg-white text-ember"
               : "border-white/50 bg-white/75 text-ink-70 hover:bg-white hover:text-ink",
@@ -84,7 +84,7 @@ export function ProductCard({ product, className }: Props) {
           <Heart className={cn("h-3.5 w-3.5", wished && "fill-ember")} />
         </button>
 
-        <div className="absolute inset-x-2 bottom-2 translate-y-3 opacity-0 transition-[transform,opacity] duration-200 group-hover:translate-y-0 group-hover:opacity-100 focus-within:translate-y-0 focus-within:opacity-100 max-lg:translate-y-0 max-lg:opacity-100">
+        <div className="absolute z-10 inset-x-2 bottom-2 translate-y-3 opacity-0 transition-[transform,opacity] duration-200 group-hover:translate-y-0 group-hover:opacity-100 focus-within:translate-y-0 focus-within:opacity-100 max-lg:translate-y-0 max-lg:opacity-100">
           <button
             type="button"
             onClick={openQuickBuy}

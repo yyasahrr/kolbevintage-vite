@@ -210,6 +210,7 @@ try {
   }
   const db = new pg.Client({ connectionString: dbUrl });
   await db.connect();
+  await db.query("update products set badge='جدید' where id=$1", [id]);
   await db.query(
     "update product_variants set on_hand=case when color_id=$2 then 1 else 5 end where product_id=$1",
     [id, color],
@@ -333,6 +334,22 @@ try {
       waitUntil: "networkidle",
     });
     const view = detail.locator(width < 900 ? ".pg-mobile" : ".pg-desktop");
+    assert.equal(
+      await view
+        .locator(
+          '.product-card-badge, .pg-label, .pg-color-chip, button[aria-label*="علاقه‌مندی"]',
+        )
+        .count(),
+      0,
+      `no badge or wish overlay in gallery at ${width}`,
+    );
+    assert.equal(
+      await detail
+        .getByRole("button", { name: "افزودن به علاقه‌مندی‌ها", exact: true })
+        .count(),
+      1,
+      "the separate wishlist action remains available",
+    );
     const previous = view.getByRole("button", { name: "تصویر قبلی" });
     const following = view.getByRole("button", { name: "تصویر بعدی" });
     const pr = await previous.boundingBox(),
@@ -406,9 +423,32 @@ try {
   const prevBox = await animPrev.boundingBox(),
     nextBox = await animNext.boundingBox();
   assert.ok(prevBox.x > nextBox.x, "card arrows in RTL order");
+  const wish = animCard.locator(".product-card-wish");
+  const badge = animCard.locator(".product-card-badge");
+  assert.equal(await badge.textContent(), "جدید");
+  assert.equal(await wish.getAttribute("aria-pressed"), "false");
+  await wish.click();
+  assert.equal(await wish.getAttribute("aria-pressed"), "true");
+  await wish.click();
+  assert.equal(await wish.getAttribute("aria-pressed"), "false");
   const testMotion = async (button, sign) => {
+    const beforeOverlay = await Promise.all([
+      wish.boundingBox(),
+      badge.boundingBox(),
+    ]);
     await button.click();
     await animPage.waitForTimeout(90);
+    const duringOverlay = await Promise.all([
+      wish.boundingBox(),
+      badge.boundingBox(),
+    ]);
+    for (let i = 0; i < beforeOverlay.length; i++) {
+      assert.ok(
+        Math.abs(beforeOverlay[i].x - duringOverlay[i].x) < 1 &&
+          Math.abs(beforeOverlay[i].y - duringOverlay[i].y) < 1,
+        "wish and badge must stay fixed during slide",
+      );
+    }
     const offsets = await animMedia
       .locator(".card-gallery-slide")
       .evaluateAll((els) =>
@@ -711,6 +751,23 @@ try {
         0,
       );
     }
+    // ResizeObserver and React need a frame to recompute rotated bounds.
+    await page.waitForFunction(
+      () => {
+        const b = document.querySelector(".sb-board").getBoundingClientRect();
+        const i = document
+          .querySelector(".sb-board .sb-canvas-item")
+          .getBoundingClientRect();
+        return (
+          i.left >= b.left - 1 &&
+          i.right <= b.right + 1 &&
+          i.top >= b.top - 1 &&
+          i.bottom <= b.bottom + 1
+        );
+      },
+      null,
+      { timeout: 3000 },
+    );
     const rects = await board.evaluate((el) => {
       const b = el.getBoundingClientRect();
       const i = el.querySelector(".sb-canvas-item").getBoundingClientRect();
