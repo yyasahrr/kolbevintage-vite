@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { AnimatePresence, motion } from "motion/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { useLiveCatalog } from "@/state/live-catalog";
@@ -53,6 +54,7 @@ export function CardMedia({
   const swiped = useRef(false);
   const [index, setIndex] = useState(0);
   const [manual, setManual] = useState(false);
+  const [direction, setDirection] = useState<1 | -1>(1);
   const [hover, setHover] = useState(false);
   const [focusWithin, setFocusWithin] = useState(false);
   // The hovered image can be replaced while the pointer is over it; native
@@ -60,7 +62,10 @@ export function CardMedia({
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const leave = () => setHover(false);
+    const leave = () => {
+      setDirection(-1);
+      setHover(false);
+    };
     root.addEventListener("mouseleave", leave);
     return () => root.removeEventListener("mouseleave", leave);
   }, []);
@@ -108,34 +113,63 @@ export function CardMedia({
     : activeHover && hoverUrl
       ? Math.max(0, images.indexOf(hoverUrl))
       : 0;
+  useEffect(() => {
+    // Prefetch only neighboring frames once the shopper interacts with this card.
+    if (!activeHover && !manual) return;
+    for (const offset of [-1, 1]) {
+      const url = images[(shownIndex + offset + images.length) % images.length];
+      if (url) {
+        const image = new Image();
+        image.src = url;
+      }
+    }
+  }, [activeHover, manual, images, shownIndex]);
   const step = (offset: number) => {
+    setDirection(offset > 0 ? 1 : -1);
     setIndex((shownIndex + offset + images.length) % images.length);
     setManual(true);
   };
   const media = (
     <>
-      {displayed ? (
-        <div
-          className="relative w-full bg-[#efe9e0]"
-          style={{ aspectRatio: 0.8 }}
-        >
-          <ProductImage
-            src={displayed}
-            alt=""
-            lazy
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        </div>
-      ) : (
-        <ProductThumb
-          product={product}
-          colorId={colorId}
-          decorative
-          tileAspect={0.8}
-          tint="#b7a48c"
-          className="w-full rounded-none ring-0"
-        />
-      )}
+      <div className="card-gallery-frame">
+        <AnimatePresence initial={false} custom={direction}>
+          <motion.div
+            key={displayed ?? "fallback"}
+            className="card-gallery-slide"
+            custom={direction}
+            variants={{
+              enter: (dir: 1 | -1) => ({ x: `${dir * -100}%` }),
+              center: { x: 0 },
+              exit: (dir: 1 | -1) => ({ x: `${dir * 100}%` }),
+            }}
+            initial={reduced ? false : "enter"}
+            animate="center"
+            exit={reduced ? "center" : "exit"}
+            transition={{ duration: reduced ? 0 : 0.32, ease: "easeInOut" }}
+            aria-hidden="true"
+          >
+            {displayed ? (
+              <div className="relative w-full bg-[#efe9e0]">
+                <ProductImage
+                  src={displayed}
+                  alt=""
+                  lazy
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              </div>
+            ) : (
+              <ProductThumb
+                product={product}
+                colorId={colorId}
+                decorative
+                tileAspect={0.8}
+                tint="#b7a48c"
+                className="w-full rounded-none ring-0"
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
       {legacy?.hoverVideo && !manual && !hoverUrl && !reduced && (
         <div
           className={cn("card-media-layer", hoverVideo && "is-on")}
@@ -159,14 +193,22 @@ export function CardMedia({
     <div
       ref={rootRef}
       className={cn("card-media relative overflow-hidden", className)}
-      onMouseEnter={() => setHover(true)}
-      onFocusCapture={() => setFocusWithin(true)}
+      onMouseEnter={() => {
+        setDirection(1);
+        setHover(true);
+      }}
+      onFocusCapture={() => {
+        setDirection(1);
+        setFocusWithin(true);
+      }}
       onBlurCapture={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setDirection(-1);
           setFocusWithin(false);
+        }
       }}
       onTouchStart={(e) => {
-        const t = e.touches[0];
+        const t = e.touches.length === 1 ? e.touches[0] : null;
         startTouch.current = t ? { x: t.clientX, y: t.clientY } : null;
         swiped.current = false;
       }}
@@ -174,13 +216,23 @@ export function CardMedia({
         const t = e.changedTouches[0],
           start = startTouch.current;
         startTouch.current = null;
-        if (!interactive || !t || !start || images.length < 2) return;
+        if (
+          !interactive ||
+          !t ||
+          !start ||
+          e.touches.length ||
+          images.length < 2
+        )
+          return;
         const dx = t.clientX - start.x,
           dy = t.clientY - start.y;
         if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) {
           swiped.current = true;
-          step(dx < 0 ? 1 : -1);
+          step(dx > 0 ? 1 : -1);
         }
+      }}
+      onTouchCancel={() => {
+        startTouch.current = null;
       }}
     >
       {interactive ? (

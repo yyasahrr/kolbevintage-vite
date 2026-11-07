@@ -161,6 +161,123 @@ try {
     ],
   });
   assert.notEqual(await image.getAttribute("src"), before);
+  // Product details: in RTL the previous/right arrow is on the right and the next/left arrow on the left.
+  for (const width of [390, 1440]) {
+    const detail = await context.newPage();
+    await detail.setViewportSize({ width, height: 900 });
+    detail.on("pageerror", (e) => errors.push(e.message));
+    await detail.goto(`${base}/#/product/${encodeURIComponent(id)}`, {
+      waitUntil: "networkidle",
+    });
+    const view = detail.locator(width < 900 ? ".pg-mobile" : ".pg-desktop");
+    const previous = view.getByRole("button", { name: "تصویر قبلی" });
+    const following = view.getByRole("button", { name: "تصویر بعدی" });
+    const pr = await previous.boundingBox(),
+      nr = await following.boundingBox();
+    assert.ok(pr.x > nr.x, `RTL arrows must point outwards at ${width}`);
+    assert.equal(await previous.locator("svg.lucide-chevron-right").count(), 1);
+    assert.equal(await following.locator("svg.lucide-chevron-left").count(), 1);
+    assert.equal(await previous.isDisabled(), true);
+    await following.click();
+    if (width < 900)
+      await detail.waitForFunction(
+        () =>
+          document
+            .querySelector(".pg-mobile .pg-dots button.is-on")
+            ?.getAttribute("aria-label") === "تصویر 2",
+      );
+    else
+      assert.equal(
+        await view.locator(".pg-main img").getAttribute("src"),
+        "https://example.com/three.jpg",
+      );
+    assert.equal(await previous.isDisabled(), false);
+    await previous.click();
+    if (width < 900)
+      await detail.waitForFunction(
+        () =>
+          document
+            .querySelector(".pg-mobile .pg-dots button.is-on")
+            ?.getAttribute("aria-label") === "تصویر 1",
+      );
+    else
+      assert.equal(
+        await view.locator(".pg-main img").getAttribute("src"),
+        "https://example.com/one.jpg",
+      );
+    await detail.close();
+  }
+  // Normal motion must move both real photos in opposite directions, including wraparound.
+  const animated = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    reducedMotion: "no-preference",
+  });
+  await animated.route("https://example.com/*.jpg", async (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="750"><rect width="100%" height="100%" fill="#ccaa99"/></svg>',
+    }),
+  );
+  const animPage = await animated.newPage();
+  animPage.on("pageerror", (e) => errors.push(e.message));
+  await animPage.goto(`${base}/#/products?q=${encodeURIComponent(name)}`, {
+    waitUntil: "networkidle",
+  });
+  const animCard = animPage
+    .locator("article")
+    .filter({ has: animPage.getByRole("heading", { name, exact: true }) });
+  const animMedia = animCard.locator(".card-media");
+  await animMedia.hover();
+  await animPage.waitForTimeout(400);
+  const animNext = animMedia.getByRole("button", {
+    name: `تصویر بعدی ${name}`,
+  });
+  const animPrev = animMedia.getByRole("button", {
+    name: `تصویر قبلی ${name}`,
+  });
+  assert.ok(
+    await animNext.evaluate((el) => Number(getComputedStyle(el).opacity) > 0),
+    "arrows are discoverable before focus",
+  );
+  const prevBox = await animPrev.boundingBox(),
+    nextBox = await animNext.boundingBox();
+  assert.ok(prevBox.x > nextBox.x, "card arrows in RTL order");
+  const testMotion = async (button, sign) => {
+    await button.click();
+    await animPage.waitForTimeout(90);
+    const offsets = await animMedia
+      .locator(".card-gallery-slide")
+      .evaluateAll((els) =>
+        els.map(
+          (el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).m41,
+        ),
+      );
+    assert.equal(
+      offsets.length,
+      2,
+      `two photographs must slide together: ${offsets}`,
+    );
+    assert.ok(
+      offsets[0] * sign > 0 && offsets[1] * sign < 0,
+      `slide directions: ${offsets}`,
+    );
+    await animPage.waitForTimeout(400);
+    assert.equal(await animMedia.locator(".card-gallery-slide").count(), 1);
+  };
+  await testMotion(animNext, 1);
+  await testMotion(animPrev, -1);
+  await testMotion(animPrev, -1);
+  await testMotion(animPrev, -1); // first to last must also slide one step
+  assert.equal(
+    await animMedia.locator(".card-gallery-slide img").getAttribute("src"),
+    "https://example.com/green.jpg",
+  );
+  assert.ok(
+    animPage.url().includes("/products"),
+    "card navigation must not open product",
+  );
+  await animated.close();
   for (const fixture of fixtures) {
     await page.goto(
       `${base}/#/products?q=${encodeURIComponent(fixture.name)}`,
@@ -208,11 +325,9 @@ try {
     )
     .waitFor();
   const boardBox = await board.boundingBox();
-  const productTile = page
-    .locator(".sb-tray-card")
-    .filter({
-      has: page.getByRole("button", { name: `افزودن ${name} به بوم` }),
-    });
+  const productTile = page.locator(".sb-tray-card").filter({
+    has: page.getByRole("button", { name: `افزودن ${name} به بوم` }),
+  });
   await productTile.dragTo(board, {
     targetPosition: { x: boardBox.width * 0.45, y: boardBox.height * 0.45 },
   });
@@ -543,7 +658,7 @@ try {
     type: "touchStart",
     touchPoints: [
       {
-        x: cardBox.x + cardBox.width * 0.8,
+        x: cardBox.x + cardBox.width * 0.2,
         y: cardBox.y + cardBox.height * 0.5,
         id: 2,
       },
@@ -553,7 +668,7 @@ try {
     type: "touchMove",
     touchPoints: [
       {
-        x: cardBox.x + cardBox.width * 0.2,
+        x: cardBox.x + cardBox.width * 0.8,
         y: cardBox.y + cardBox.height * 0.5,
         id: 2,
       },
@@ -598,6 +713,39 @@ try {
     "https://example.com/two.jpg",
     "vertical swipe should not change image",
   );
+  await gesture.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [
+      {
+        x: cardBox.x + cardBox.width * 0.8,
+        y: cardBox.y + cardBox.height * 0.5,
+        id: 4,
+      },
+    ],
+  });
+  await gesture.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [
+      {
+        x: cardBox.x + cardBox.width * 0.2,
+        y: cardBox.y + cardBox.height * 0.5,
+        id: 4,
+      },
+    ],
+  });
+  await gesture.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+  await touch.waitForFunction(
+    () =>
+      document.querySelector(".card-media img")?.getAttribute("src") ===
+      "https://example.com/one.jpg",
+  );
+  assert.ok(
+    touch.url().includes("/products"),
+    "reverse swipe must not navigate",
+  );
   await gesture.detach();
   await touch.goto(`${base}/#/style-builder`, { waitUntil: "networkidle" });
   await touch.getByRole("button", { name: "محصولات", exact: true }).click();
@@ -640,7 +788,7 @@ try {
   await mobile.close();
   assert.deepEqual(errors, []);
   console.log(
-    "Product cards and canvas: hover, gallery, keyboard and swipe; mouse/touch drag, zoom, variants, stock-safe duplicate, persistence, five widths, side panels and axe passed.",
+    "Product details RTL arrows and card sliding, hover, keyboard and bidirectional swipe; canvas: mouse/touch drag, zoom, variants, stock-safe duplicate, persistence, five widths, side panels and axe passed.",
   );
 } finally {
   await browser.close();
