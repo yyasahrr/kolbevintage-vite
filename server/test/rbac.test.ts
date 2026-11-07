@@ -986,7 +986,7 @@ test("older journal-free backups require explicit opt-in and restore only in an 
   const precision=`restore-precision-${randomUUID()}`;
   try {
     await query("insert into state_documents(key,value) values($1,$2::jsonb)",[precision,'{"amount":900719925474099312345,"fraction":123456789012345.678901}']);
-    const payload=await dumpAll();for (const row of payload.data.customers) {delete (row as Record<string,unknown>).manual_labels;delete (row as Record<string,unknown>).personal_measurements;}for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;for (const row of payload.data.payment_attempts) delete (row as Record<string,unknown>).quote_snapshot;for (const row of payload.data.checkout_sessions) delete (row as Record<string,unknown>).manual_quote_confirm_required;payload.tables=payload.tables.filter(t=>t!=="journal_articles" && t!=="support_tickets");delete payload.data.journal_articles;delete payload.data.support_tickets;
+    const payload=await dumpAll();for (const row of payload.data.customers) {delete (row as Record<string,unknown>).manual_labels;delete (row as Record<string,unknown>).personal_measurements;}for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;for (const row of payload.data.product_variants) {delete (row as Record<string,unknown>).sale_enabled;delete (row as Record<string,unknown>).sale_version;}for (const row of payload.data.payment_attempts) delete (row as Record<string,unknown>).quote_snapshot;for (const row of payload.data.checkout_sessions) delete (row as Record<string,unknown>).manual_quote_confirm_required;payload.tables=payload.tables.filter(t=>t!=="journal_articles" && t!=="support_tickets");delete payload.data.journal_articles;delete payload.data.support_tickets;
     const file=path.join(dir,"before-journal.json");await fs.writeFile(file,stringify(payload)!);
     const badFile=path.join(dir,"missing-two.json");const other={...payload,tables:payload.tables.filter(t=>t!=="products"),data:{...payload.data}};delete other.data.products;await fs.writeFile(badFile,stringify(other)!);
     await admin.query(`create database "${name}"`);created=true;conn=new pg.Client({connectionString:target.toString()});await conn.connect();await conn.query(await fs.readFile("server/src/schema.sql","utf8"));
@@ -1001,12 +1001,15 @@ test("older journal-free backups require explicit opt-in and restore only in an 
     const mismatch=spawnSync(process.execPath,[...script,badFile,"--yes","--allow-empty-journal","--allow-empty-support"],{env,encoding:"utf8",timeout:30000});assert.equal(mismatch.status,1);assert.match(mismatch.stderr,/جدول‌های پشتیبان/);
     assert.equal((await conn.query("select count(*)::int n from journal_articles where id='sentinel'")).rows[0].n,1,"failed restores cannot touch target data");
     assert.equal((await conn.query("select count(*)::int n from support_tickets where id='sentinel'")).rows[0].n,1);
-    const ok=spawnSync(process.execPath,[...script,file,"--yes","--allow-empty-journal","--allow-empty-support"],{env,encoding:"utf8",timeout:30000});assert.equal(ok.status,0,ok.stderr);assert.match(ok.stderr,/ژورنال خالی/);
+    const missingVariantConsent=spawnSync(process.execPath,[...script,file,"--yes","--allow-empty-journal","--allow-empty-support"],{env,encoding:"utf8",timeout:30000});assert.equal(missingVariantConsent.status,1);assert.match(missingVariantConsent.stderr,/وضعیت فروش تنوع‌ها/);
+    assert.equal((await conn.query("select count(*)::int n from journal_articles where id='sentinel'")).rows[0].n,1,"refusal must not touch target");
+    const ok=spawnSync(process.execPath,[...script,file,"--yes","--allow-empty-journal","--allow-empty-support","--allow-legacy-variant-sales"],{env,encoding:"utf8",timeout:30000});assert.equal(ok.status,0,ok.stderr);assert.match(ok.stderr,/ژورنال خالی/);assert.match(ok.stderr,/دوباره قابل فروش/);
     assert.equal((await conn.query("select count(*)::int n from support_tickets")).rows[0].n,0);
     assert.equal((await conn.query("select count(*)::int n from journal_articles")).rows[0].n,0);assert.equal((await conn.query("select count(*)::int n from products")).rows[0].n,payload.data.products.length);
     assert.equal((await conn.query("select count(*)::int n from customers where manual_labels is not null")).rows[0].n,0,"old backup customers restore without labels");
     assert.equal((await conn.query("select count(*)::int n from customers where personal_measurements is not null")).rows[0].n,0,"old backup cannot manufacture personal measurements");
     assert.equal((await conn.query("select count(*)::int n from price_rules where free_shipping")).rows[0].n,0,"old campaigns restore without the new shipping benefit");
+    assert.equal((await conn.query("select count(*)::int n from product_variants where not sale_enabled or sale_version<>0")).rows[0].n,0,"old backup variants restore as originally enabled");
     assert.equal((await conn.query("select count(*)::int n from checkout_sessions where manual_quote_confirm_required is not null")).rows[0].n,0,"old checkouts remain compatible without confirmation column");
     const restored=(await conn.query("select (value->'amount')::text amount,(value->'fraction')::text fraction from state_documents where key=$1",[precision])).rows[0];assert.equal(restored.amount,"900719925474099312345");assert.equal(restored.fraction,"123456789012345.678901");
   }finally {await query("delete from state_documents where key=$1",[precision]);await conn?.end();if(created)await admin.query(`drop database "${name}"`);await admin.end();await fs.rm(dir,{recursive:true,force:true});}
@@ -1410,4 +1413,53 @@ test('product images edit and reorder with authorization, stale protection and d
     const ops=(await query("select value from state_documents where key='ops'")).rows[0].value;delete ops.productImages[id];
     await query("update state_documents set value=$2 where key=$1",['admin',JSON.stringify(doc)]);await query("update state_documents set value=$2 where key=$1",['ops',JSON.stringify(ops)]);await query('delete from products where id=$1',[id]);
   }
+});
+
+test('variant sale controls are permission checked, versioned, and persist across publication and sync', async () => {
+  const {admin,client}=await staffWith(['catalog:view','catalog:edit'],'variant-sales-editor','variant-sales-editor-user','variant-sales-editor-pass');
+  const create=await admin.post('/api/admin/products',{name:'کنترل فروش تنوع',category:'پالتو و کاپشن',garment:'coat',price:100,colorName:'مشکی',colorHex:'#111111',sizes:['M','L'],imageUrl:'https://example.com/item.jpg'});assert.equal(create.status,201,JSON.stringify(create.body));const id=create.body.id;
+  try{
+    assert.deepEqual((await makeClient().get(`/api/products/${id}/variants`)).body,[],"draft variants are not public");
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{active:true})).status,200);
+    const rows=(await admin.get(`/api/admin/products/${id}/variant-sales`)).body;assert.equal(rows.length,2);const first=rows[0],other=rows[1];const path=`/api/admin/products/${id}/variant-sales/${first.id}`;
+    await query('update product_variants set on_hand=5 where id=$1',[first.id]);const before=(await query('select sku,on_hand,quarantined,active from product_variants where id=$1',[first.id])).rows[0];
+    const body={saleEnabled:false,expectedEnabled:true,expectedVersion:first.version};
+    assert.equal((await makeClient().get(`/api/admin/products/${id}/variant-sales`)).status,401);
+    assert.equal((await client.patch(path,body)).status,403);
+    assert.equal((await admin.patch(path,{saleEnabled:false,expectedEnabled:true})).status,422);
+    const [a,b]=await Promise.all([admin.patch(path,body),admin.patch(path,body)]);assert.deepEqual([a.status,b.status].sort(),[200,409]);assert.equal((a.status===409?a:b).body.code,'variant_sale_stale');
+    let publicProduct=(await makeClient().get(`/api/products/${id}`)).body;const dbRow=(await query('select color_id,size_id from product_variants where id=$1',[first.id])).rows[0];assert.equal(publicProduct.stock[`${dbRow.color_id}:${dbRow.size_id}`],0);
+    const publicVariants=(await makeClient().get(`/api/products/${id}/variants`)).body;const paused=publicVariants.find((v:any)=>v.id===first.id);assert.equal(paused.active,false);assert.equal(paused.available,0);assert.ok(!Object.hasOwn(paused,'onHand'));assert.ok(!Object.hasOwn(paused,'quarantined'));assert.ok(!Object.hasOwn(paused,'reserved'));
+    const inv=(await admin.get('/api/commerce/admin/inventory')).body.find((v:any)=>v.id===first.id);assert.equal(inv.onHand,5);assert.equal(inv.sellable,0);assert.equal(inv.saleEnabled,false);
+    const {syncVariants}=await import('../src/commerce/variants');await syncVariants();assert.equal((await admin.get(`/api/admin/products/${id}/variant-sales`)).body.find((v:any)=>v.id===first.id).saleEnabled,false);
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{active:false})).status,200);assert.equal((await admin.patch(`/api/admin/products/${id}`,{active:true})).status,200);
+    const saved=(await admin.get(`/api/admin/products/${id}/variant-sales`)).body;assert.equal(saved.find((v:any)=>v.id===first.id).saleEnabled,false);assert.equal(saved.find((v:any)=>v.id===other.id).saleEnabled,true);
+    assert.deepEqual((await query('select sku,on_hand,quarantined,active from product_variants where id=$1',[first.id])).rows[0],before);
+    assert.equal((await admin.patch(path,{saleEnabled:true,expectedEnabled:false,expectedVersion:first.version+1})).status,200);
+    assert.equal((await admin.patch(path,{saleEnabled:false,expectedEnabled:true,expectedVersion:first.version})).body.code,'variant_sale_stale','ABA must reject an old version');
+    assert.ok((await query("select id from audit_events where action='catalog.variant_sale' and target_id=$1",[first.id])).rowCount);
+  } finally {
+    const doc=(await query("select value from state_documents where key='admin'")).rows[0].value;doc.customProducts=doc.customProducts.filter((p:any)=>p.id!==id);doc.hidden=(doc.hidden??[]).filter((p:string)=>p!==id);
+    const ops=(await query("select value from state_documents where key='ops'")).rows[0].value;delete ops.productImages[id];
+    await query("update state_documents set value=$2 where key=$1",['admin',JSON.stringify(doc)]);await query("update state_documents set value=$2 where key=$1",['ops',JSON.stringify(ops)]);await query('delete from products where id=$1',[id]);
+  }
+});
+
+test('current logical backup preserves paused variants and versions', async () => {
+  const {createBackup,restoreBackup}=await import('../src/backup');const {withTransaction}=await import('../src/db');const fs=await import('node:fs/promises');
+  const row=(await query('select id,sale_enabled,sale_version from product_variants order by id limit 1')).rows[0];let file='';
+  try{
+    await query('update product_variants set sale_enabled=false,sale_version=47 where id=$1',[row.id]);
+    file=(await createBackup('manual')).file;
+    await withTransaction(async tx=>{await tx.query('update product_variants set sale_enabled=true,sale_version=48 where id=$1',[row.id]);await restoreBackup(file,{client:tx});const restored=(await tx.query('select sale_enabled,sale_version from product_variants where id=$1',[row.id])).rows[0];assert.deepEqual(restored,{sale_enabled:false,sale_version:47});throw new Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'));
+  }finally{await query('update product_variants set sale_enabled=$2,sale_version=$3 where id=$1',[row.id,row.sale_enabled,row.sale_version]);if(file)await fs.unlink(file).catch(()=>undefined)}
+});
+
+test('partially missing sale fields in backup are refused before modifying the destination', async () => {
+  const {dumpAll,restoreBackup}=await import('../src/backup');const {stringify}=await import('lossless-json');const fs=await import('node:fs/promises');const os=await import('node:os');const path=await import('node:path');
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'kv-partial-variant-'));const file=path.join(dir,'invalid.json');
+  try{
+    const payload=await dumpAll();assert.ok(payload.data.product_variants.length);delete (payload.data.product_variants[0] as Record<string,unknown>).sale_version;await fs.writeFile(file,stringify(payload)!);
+    const before=(await query('select count(*)::int n from products')).rows[0].n;await assert.rejects(()=>restoreBackup(file,{allowLegacyVariantSales:true}),/ناقص/);assert.equal((await query('select count(*)::int n from products')).rows[0].n,before);
+  }finally{await fs.rm(dir,{recursive:true,force:true})}
 });

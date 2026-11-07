@@ -68,7 +68,7 @@ async function sellableStocks(productIds: string[]) {
   const stocks = new Map<string,Record<string,number>>();
   if (!productIds.length) return stocks;
   const result=await query<{product_id:string;color_id:string;size_id:string;active:boolean;available:number}>(
-    `select v.product_id,v.color_id,v.size_id,v.active,
+    `select v.product_id,v.color_id,v.size_id,(v.active and v.sale_enabled) as active,
        greatest(0,v.on_hand-v.quarantined-coalesce((select sum(r.quantity) from stock_reservations r where r.variant_id=v.id and r.status='active' and r.expires_at>now()),0))::int as available
        from product_variants v where v.product_id=any($1::text[])`,[productIds]);
   for(const row of result.rows){const stock=stocks.get(row.product_id) ?? {};stock[`${row.color_id}:${row.size_id}`]=row.active ? row.available : 0;stocks.set(row.product_id,stock);}
@@ -246,6 +246,31 @@ export async function catalogRoutes(app: FastifyInstance) {
       }
       await recordAudit({actor:session.subject,action:`catalog.option_${body.action}`,targetType:"product",targetId:product.id,before,after:{colors,sizes},requestId:req.id},client);
       return {ok:true,colors,sizes};
+    });
+  });
+
+  /** Per-SKU sale switch is independent from the product publication state.
+   * Existing holds are not cancelled; reservation takes the same variant lock. */
+  app.get<{Params:{id:string}}>("/api/admin/products/:id/variant-sales",async (req,reply)=>{
+    await requirePermission(req,"catalog:view");reply.header("cache-control","no-store");
+    const rows=await query<{id:string;sku:string;color_id:string;size_id:string;sale_enabled:boolean;sale_version:number;variant_active:boolean;product_active:boolean;colors:{id:string;name:string}[];sizes:{id:string;label:string}[]}>(`select v.id,v.sku,v.color_id,v.size_id,v.sale_enabled,v.sale_version,v.active as variant_active,p.active as product_active,p.colors,p.sizes
+      from products p join product_variants v on v.product_id=p.id where p.id=$1 order by v.color_id,v.size_id,v.id`,[req.params.id]);
+    if(!rows.rows.length && !(await query("select 1 from products where id=$1",[req.params.id])).rowCount) throw notFound("محصول پیدا نشد.");
+    return rows.rows.map(row=>({id:row.id,sku:row.sku,colorName:row.colors.find(c=>c.id===row.color_id)?.name ?? row.color_id,sizeLabel:row.sizes.find(z=>z.id===row.size_id)?.label ?? row.size_id,saleEnabled:row.sale_enabled,version:row.sale_version,variantActive:row.variant_active,productActive:row.product_active}));
+  });
+  app.patch<{Params:{id:string;variantId:string};Body:{saleEnabled?:unknown;expectedEnabled?:unknown;expectedVersion?:unknown}}>("/api/admin/products/:id/variant-sales/:variantId",async req=>{
+    const session=await requirePermission(req,"catalog:edit");await requirePermission(req,"catalog:publish");
+    const body=req.body ?? {};
+    if(Object.keys(body).some(k=>k!=="saleEnabled" && k!=="expectedEnabled" && k!=="expectedVersion") || typeof body.saleEnabled!=="boolean" || typeof body.expectedEnabled!=="boolean" || !Number.isInteger(body.expectedVersion) || Number(body.expectedVersion)<0 || Number(body.expectedVersion)>=2147483647) throw validation("وضعیت یا نسخه فروش تنوع معتبر نیست.");
+    return withTransaction(async client=>{
+      const rows=await client.query<{sale_enabled:boolean;sale_version:number}>("select sale_enabled,sale_version from product_variants where id=$1 and product_id=$2 for update",[req.params.variantId,req.params.id]);
+      const row=rows.rows[0];if(!row)throw notFound("تنوع محصول پیدا نشد.");
+      if(row.sale_enabled!==body.expectedEnabled || row.sale_version!==body.expectedVersion)throw conflict("وضعیت فروش تنوع تغییر کرده است؛ فهرست را تازه کنید.","variant_sale_stale");
+      if(row.sale_enabled!==body.saleEnabled){
+        await client.query("update product_variants set sale_enabled=$2,sale_version=sale_version+1,updated_at=now() where id=$1",[req.params.variantId,body.saleEnabled]);
+        await recordAudit({actor:session.subject,action:"catalog.variant_sale",targetType:"variant",targetId:req.params.variantId,before:{saleEnabled:row.sale_enabled},after:{saleEnabled:body.saleEnabled,productId:req.params.id},requestId:req.id},client);
+      }
+      return {ok:true,saleEnabled:body.saleEnabled,version:row.sale_version+(row.sale_enabled===body.saleEnabled?0:1)};
     });
   });
 

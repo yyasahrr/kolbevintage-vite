@@ -180,7 +180,7 @@ export async function syncVariants() {
 /** availability = on_hand − quarantined − active reservations */
 export const AVAILABILITY_SQL = `
   select v.id, v.product_id, v.color_id, v.size_id, v.sku, v.size_mode,
-         v.on_hand, v.quarantined, v.active,
+         v.on_hand, v.quarantined, (v.active and v.sale_enabled) as active, v.sale_enabled,
          coalesce((
            select sum(r.quantity) from stock_reservations r
            where r.variant_id = v.id and r.status = 'active' and r.expires_at > now()
@@ -203,9 +203,9 @@ export async function variantViews(ids: string[]): Promise<VariantView[]> {
 }
 
 /** full variant list for a product (storefront + admin) */
-export async function productVariants(productId: string) {
+export async function productVariants(productId: string, publicOnly = false) {
   const res = await query(
-    `${AVAILABILITY_SQL} where v.product_id = $1 order by v.color_id, v.size_id`,
+    `${AVAILABILITY_SQL} ${publicOnly ? "join products p on p.id=v.product_id" : ""} where v.product_id = $1 ${publicOnly ? "and p.active=true" : ""} order by v.color_id, v.size_id`,
     [productId],
   );
   return res.rows;
@@ -222,7 +222,8 @@ export function publicVariant(row: Record<string, unknown>) {
     onHand: Number(row.on_hand),
     quarantined: Number(row.quarantined),
     reserved: Number(row.reserved ?? 0),
-    available: Number(row.available ?? 0),
-    active: row.active,
+    available: row.active && row.sale_enabled !== false ? Math.max(0,Number(row.available ?? 0)) : 0,
+    active: Boolean(row.active && (row.sale_enabled !== false)),
+    saleEnabled: row.sale_enabled !== false,
   };
 }

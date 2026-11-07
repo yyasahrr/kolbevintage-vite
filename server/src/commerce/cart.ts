@@ -90,7 +90,7 @@ export async function cartLines(cartId: string): Promise<CartLineView[]> {
   }>(
     `select cl.id, cl.variant_id, v.product_id, cl.quantity, cl.added_price, cl.warning,
             p.name, v.sku, v.color_id, v.size_id, p.look_id, p.category, p.price,
-            p.colors, p.sizes, (v.active and p.active) as active,
+            p.colors, p.sizes, (v.active and v.sale_enabled and p.active) as active,
             (v.on_hand - v.quarantined - coalesce((
                select sum(r.quantity) from stock_reservations r
                where r.variant_id = v.id and r.status = 'active' and r.expires_at > now()
@@ -295,7 +295,7 @@ export async function addCartLine(cartId: string, variantId: string, quantity: n
   const settings = await loadCommerceSettings();
   const qty = Math.max(1, Math.trunc(quantity));
   const variant = await query<{ id: string; price: string; active: boolean; product_active: boolean; available: number }>(
-    `select v.id, p.price, v.active, p.active as product_active,
+    `select v.id, p.price, (v.active and v.sale_enabled) as active, p.active as product_active,
             (v.on_hand - v.quarantined - coalesce((
               select sum(r.quantity) from stock_reservations r
               where r.variant_id = v.id and r.status = 'active' and r.expires_at > now()

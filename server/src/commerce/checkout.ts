@@ -88,7 +88,7 @@ async function loadLinesFromVariants(items: { variantId: string; quantity: numbe
     product_active: boolean;
   }>(
     `select v.id as variant_id, v.product_id, v.sku, p.name, v.color_id, v.size_id, p.look_id, p.category,
-            p.price, p.colors, p.sizes, v.active, p.active as product_active
+            p.price, p.colors, p.sizes, (v.active and v.sale_enabled) as active, p.active as product_active
        from product_variants v join products p on p.id = v.product_id
       where v.id = any($1::text[])`,
     [ids],

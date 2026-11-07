@@ -47,7 +47,7 @@ async function lockVariant(client: PoolClient, variantId: string) {
     color_id: string;
     size_id: string;
   }>(
-    "select id, on_hand, quarantined, active, product_id, color_id, size_id from product_variants where id = $1 for update",
+    "select id, on_hand, quarantined, (active and sale_enabled) as active, product_id, color_id, size_id from product_variants where id = $1 for update",
     [variantId],
   );
   return res.rows[0] ?? null;

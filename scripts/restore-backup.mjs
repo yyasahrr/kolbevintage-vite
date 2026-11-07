@@ -13,18 +13,20 @@ if (!file || file.startsWith("--")) {
   process.exit(1);
 }
 const args=process.argv.slice(3);
-if (args.some(arg=>arg!=="--yes" && arg!=="--allow-empty-journal" && arg!=="--allow-empty-support") || new Set(args).size!==args.length) {
+if (args.some(arg=>arg!=="--yes" && arg!=="--allow-empty-journal" && arg!=="--allow-empty-support" && arg!=="--allow-legacy-variant-sales") || new Set(args).size!==args.length) {
   console.error("گزینهٔ ناشناخته یا تکراری است؛ هیچ بازیابی انجام نشد.");
   process.exit(1);
 }
 const allowEmptyJournal=args.includes("--allow-empty-journal");
 const allowEmptySupport=args.includes("--allow-empty-support");
+const allowLegacyVariantSales=args.includes("--allow-legacy-variant-sales");
 if (!args.includes("--yes")) {
   console.error(`این کار همهٔ داده‌های فعلی پایگاه ${process.env.DATABASE_URL ? "مشخص‌شده در DATABASE_URL" : (process.env.PGDATABASE ?? "kolbevintage")} را با فایل پشتیبان عوض می‌کند.`);
   console.error("برای انجام، همان دستور را با --yes اجرا کن.");
   process.exit(1);
 }
 
+if (allowLegacyVariantSales) console.error("هشدار: پشتیبان قدیمی وضعیت توقف فروش تنوع را ندارد؛ بازیابی می‌تواند تنوع‌ها را دوباره قابل فروش کند. ابتدا روی پایگاه مستقل بررسی کنید.");
 if (allowEmptySupport) console.error("هشدار: اگر پشتیبان جدول پشتیبانی نداشته باشد، همهٔ تیکت‌های هدف حذف و پشتیبانی خالی بازیابی می‌شود؛ ابتدا روی پایگاه مستقل تمرین کنید.");
 if (allowEmptyJournal) console.error("هشدار: اگر پشتیبان جدول ژورنال نداشته باشد، همهٔ مقاله‌های پایگاه هدف حذف و ژورنال خالی بازیابی می‌شود. فقط پس از بررسی، روی پایگاه مستقل تمرین کنید.");
 
@@ -33,7 +35,7 @@ const { restoreBackup } = await import("../server/src/backup.ts");
 
 await initDb();
 try {
-  const result = await restoreBackup(file, {allowEmptyJournalFromOlderBackup:allowEmptyJournal,allowEmptySupportFromOlderBackup:allowEmptySupport});
+  const result = await restoreBackup(file, {allowEmptyJournalFromOlderBackup:allowEmptyJournal,allowEmptySupportFromOlderBackup:allowEmptySupport,allowLegacyVariantSales});
   console.log(`بازیابی تمام شد — ${result.tables} جدول، ${result.rows} ردیف.`);
   console.log("سرور را دوباره راه‌اندازی کن تا پروجکشن‌ها از نو ساخته شوند.");
 } catch (error) {

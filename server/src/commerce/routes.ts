@@ -133,9 +133,15 @@ export async function commerceRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get<{ Params: { id: string } }>("/api/products/:id/variants", async (req) => {
-    const rows = await productVariants(req.params.id);
-    return rows.map((row) => publicVariant(row as Record<string, unknown>));
+  app.get<{ Params: { id: string } }>("/api/products/:id/variants", async (req,reply) => {
+    reply.header("cache-control","no-store");
+    // Draft products must not expose SKUs or physical warehouse quantities.
+    // Check publication in the same statement that returns the variant rows.
+    const rows = await productVariants(req.params.id,true);
+    return rows.map((row) => {
+      const v=publicVariant(row as Record<string, unknown>);
+      return {id:v.id,productId:v.productId,sku:v.sku,colorId:v.colorId,sizeId:v.sizeId,sizeMode:v.sizeMode,available:v.available,active:v.active};
+    });
   });
 
   app.get("/api/commerce/cart", async (req, reply) => {
@@ -491,7 +497,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   app.get("/api/commerce/admin/inventory", async (req) => {
     await requirePermission(req, "inventory:view");
     const rows = await query<any>(
-      `select v.id, v.product_id, v.color_id, v.size_id, v.sku, v.on_hand, v.quarantined, v.active, v.updated_at::text as stock_version,
+      `select v.id, v.product_id, v.color_id, v.size_id, v.sku, v.on_hand, v.quarantined, v.active, v.sale_enabled, v.updated_at::text as stock_version,
               p.name, p.category, p.price, p.colors, p.sizes,
               coalesce((select sum(r.quantity) from stock_reservations r
                 where r.variant_id = v.id and r.status = 'active' and r.expires_at > now()), 0)::int as reserved
@@ -505,7 +511,7 @@ export async function commerceRoutes(app: FastifyInstance) {
       const onHand = Number(row.on_hand);
       const quarantined = Number(row.quarantined);
       const reserved = Number(row.reserved);
-      const sellable = Math.max(0, onHand - quarantined - reserved);
+      const sellable = row.active && row.sale_enabled ? Math.max(0, onHand - quarantined - reserved) : 0;
       const color = (row.colors ?? []).find((item: any) => item.id === row.color_id);
       const size = (row.sizes ?? []).find((item: any) => item.id === row.size_id);
       return {
@@ -526,7 +532,8 @@ export async function commerceRoutes(app: FastifyInstance) {
         reserved,
         sellable,
         threshold,
-        active: row.active,
+        active: row.active && row.sale_enabled,
+        saleEnabled: row.sale_enabled,
         lowStock: sellable > 0 && sellable <= threshold,
         outOfStock: sellable === 0,
       };

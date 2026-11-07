@@ -2934,3 +2934,33 @@ test('customer measurements are private, validated, concurrency-safe and never i
   assert.deepEqual((await query("select personal_measurements from customers where email='ava@example.com'")).rows[0].personal_measurements,{unknown:92});
   await query("update customers set personal_measurements=null where email='ava@example.com'");
 });
+
+test('pausing a variant blocks new carts and checkout but preserves an existing hold', async () => {
+  const admin=await adminClient(), buyer=await customerClient();const variantId=await setStock(SKU,5);
+  const variant=(await query('select product_id,sale_enabled,sale_version from product_variants where id=$1',[variantId])).rows[0];
+  const path=`/api/admin/products/${variant.product_id}/variant-sales/${variantId}`;
+  try{
+    const held=await startCheckout(buyer,[{variantId,quantity:1}]);assert.equal(held.status,201,JSON.stringify(held.body));
+    const pause=await admin.patch(path,{saleEnabled:false,expectedEnabled:true,expectedVersion:variant.sale_version});assert.equal(pause.status,200,JSON.stringify(pause.body));
+    const cart=await makeClient().post('/api/commerce/cart/lines',{variantId,quantity:1});assert.equal(cart.status,409);assert.equal(cart.body.code,'variant_inactive');
+    const next=await startCheckout(buyer,[{variantId,quantity:1}]);assert.equal(next.status,409);assert.equal(next.body.code,'variant_inactive');
+    const payment=await buyer.post(`/api/commerce/checkout/${held.body.checkout.id}/pay`,{method:'online'});assert.equal(payment.status,200,JSON.stringify(payment.body));
+    const settle=await buyer.post(`/api/commerce/payments/${payment.body.attempt.id}/simulate`,{result:'success'});assert.equal(settle.status,200,JSON.stringify(settle.body));
+    assert.equal((await query('select on_hand from product_variants where id=$1',[variantId])).rows[0].on_hand,4);
+  } finally {await query('update product_variants set sale_enabled=$2,sale_version=$3 where id=$1',[variantId,variant.sale_enabled,variant.sale_version]);}
+});
+
+test('a sale pause committed while checkout waits on variant lock prevents new reservation', async () => {
+  const variantId=await setStock(SKU,3);const buyer=await customerClient();const original=(await query('select sale_enabled,sale_version from product_variants where id=$1',[variantId])).rows[0];
+  const {getPool}=await import('../src/db');const locker=await getPool().connect();await locker.query('begin');
+  try{
+    await locker.query('update product_variants set sale_enabled=false,sale_version=sale_version+1 where id=$1',[variantId]);
+    const pending=startCheckout(buyer,[{variantId,quantity:1}]);let waiting=0;
+    try{
+      for(let i=0;i<100;i++){await locker.query('select pg_stat_clear_snapshot()');waiting=(await locker.query("select count(*)::int n from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and query ilike '%from product_variants where id = $1 for update%'")).rows[0].n;if(waiting)break;await new Promise(r=>setTimeout(r,20));}
+      assert.ok(waiting,'checkout should be blocked by the changed variant row');
+    }finally{await locker.query('commit')}
+    const result=await pending;assert.equal(result.status,409);assert.equal(result.body.code,'insufficient_stock');
+    assert.equal((await query("select count(*)::int n from stock_reservations where variant_id=$1 and status='active' and expires_at>now()",[variantId])).rows[0].n,0);
+  }finally{await locker.query('rollback').catch(()=>{});locker.release();await query('update product_variants set sale_enabled=$2,sale_version=$3 where id=$1',[variantId,original.sale_enabled,original.sale_version])}
+});

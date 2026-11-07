@@ -183,7 +183,7 @@ export async function readBackup(id: string): Promise<{ meta: BackupRow; buffer:
  */
 export async function restoreBackup(
   file: string,
-  options: { client?: pg.PoolClient; allowEmptyJournalFromOlderBackup?: boolean; allowEmptySupportFromOlderBackup?: boolean } = {},
+  options: { client?: pg.PoolClient; allowEmptyJournalFromOlderBackup?: boolean; allowEmptySupportFromOlderBackup?: boolean; allowLegacyVariantSales?: boolean } = {},
 ): Promise<{ tables: number; rows: number }> {
   const raw = await fsp.readFile(file);
   const buffer = file.endsWith(".gz") ? gunzipSync(raw) : raw;
@@ -209,6 +209,15 @@ export async function restoreBackup(
         (missing.length !== 0 && !allowedMissing) || payload.tables.some(t => !Array.isArray(payload.data[t]))) {
       throw new Error("جدول‌های پشتیبان با نسخهٔ پایگاه داده مطابقت ندارند.");
     }
+    // Pre-feature backups cannot represent paused SKU sales. Refuse them by
+    // default before touching the destination, because restoring defaults may
+    // put variants back on sale. Partial missing data is corrupt, not legacy.
+    for (const row of payload.data.product_variants ?? []) {
+      if (!row || typeof row!=="object" || Array.isArray(row)) throw new Error("ردیف تنوع در پشتیبان معتبر نیست.");
+      const hasSale=Object.hasOwn(row,"sale_enabled"),hasVersion=Object.hasOwn(row,"sale_version");
+      if(hasSale!==hasVersion) throw new Error("نسخه وضعیت فروش تنوع در پشتیبان ناقص است.");
+      if(!hasSale && !options.allowLegacyVariantSales) throw new Error("پشتیبان قدیمی وضعیت فروش تنوع‌ها را ندارد؛ بازیابی فقط با تأیید صریح allow-legacy-variant-sales مجاز است.");
+    }
     const ident = (name:string) => `"${name.replace(/"/g, '""')}"`;
     // Foreign keys and append-only triggers must not block a full replace;
     // this requires an appropriately privileged database maintenance role.
@@ -224,6 +233,11 @@ export async function restoreBackup(
       const restored = table === "price_rules" ? list.map(row => {
         if (!row || typeof row !== "object" || Array.isArray(row)) return row;
         return Object.prototype.hasOwnProperty.call(row, "free_shipping") ? row : { ...row, free_shipping: false };
+      }) : table === "product_variants" ? list.map(row => {
+        if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+        // Older backups predate per-variant sale switches and represented every
+        // combination as enabled. An explicit null remains invalid.
+        return {...row, ...(Object.prototype.hasOwnProperty.call(row,"sale_enabled") ? {} : {sale_enabled:true}), ...(Object.prototype.hasOwnProperty.call(row,"sale_version") ? {} : {sale_version:0})};
       }) : list;
       const json = stringifyLossless(restored);
       const safeTable = ident(table);

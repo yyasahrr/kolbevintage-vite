@@ -130,6 +130,8 @@ create table if not exists product_variants (
   on_hand integer not null default 0 check (on_hand >= 0),
   quarantined integer not null default 0 check (quarantined >= 0),
   active boolean not null default true,
+  sale_enabled boolean not null default true,
+  sale_version integer not null default 0 check (sale_version >= 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (product_id, color_id, size_id)
@@ -410,6 +412,8 @@ create table if not exists outbox_events (
 create index if not exists outbox_events_pending_idx on outbox_events (status, available_at);
 
 alter table product_variants add column if not exists last_catalog_qty integer not null default 0;
+alter table product_variants add column if not exists sale_enabled boolean not null default true;
+alter table product_variants add column if not exists sale_version integer not null default 0 check (sale_version >= 0);
 
 -- tiered cashback: the rate depends on how much the basket is worth
 create table if not exists cashback_ledger (

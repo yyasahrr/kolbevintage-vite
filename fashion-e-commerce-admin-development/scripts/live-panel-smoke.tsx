@@ -21,6 +21,7 @@ const fixtures: Record<string, unknown> = {
   "/api/admin/categories": [{id:"outerwear",name:"پالتو",slug:"outerwear",thumbnail:"stock:hero",active:true,order:1,sizeSetId:"set-1"}],
   "/api/admin/size-sets": [{id:"set-1",name:"سایز پوشاک",sizes:["M","L"]}],
   "/api/products?all=1": [productFixture],
+  "/api/admin/products/p-1/variant-sales": [{id:"v-1",sku:"SKU-1",colorName:"مشکی",sizeLabel:"M",saleEnabled:true,version:0,variantActive:true,productActive:true}],
   "/api/commerce/admin/inventory": [variant],
   "/api/commerce/orders?all=1&limit=200": [{id:"VL-1",customer:"مشتری",phone:"",city:"",address:"",status:"paid",paymentStatus:"settled",fulfillmentStatus:"unfulfilled",createdAt:new Date().toISOString(),tracking:"",carrier:"Post",total:100,currency:"تومان",lines:[{id:"l-1",sku:"SKU-1",name:"پالتو",colorName:"آبی",sizeLabel:"M",quantity:1,unitPrice:100,lineTotal:100}]}],
   "/api/commerce/admin/inventory/adjustments": [{ id: "adj-1", variantId: "v-1", delta: 2, reason: "شمارش", requestedBy: "warehouse", status: "pending", approvedBy: null, note: "", createdAt: new Date().toISOString() }],
@@ -51,6 +52,7 @@ globalThis.fetch = async (request, init) => {
     if(body.action === "update_color") {const color=productFixture.colors.find(c=>c.id===body.id)!; color.name=body.name;color.hex=body.hex;}
     return new Response(JSON.stringify({ok:true,colors:productFixture.colors,sizes:productFixture.sizes}),{status:200});
   }
+  if (method === "PATCH" && path === "/api/admin/products/p-1/variant-sales/v-1") {const row=(fixtures["/api/admin/products/p-1/variant-sales"] as any[])[0];if(body.expectedVersion!==row.version||body.expectedEnabled!==row.saleEnabled)return new Response(JSON.stringify({error:"وضعیت فروش تنوع تغییر کرده است"}),{status:409});row.saleEnabled=body.saleEnabled;row.version++;return new Response(JSON.stringify({ok:true,saleEnabled:row.saleEnabled,version:row.version}))}
   if (method === "PATCH" && path === "/api/admin/journal-settings") { (fixtures["/api/admin/journal"] as any).enabled=body.enabled; return new Response(JSON.stringify({enabled:body.enabled})); }
   if (method === "POST" && path === "/api/admin/journal") { const article={id:"article-test",...body,status:"draft",coverUrl:"",publishedAt:null,version:1,updatedAt:new Date().toISOString()};(fixtures["/api/admin/journal"] as any).items=[article];return new Response(JSON.stringify(article),{status:201}); }
   if (method === "PATCH" && path === "/api/admin/journal/article-test") {const current=(fixtures["/api/admin/journal"] as any).items[0];const article={...current,...body,version:current.version+1,publishedAt:body.publishedAt || new Date().toISOString()};(fixtures["/api/admin/journal"] as any).items=[article];return new Response(JSON.stringify(article)); }
@@ -197,6 +199,7 @@ await click("ثبت پیش‌نویس");
 assert.ok(requests.some(r=>r.path==="/api/admin/products" && r.method==="POST" && r.body.category==="پالتو" && r.body.sizes.join(",")==="M,L" && r.body.imageData?.startsWith("data:image/png;base64,")),"product draft sends selected category and actual image bytes");
 await click("ویرایش");
 const optionsDialog=document.querySelector<HTMLElement>('[role="dialog"][aria-label="ویرایش محصول"]');assert.ok(optionsDialog);
+await click("توقف فروش مشکی M");assert.ok(requests.some(r=>r.path==="/api/admin/products/p-1/variant-sales/v-1"&&r.body.expectedVersion===0&&r.body.expectedEnabled===true&&r.body.saleEnabled===false));await click("فعال کردن فروش مشکی M");assert.ok(requests.some(r=>r.path==="/api/admin/products/p-1/variant-sales/v-1"&&r.body.expectedVersion===1&&r.body.saleEnabled===true));
 const changeInput=async (aria:string,value:string)=>{const el=optionsDialog.querySelector<HTMLInputElement>(`input[aria-label="${aria}"]`);assert.ok(el,aria);await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,"value")!.set!.call(el,value);el.dispatchEvent(new dom.window.Event("input",{bubbles:true}));});};
 await changeInput("نام رنگ جدید","آبی");await click("افزودن رنگ");
 assert.ok(requests.some(r=>r.path==="/api/admin/products/p-1/options"&&r.body?.action==="add_color"&&r.body?.name==="آبی"));
