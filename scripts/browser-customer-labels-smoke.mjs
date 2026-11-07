@@ -18,5 +18,8 @@ try{
  await audience.getByLabel('نحوه تطبیق').selectOption('all');await audience.getByRole('button',{name:'محاسبه مخاطب'}).click();await audience.getByText(/مشتری مطابق با انتخاب فعلی/).waitFor();assert.doesNotMatch(await audience.innerText(),/ava@example.com/);
  for(const width of [320,390,768,1280]){await p.setViewportSize({width,height:850});assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true,`overflow ${width}`)}
  await p.setViewportSize({width:390,height:850});await p.addScriptTag({path:'node_modules/axe-core/axe.min.js'});const violations=await p.evaluate(()=>window.axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}).then(r=>r.violations.filter(v=>['serious','critical'].includes(v.impact)).map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}))));assert.deepEqual(violations,[]);assert.deepEqual(errors,[]);
- console.log('OK create, edit, manual assignment, any/all audience, four widths and axe; isolated database only');
+ p.once('dialog',dialog=>dialog.accept());await p.getByRole('button',{name:`حذف ${manual}`}).click();await p.getByRole('alert').filter({hasText:'به مشتری اختصاص دارد'}).waitFor();
+ await row.getByRole('button',{name:'ویرایش برچسب دستی'}).click();await editor.getByLabel(manual,{exact:true}).uncheck();await editor.getByRole('button',{name:'ذخیره برچسب‌ها'}).click();await p.getByRole('status').filter({hasText:'برچسب‌های دستی ذخیره شدند'}).waitFor();
+ p.once('dialog',dialog=>dialog.accept());await p.getByRole('button',{name:`حذف ${manual}`}).click();await p.getByRole('status').filter({hasText:'برچسب حذف شد'}).waitFor();assert.equal(await p.getByRole('button',{name:`حذف ${manual}`}).count(),0);
+ console.log('OK create, edit, manual assignment, any/all audience, guarded delete, four widths and axe; isolated database only');
 }finally{await b.close()}

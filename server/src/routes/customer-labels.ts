@@ -22,7 +22,7 @@ const ids = (value:unknown, label:string):string[] => {
   return [...value].sort();
 };
 const storedIds = (value:unknown):string[] => value === null ? [] : ids(value,"برچسب‌های ذخیره‌شده");
-async function lockedDefinitions(client:PoolClient) {
+export async function lockedDefinitions(client:PoolClient) {
   await client.query("insert into commerce_settings(key,value,updated_at) values($1,'[]'::jsonb,now()) on conflict(key) do nothing",[KEY]);
   const res=await client.query<{value:unknown}>("select value from commerce_settings where key=$1 for update",[KEY]);
   return parseLabels(res.rows[0].value);
@@ -98,6 +98,36 @@ export async function customerLabelRoutes(app:FastifyInstance) {
       all[index]=label;await client.query("update commerce_settings set value=$2::jsonb,updated_at=now() where key=$1",[KEY,JSON.stringify(all)]);
       await recordAudit({actor:actor.subject,action:"customer_label.updated",targetType:"customer_label",targetId:label.id,before:previous,after:label,requestId:req.id},client);
       return {label};
+    });
+  });
+  app.post<{Params:{id:string};Body:{expected?:unknown}}>("/api/admin/customer-labels/:id/delete",async req=>{
+    const actor=await requirePermission(req,"customers:edit");
+    const expected=req.body?.expected;
+    if(!expected || typeof expected!=="object")throw validation("نسخه قبلی برچسب لازم است.");
+    const exp=expected as Partial<Label>;
+    return withTransaction(async client=>{
+      // Same lock order as assignment and campaign creation: definitions first,
+      // then campaign document. Concurrent assignment cannot race deletion.
+      const all=await lockedDefinitions(client);
+      const index=all.findIndex(item=>item.id===req.params.id);
+      if(index<0)throw notFound("برچسب پیدا نشد.");
+      const previous=all[index];
+      if(exp.id!==previous.id || exp.name!==previous.name || (exp.rule?.type ?? null)!==(previous.rule?.type ?? null) || (exp.rule?.minCount ?? null)!==(previous.rule?.minCount ?? null))throw conflict("تعریف برچسب تغییر کرده است؛ فهرست را تازه‌سازی کنید.","label_conflict");
+      const doc=(await client.query<{value:Record<string,unknown>}>("select value from state_documents where key='admin' for update")).rows[0]?.value ?? {};
+      // Conservatively retain definitions referenced by any campaign or rule,
+      // including unsupported future formats nested at arbitrary depth.
+      const containsId=(value:unknown):boolean=>{
+        if(value===previous.id)return true;
+        if(Array.isArray(value))return value.some(containsId);
+        return !!value && typeof value==="object" && Object.values(value as Record<string,unknown>).some(containsId);
+      };
+      if(containsId(doc.campaigns) || containsId(doc.discountRules))throw conflict("این برچسب در یک کمپین یا قانون استفاده شده است؛ ابتدا پیش‌نویس مرتبط را حذف یا اصلاح کنید.","label_in_campaign");
+      const assigned=await client.query<{n:number}>("select count(*)::int as n from customers where manual_labels @> jsonb_build_array($1::text)",[previous.id]);
+      if(Number(assigned.rows[0].n)>0)throw conflict("این برچسب به مشتری اختصاص دارد؛ ابتدا تخصیص‌های دستی آن را حذف کنید.","label_assigned");
+      all.splice(index,1);
+      await client.query("update commerce_settings set value=$2::jsonb,updated_at=now() where key=$1",[KEY,JSON.stringify(all)]);
+      await recordAudit({actor:actor.subject,action:"customer_label.deleted",targetType:"customer_label",targetId:previous.id,before:previous,requestId:req.id},client);
+      return {ok:true};
     });
   });
   app.put<{Params:{email:string};Body:{labels?:unknown;expected?:unknown}}>("/api/admin/customers/:email/labels",async req=>{

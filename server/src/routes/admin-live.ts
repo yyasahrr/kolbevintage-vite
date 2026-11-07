@@ -6,7 +6,7 @@ import { recordAudit } from "../commerce/audit";
 import { validation, notFound, conflict } from "../commerce/errors";
 import { hasUnsupportedCampaignRestrictions } from "../commerce/promotions";
 import { labelAudience } from "../commerce/audiences";
-import { definitions } from "./customer-labels";
+import { definitions, lockedDefinitions } from "./customer-labels";
 
 const number = (value: unknown, label: string, max = 99999999) => {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > max) throw validation(`${label} معتبر نیست.`);
@@ -56,10 +56,6 @@ export async function adminLiveRoutes(app: FastifyInstance) {
     if (b.freeShipping !== undefined && typeof b.freeShipping !== "boolean") throw validation("گزینه ارسال رایگان معتبر نیست.");
     const freeShipping = b.freeShipping === true && kind !== "freeship";
     const audience = b.audience == null ? null : labelAudience(b.audience);
-    if (audience) {
-      const labels=await definitions();
-      if (audience.labels.some(id=>!labels.some(label=>label.id===id))) throw validation("برچسب مخاطب پیدا نشد.");
-    }
     let earlyAccess: {mode:"purchase" | "view_purchase"; startsAt:string} | null = null;
     if (b.earlyAccess != null) {
       const access=b.earlyAccess as Record<string,unknown>;
@@ -77,6 +73,10 @@ export async function adminLiveRoutes(app: FastifyInstance) {
     const id = `cmp-${randomUUID()}`;
     const campaign = { id, name, kind, value, minSpend, maxDiscount, scope, scopeId, start, end, freeShipping, audience, earlyAccess, active: false, uses: 0, banner: { title: "", text: "", active: false, tone: "gold" }, priority: 0, stackable: false, createdAt: Date.now() };
     await withTransaction(async client => {
+      if (audience) {
+        const labels=await lockedDefinitions(client);
+        if (audience.labels.some(id=>!labels.some(label=>label.id===id))) throw validation("برچسب مخاطب پیدا نشد.");
+      }
       const res = await client.query<{value:Record<string,any>}>("select value from state_documents where key='admin' for update");
       const doc = res.rows[0]?.value; if (!doc) throw notFound("سند فروشگاه پیدا نشد.");
       doc.campaigns = [campaign, ...(Array.isArray(doc.campaigns) ? doc.campaigns : [])];

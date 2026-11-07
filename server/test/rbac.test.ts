@@ -1147,3 +1147,74 @@ test("restricted campaign settings save as non-activatable drafts and cannot be 
     else await query("update commerce_settings set value=$1::jsonb where key='customer_labels_v1'",[JSON.stringify(priorLabels)]);
   }
 });
+
+test('customer labels can be deleted only by editors when unchanged and unused', async () => {
+  const {admin,client:viewer}=await staffWith(['customers:view'],'label-delete-view','label-delete-viewer','label-delete-pass');
+  const before=(await query("select value from commerce_settings where key='customer_labels_v1'")).rows[0]?.value;
+  const snapshot=JSON.stringify((await query("select value from state_documents where key='admin'")).rows[0].value);
+  const prior=(await query("select manual_labels from customers where email='ava@example.com'")).rows[0].manual_labels;
+  const label=(await admin.post('/api/admin/customer-labels',{name:`حذف ${Date.now()}`,minDeliveredOrders:2})).body.label;
+  const path=`/api/admin/customer-labels/${label.id}/delete`;
+  try {
+    assert.equal((await viewer.post(path,{expected:label})).status,403);
+    assert.equal((await admin.post(path,{expected:{...label,name:'old'}})).body.code,'label_conflict');
+    assert.equal((await admin.put('/api/admin/customers/ava%40example.com/labels',{labels:[label.id],expected:prior??[]})).status,200);
+    assert.equal((await admin.post(path,{expected:label})).body.code,'label_assigned');
+    assert.equal((await admin.put('/api/admin/customers/ava%40example.com/labels',{labels:[],expected:[label.id]})).status,200);
+    const draft=await admin.post('/api/admin/marketing/campaigns',{name:'برچسب در کمپین',kind:'percent',scope:'all',value:10,minSpend:0,start:'',end:'',audience:{mode:'any',labels:[label.id]}});
+    assert.equal(draft.status,201,JSON.stringify(draft.body));
+    assert.equal((await admin.post(path,{expected:label})).body.code,'label_in_campaign');
+    assert.equal((await admin.post(`/api/admin/marketing/campaigns/${draft.body.id}/discard`,{})).status,200);
+    assert.equal((await admin.post(path,{expected:label})).status,200);
+    assert.ok((await query("select id from audit_events where action='customer_label.deleted' and target_id=$1",[label.id])).rows.length);
+  } finally {
+    await query("update state_documents set value=$1::jsonb where key='admin'",[snapshot]);
+    await query("update customers set manual_labels=$1::jsonb where email='ava@example.com'",[prior===null?null:JSON.stringify(prior)]);
+    if(before===undefined)await query("delete from commerce_settings where key='customer_labels_v1'");
+    else await query("update commerce_settings set value=$1::jsonb where key='customer_labels_v1'",[JSON.stringify(before)]);
+    const {syncPromotions}=await import('../src/commerce/promotions');await syncPromotions(JSON.parse(snapshot));
+  }
+});
+
+test('label deletion serializes with draft campaign creation', async () => {
+  const {admin}=await staffWith(['dashboard:view'],'label-race-view','label-race-viewer','label-race-pass');
+  const before=(await query("select value from commerce_settings where key='customer_labels_v1'")).rows[0]?.value;
+  const snapshot=JSON.stringify((await query("select value from state_documents where key='admin'")).rows[0].value);
+  const label=(await admin.post('/api/admin/customer-labels',{name:`race-${Date.now()}`})).body.label;
+  try {
+    const [deleted,draft]=await Promise.all([
+      admin.post(`/api/admin/customer-labels/${label.id}/delete`,{expected:label}),
+      admin.post('/api/admin/marketing/campaigns',{name:'race',kind:'percent',scope:'all',value:10,minSpend:0,start:'',end:'',audience:{mode:'any',labels:[label.id]}}),
+    ]);
+    assert.ok((deleted.status===200 && draft.status===422) || (deleted.status===409 && draft.status===201),JSON.stringify({deleted,draft}));
+    if(draft.status===201) {
+      assert.equal(deleted.body.code,'label_in_campaign');
+      assert.ok((await admin.get('/api/admin/customer-labels')).body.labels.some((l:any)=>l.id===label.id));
+    }
+  } finally {
+    await query("update state_documents set value=$1::jsonb where key='admin'",[snapshot]);
+    if(before===undefined)await query("delete from commerce_settings where key='customer_labels_v1'");
+    else await query("update commerce_settings set value=$1::jsonb where key='customer_labels_v1'",[JSON.stringify(before)]);
+    const {syncPromotions}=await import('../src/commerce/promotions');await syncPromotions(JSON.parse(snapshot));
+  }
+});
+
+test('label deletion serializes with customer assignment', async () => {
+  const {admin}=await staffWith(['dashboard:view'],'label-assign-race-view','label-assign-race-viewer','label-assign-race-pass');
+  const before=(await query("select value from commerce_settings where key='customer_labels_v1'")).rows[0]?.value;
+  const prior=(await query("select manual_labels from customers where email='ava@example.com'")).rows[0].manual_labels;
+  const oldLabels=prior??[];
+  const label=(await admin.post('/api/admin/customer-labels',{name:`assign-race-${Date.now()}`})).body.label;
+  try {
+    const [deleted,assigned]=await Promise.all([
+      admin.post(`/api/admin/customer-labels/${label.id}/delete`,{expected:label}),
+      admin.put('/api/admin/customers/ava%40example.com/labels',{labels:[...oldLabels,label.id],expected:oldLabels}),
+    ]);
+    assert.ok((deleted.status===200 && assigned.status===422) || (deleted.status===409 && assigned.status===200),JSON.stringify({deleted,assigned}));
+    if(assigned.status===200)assert.equal(deleted.body.code,'label_assigned');
+  } finally {
+    await query("update customers set manual_labels=$1::jsonb where email='ava@example.com'",[prior===null?null:JSON.stringify(prior)]);
+    if(before===undefined)await query("delete from commerce_settings where key='customer_labels_v1'");
+    else await query("update commerce_settings set value=$1::jsonb where key='customer_labels_v1'",[JSON.stringify(before)]);
+  }
+});
