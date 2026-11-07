@@ -35,6 +35,7 @@ export interface PaymentAttemptRow {
   amount: string | number;
   wallet_applied: string | number;
   wallet_email: string | null;
+  quote_snapshot: Quote | null;
   status: PaymentStatus;
   idempotency_key: string | null;
   provider_ref: string | null;
@@ -389,9 +390,9 @@ export async function startPayment(input: {
   const chargeable = round2(Math.max(0, Number(checkout.quote.grandTotal) - walletApplied));
   const res = await query<PaymentAttemptRow>(
     `insert into payment_attempts (id, checkout_id, provider, method, amount, wallet_applied, wallet_email,
-                                   status, idempotency_key, expires_at)
-     values ($1, $2, $3, $4, $5, $6, $7, 'initiated', $8, $9) returning *`,
-    [attemptId, checkout.id, provider.id, method, chargeable, walletApplied, walletApplied > 0 ? walletEmail : null, idempotencyKey, expiresAt],
+                                   status, idempotency_key, expires_at, quote_snapshot)
+     values ($1, $2, $3, $4, $5, $6, $7, 'initiated', $8, $9, $10::jsonb) returning *`,
+    [attemptId, checkout.id, provider.id, method, chargeable, walletApplied, walletApplied > 0 ? walletEmail : null, idempotencyKey, expiresAt, JSON.stringify(checkout.quote)],
   );
 
   const initiated = await provider.initiate(res.rows[0]);
@@ -481,7 +482,13 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
     const consumed = await consumeReservations(client, checkout.id);
     const late = !consumed.ok;
 
-    const quote = checkout.quote as Quote;
+    // An initiated attempt must settle the precise invoice the provider was
+    // asked to collect, not a checkout that may have since been re-quoted.
+    // Pre-migration attempts lack a trustworthy snapshot and require review.
+    const quote = current.quote_snapshot ?? checkout.quote as Quote;
+    const missingSnapshot = !current.quote_snapshot;
+    const amountMismatch = round2(Number(current.amount) + Number(current.wallet_applied ?? 0)) !== round2(Number(quote.grandTotal));
+    const snapshotProblem = missingSnapshot || amountMismatch;
 
     /* ---------- coupon capacity is consumed exactly once, under a lock ----
        Capacity used to be checked at quote time and never counted, so a
@@ -491,8 +498,8 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
        already captured, so the order is created as an exception for a human
        instead of silently granting an unbudgeted discount. */
     let couponProblem: string | null = null;
-    const couponCode = String(checkout.coupon_code ?? quote.couponCode ?? "").trim().toUpperCase();
-    if (couponCode && Number(quote.couponDiscount) > 0 && !late) {
+    const couponCode = String(quote.couponCode ?? "").trim().toUpperCase();
+    if (couponCode && Number(quote.couponDiscount) > 0 && !late && !snapshotProblem) {
       const coupon = await client.query<{ used_count: number; usage_limit: number | null }>(
         `update coupons set used_count = used_count + 1, updated_at = now()
           where code = $1 and active and (usage_limit is null or used_count < usage_limit)
@@ -504,13 +511,14 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
       }
     }
 
-    let needsReview = late || Boolean(couponProblem);
+    let needsReview = late || snapshotProblem || Boolean(couponProblem);
     let exceptionReason = late
       ? "پرداخت پس از آزادسازی رزرو موجودی تأیید شد؛ نیازمند بررسی اپراتور مالی (بدون ارسال خودکار)."
+      : snapshotProblem ? "صورتحساب منجمد پرداخت وجود ندارد یا با مبلغ پرداخت هم‌خوان نیست؛ نیازمند بررسی مالی."
       : couponProblem;
     const status: OrderStatus = needsReview ? "exception" : "paid";
     const order = await insertOrder(client, {
-      checkout,
+      checkout: { ...checkout, shipping_method: quote.shippingMethod, coupon_code: quote.couponCode },
       quote,
       status,
       paymentStatus: "settled",
@@ -531,7 +539,7 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
        captured, so the order becomes an exception instead of silently
        discounting a basket nobody paid for. */
     const walletApplied = Number(current.wallet_applied ?? 0);
-    if (walletApplied > 0 && current.wallet_email) {
+    if (walletApplied > 0 && current.wallet_email && !snapshotProblem) {
       try {
         const spent = await redeemCashback(client, {
           email: current.wallet_email,

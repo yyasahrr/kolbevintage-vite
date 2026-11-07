@@ -5,6 +5,7 @@ import { query, withTransaction } from "../db";
 import { requirePermission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
 import { conflict, notFound, validation } from "../commerce/errors";
+import { labelAudience, matchesLabelAudience } from "../commerce/audiences";
 
 // A separate settings key makes definitions part of ordinary backups without a
 // new table. No automatic label exists until an administrator defines it.
@@ -120,11 +121,11 @@ export async function customerLabelRoutes(app:FastifyInstance) {
   app.post<{Body:{labels?:unknown;mode?:unknown}}>("/api/admin/customer-labels/audience",async (req,reply)=>{
     await requirePermission(req,"customers:view");
     reply.header("cache-control","no-store");
-    const target=ids(req.body?.labels,"برچسب‌های مخاطب");
-    if(!target.length || (req.body?.mode!=="any" && req.body?.mode!=="all"))throw validation("برچسب و حالت یکی یا همه را انتخاب کنید.");
-    const all=await definitions();if(target.some(id=>!all.some(label=>label.id===id)))throw validation("برچسب انتخاب‌شده وجود ندارد.");
+    const audience=labelAudience(req.body);
+    const all=await definitions();const defined=all.map(label=>label.id);
+    if(audience.labels.some(id=>!defined.includes(id)))throw validation("برچسب انتخاب‌شده وجود ندارد.");
     const customers=await customersWithLabels(all);
-    const matched=customers.filter(c=>req.body.mode==="all" ? target.every(id=>c.labels.includes(id)) : target.some(id=>c.labels.includes(id)));
+    const matched=customers.filter(c=>matchesLabelAudience(audience,c.labels,defined));
     return {count:matched.length,customers:matched.map(c=>({email:c.email,name:c.name,labels:c.labels}))};
   });
 }

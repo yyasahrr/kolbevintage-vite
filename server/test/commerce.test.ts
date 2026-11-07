@@ -2399,3 +2399,53 @@ test("one monetary campaign can also grant shipping even when a coupon wins", as
   const stale=await client.post(`/api/commerce/checkout/${begun.body.checkout.id}/pay`,{method:'online'});
   assert.equal(stale.status,409);assert.equal(stale.body.code,'quote_stale');
 });
+
+test("an initiated payment settles its frozen quote after checkout is re-quoted", async () => {
+  const variantId=await setStock(SKU,4),client=makeClient();
+  await query(`insert into coupons(code,kind,value,min_subtotal,active,used_count) values ('REQUOTE','amount',30,0,true,0)
+    on conflict(code) do update set kind='amount',value=30,min_subtotal=0,max_discount=null,active=true,usage_limit=null,used_count=0`);
+  const started=await startCheckout(client,[{variantId,quantity:1}]);assert.equal(started.status,201);
+  const checkout=started.body.checkout,original=checkout.quote;
+  const pay=await client.post(`/api/commerce/checkout/${checkout.id}/pay`,{method:'online'});assert.equal(pay.status,200,JSON.stringify(pay.body));
+  const reprice=await client.post(`/api/commerce/checkout/${checkout.id}/quote`,{couponCode:'REQUOTE'});
+  assert.equal(reprice.status,200,JSON.stringify(reprice.body));assert.equal(reprice.body.quote.couponDiscount,30);
+  const done=await client.post(`/api/commerce/payments/${pay.body.attempt.id}/simulate`,{result:'success'});
+  assert.equal(done.status,200,JSON.stringify(done.body));assert.equal(done.body.orderStatus,'paid');
+  const order=(await (await adminClient()).get(`/api/commerce/orders/${done.body.orderId}`)).body;
+  assert.equal(order.total,original.grandTotal);assert.equal(order.coupon,null);
+  assert.equal(Number((await query("select used_count from coupons where code='REQUOTE'")).rows[0].used_count),0);
+});
+
+test("a pre-migration payment without frozen invoice settles only for financial review", async () => {
+  const variantId=await setStock(SKU,2),client=makeClient();
+  const started=await startCheckout(client,[{variantId,quantity:1}]);
+  const pay=await client.post(`/api/commerce/checkout/${started.body.checkout.id}/pay`,{method:'online'});
+  assert.equal(pay.status,200,JSON.stringify(pay.body));
+  await query('update payment_attempts set quote_snapshot=null where id=$1',[pay.body.attempt.id]);
+  const result=await client.post(`/api/commerce/payments/${pay.body.attempt.id}/simulate`,{result:'success'});
+  assert.equal(result.status,200,JSON.stringify(result.body));assert.equal(result.body.orderStatus,'exception');
+  const order=(await (await adminClient()).get(`/api/commerce/orders/${result.body.orderId}`)).body;
+  assert.match(order.exceptionReason,/صورتحساب منجمد/);
+});
+
+test("shared audience matching handles any, all, malformed and deleted labels", async () => {
+  const {labelAudience,matchesLabelAudience}=await import('../src/commerce/audiences');
+  const a=`lbl-${randomUUID()}`,b=`lbl-${randomUUID()}`;
+  const any=labelAudience({labels:[a,b],mode:'any'}),all=labelAudience({labels:[a,b],mode:'all'});
+  assert.equal(matchesLabelAudience(any,[a],[a,b]),true);
+  assert.equal(matchesLabelAudience(all,[a],[a,b]),false);
+  assert.equal(matchesLabelAudience(all,[a,b],[a,b]),true);
+  assert.equal(matchesLabelAudience(any,[],[a,b]),false);
+  assert.equal(matchesLabelAudience(any,[a],[a]),false,'orphan label must not widen an audience');
+  for(const value of [{labels:[],mode:'all'},{labels:[a,a],mode:'any'},{labels:[a],mode:'bogus'},{labels:['foo'],mode:'any'},null]) assert.throws(()=>labelAudience(value));
+});
+
+test("a frozen invoice with inconsistent attempted amount requires financial review", async () => {
+  const variantId=await setStock(SKU,2),client=makeClient();
+  const started=await startCheckout(client,[{variantId,quantity:1}]);
+  const pay=await client.post(`/api/commerce/checkout/${started.body.checkout.id}/pay`,{method:'online'});
+  assert.equal(pay.status,200,JSON.stringify(pay.body));
+  await query('update payment_attempts set amount=amount-1 where id=$1',[pay.body.attempt.id]);
+  const result=await client.post(`/api/commerce/payments/${pay.body.attempt.id}/simulate`,{result:'success'});
+  assert.equal(result.status,200,JSON.stringify(result.body));assert.equal(result.body.orderStatus,'exception');
+});

@@ -986,7 +986,7 @@ test("older journal-free backups require explicit opt-in and restore only in an 
   const precision=`restore-precision-${randomUUID()}`;
   try {
     await query("insert into state_documents(key,value) values($1,$2::jsonb)",[precision,'{"amount":900719925474099312345,"fraction":123456789012345.678901}']);
-    const payload=await dumpAll();for (const row of payload.data.customers) delete (row as Record<string,unknown>).manual_labels;for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;payload.tables=payload.tables.filter(t=>t!=="journal_articles");delete payload.data.journal_articles;
+    const payload=await dumpAll();for (const row of payload.data.customers) delete (row as Record<string,unknown>).manual_labels;for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;for (const row of payload.data.payment_attempts) delete (row as Record<string,unknown>).quote_snapshot;payload.tables=payload.tables.filter(t=>t!=="journal_articles");delete payload.data.journal_articles;
     const file=path.join(dir,"before-journal.json");await fs.writeFile(file,stringify(payload)!);
     const badFile=path.join(dir,"missing-two.json");const other={...payload,tables:payload.tables.filter(t=>t!=="products"),data:{...payload.data}};delete other.data.products;await fs.writeFile(badFile,stringify(other)!);
     await admin.query(`create database "${name}"`);created=true;conn=new pg.Client({connectionString:target.toString()});await conn.connect();await conn.query(await fs.readFile("server/src/schema.sql","utf8"));
@@ -1106,5 +1106,44 @@ test("unsupported campaign targeting is never projected or activated as a public
   } finally {
     await query("update state_documents set value=$1::jsonb where key='admin'",[saved]);
     const {syncPromotions}=await import('../src/commerce/promotions');await syncPromotions(JSON.parse(saved));
+  }
+});
+
+test("restricted campaign settings save as non-activatable drafts and cannot be silently widened", async () => {
+  const {admin}=await staffWith(["dashboard:view"],"campaign-draft-view","campaign-draft-user","campaign-draft-pass");
+  const doc=(await query("select value from state_documents where key='admin'")).rows[0].value;
+  const snapshot=JSON.stringify(doc);
+  const priorLabels=(await query("select value from commerce_settings where key='customer_labels_v1'")).rows[0]?.value;
+  const label=await admin.post('/api/admin/customer-labels',{name:`audience-${Date.now()}`,minDeliveredOrders:null});
+  assert.equal(label.status,201,JSON.stringify(label.body));
+  const audience={mode:'all',labels:[label.body.label.id]};
+  const body={name:'پیش‌نویس محدود',kind:'percent',scope:'all',value:20,minSpend:0,start:'2030-01-03',end:'',audience,
+    earlyAccess:{mode:'view_purchase',startsAt:'2030-01-02T12:00:00.000Z'}};
+  try {
+    assert.equal((await admin.post('/api/admin/marketing/campaigns',{...body,earlyAccess:{mode:'view_purchase',startsAt:'2030-01-04T12:00:00.000Z'}})).status,422);
+    assert.equal((await admin.post('/api/admin/marketing/campaigns',{...body,earlyAccess:{mode:'view_purchase',startsAt:'2029-02-30T12:00:00.000Z'}})).status,422);
+    assert.equal((await admin.post('/api/admin/marketing/campaigns',{...body,audience:null})).status,422);
+    const made=await admin.post('/api/admin/marketing/campaigns',body);assert.equal(made.status,201,JSON.stringify(made.body));
+    const id=made.body.id;
+    const list=await admin.get('/api/admin/marketing');
+    assert.equal(list.body.rules.find((r:any)=>r.id===id).restrictedDraft,true);
+    assert.equal(list.body.rules.find((r:any)=>r.id===id).audience.mode,'all');
+    assert.equal(list.body.rules.find((r:any)=>r.id===id).earlyAccess.mode,'view_purchase');
+    assert.ok(list.body.labels.some((l:any)=>l.id===label.body.label.id));
+    assert.equal((await query('select active from price_rules where id=$1',[id])).rows[0].active,false);
+    const activate=await admin.patch(`/api/admin/marketing/campaigns/${id}`,{active:true});
+    assert.equal(activate.status,409);assert.equal(activate.body.code,'campaign_restriction_unsupported');
+    const bootstrap=await makeClient().get('/api/bootstrap');assert.ok(!bootstrap.body.admin.campaigns.some((c:any)=>c.id===id));
+    const overwritten=await admin.put('/api/state/admin',doc);assert.equal(overwritten.status,409,JSON.stringify(overwritten.body));assert.equal(overwritten.body.code,'campaign_draft_legacy_conflict');
+    const latest=(await query("select value from state_documents where key='admin'")).rows[0].value;
+    const {syncPromotions}=await import('../src/commerce/promotions');await syncPromotions(latest);
+    assert.equal((await query('select active from price_rules where id=$1',[id])).rows[0].active,false);
+    const discarded=await admin.post(`/api/admin/marketing/campaigns/${id}/discard`,{});assert.equal(discarded.status,200,JSON.stringify(discarded.body));
+    assert.equal((await query('select 1 from price_rules where id=$1',[id])).rowCount,0);
+  } finally {
+    await query("update state_documents set value=$1::jsonb where key='admin'",[snapshot]);
+    const {syncPromotions}=await import('../src/commerce/promotions');await syncPromotions(JSON.parse(snapshot));
+    if(priorLabels===undefined)await query("delete from commerce_settings where key='customer_labels_v1'");
+    else await query("update commerce_settings set value=$1::jsonb where key='customer_labels_v1'",[JSON.stringify(priorLabels)]);
   }
 });

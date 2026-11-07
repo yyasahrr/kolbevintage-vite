@@ -2,11 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { config } from "../config";
 import { query, withTransaction } from "../db";
 import { syncProjection } from "../projection";
-import { getDocument, putDocument } from "../seed";
+import { getDocument } from "../seed";
 import { readSession } from "../sessions";
 import { requirePermission, requireOwnerRole, permissionsFor, roleForSubject, type Permission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
 import { publicCustomer } from "./auth";
+import { conflict } from "../commerce/errors";
 import { hasUnsupportedCampaignRestrictions } from "../commerce/promotions";
 
 const ADMIN_KEYS = new Set(["admin", "ops"]);
@@ -181,7 +182,18 @@ export async function stateRoutes(app: FastifyInstance) {
         if(current.security?.passcode && !next.security?.passcode) next.security={...(next.security ?? {}),passcode:current.security.passcode};
         await client.query("insert into state_documents(key,value,updated_at) values('ops',$1::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()",[JSON.stringify(next)]);
       });
-    } else await putDocument(key, body);
+    } else {
+      // Legacy whole-document writes can omit fields they do not understand.
+      // Never let one erase the restrictions of a saved draft and turn it into
+      // an unrestricted campaign. Targeted APIs manage these drafts instead.
+      await withTransaction(async client => {
+        const current=(await client.query<{value:Record<string,any>}>("select value from state_documents where key='admin' for update")).rows[0]?.value ?? {};
+        const next=body as Record<string,any>;
+        const restricted=(doc:Record<string,any>) => ["campaigns","discountRules"].some(field => Array.isArray(doc[field]) && doc[field].some((item:any)=>item && typeof item === "object" && hasUnsupportedCampaignRestrictions(item)));
+        if (restricted(current) || restricted(next)) throw conflict("سند قدیمی با پیش‌نویس محدود سازگار نیست؛ از پنل کمپین‌ها استفاده کنید.","campaign_draft_legacy_conflict");
+        await client.query("insert into state_documents(key,value,updated_at) values('admin',$1::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()",[JSON.stringify(next)]);
+      });
+    }
     const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((field) => {
       // credentials are never copied into the audit log
       if (SECRET_KEY.test(field)) return false;

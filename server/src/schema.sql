@@ -293,6 +293,8 @@ create index if not exists payment_attempts_status_idx on payment_attempts (stat
 -- wallet deduction captured with the payment attempt (order total never changes)
 alter table payment_attempts add column if not exists wallet_applied numeric(12, 2) not null default 0;
 alter table payment_attempts add column if not exists wallet_email text;
+-- Frozen invoice for this attempt, independent of later checkout edits.
+alter table payment_attempts add column if not exists quote_snapshot jsonb;
 
 -- order-level financial columns (the `data` jsonb keeps the legacy admin shape)
 alter table orders add column if not exists checkout_id text;

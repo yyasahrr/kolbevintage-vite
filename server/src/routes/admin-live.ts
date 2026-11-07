@@ -5,6 +5,8 @@ import { requirePermission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
 import { validation, notFound, conflict } from "../commerce/errors";
 import { hasUnsupportedCampaignRestrictions } from "../commerce/promotions";
+import { labelAudience } from "../commerce/audiences";
+import { definitions } from "./customer-labels";
 
 const number = (value: unknown, label: string, max = 99999999) => {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > max) throw validation(`${label} معتبر نیست.`);
@@ -24,18 +26,25 @@ const dateOnly = (value: unknown) => {
 export async function adminLiveRoutes(app: FastifyInstance) {
   app.get("/api/admin/marketing", async req => {
     await requirePermission(req, "campaigns:view");
-    const [rules, coupons] = await Promise.all([
+    const [rules, coupons, labels, docs] = await Promise.all([
       query("select id,name,kind,value,scope,scope_id,min_subtotal,max_discount,priority,starts_at,ends_at,active,free_shipping from price_rules order by created_at desc"),
       query("select code,kind,value,min_subtotal,max_discount,usage_limit,used_count,ends_at,active from coupons order by updated_at desc"),
+      definitions(),
+      query<{value:Record<string,any>}>("select value from state_documents where key='admin'"),
     ]);
-    return { rules: rules.rows, coupons: coupons.rows };
+    const campaigns = docs.rows[0]?.value?.campaigns;
+    const byId = new Map((Array.isArray(campaigns) ? campaigns : []).filter((c:any)=>c && typeof c.id === "string").map((c:any)=>[c.id,c]));
+    return { rules: rules.rows.map((row:any)=>{
+      const draft:any=byId.get(row.id);
+      return {...row, restrictedDraft:!!draft && hasUnsupportedCampaignRestrictions(draft), audience:draft?.audience ?? null, earlyAccess:draft?.earlyAccess ?? null};
+    }), coupons: coupons.rows, labels:labels.map(label=>({id:label.id,name:label.name})) };
   });
 
   app.post<{Body: Record<string, unknown>}>("/api/admin/marketing/campaigns", async (req, reply) => {
     const actor = await requirePermission(req, "campaigns:edit");
     const b = req.body ?? {};
-    const allowed = ["name","kind","scope","scopeId","value","minSpend","maxDiscount","start","end","freeShipping"];
-    if (Object.keys(b).some(key => !allowed.includes(key))) throw validation("گزینهٔ ناشناخته یا قابلیت هدف‌گیری و دسترسی زودهنگام هنوز پشتیبانی نمی‌شود.");
+    const allowed = ["name","kind","scope","scopeId","value","minSpend","maxDiscount","start","end","freeShipping","audience","earlyAccess"];
+    if (Object.keys(b).some(key => !allowed.includes(key))) throw validation("یکی از گزینه‌های کمپین پشتیبانی نمی‌شود.");
     const name = text(b.name,"نام کمپین",120), kind = text(b.kind,"نوع",20), scope = text(b.scope,"دامنه",20);
     if (!["percent","fixed","freeship"].includes(kind) || !["all","category"].includes(scope)) throw validation("نوع یا دامنه کمپین پشتیبانی نمی‌شود.");
     const value = number(b.value,"مقدار",kind === "percent" ? 100 : 99999999);
@@ -46,8 +55,27 @@ export async function adminLiveRoutes(app: FastifyInstance) {
     if (start && end && start > end) throw validation("تاریخ پایان قبل از شروع است.");
     if (b.freeShipping !== undefined && typeof b.freeShipping !== "boolean") throw validation("گزینه ارسال رایگان معتبر نیست.");
     const freeShipping = b.freeShipping === true && kind !== "freeship";
+    const audience = b.audience == null ? null : labelAudience(b.audience);
+    if (audience) {
+      const labels=await definitions();
+      if (audience.labels.some(id=>!labels.some(label=>label.id===id))) throw validation("برچسب مخاطب پیدا نشد.");
+    }
+    let earlyAccess: {mode:"purchase" | "view_purchase"; startsAt:string} | null = null;
+    if (b.earlyAccess != null) {
+      const access=b.earlyAccess as Record<string,unknown>;
+      if (!access || typeof access!=="object" || Array.isArray(access) ||
+          (access.mode!=="purchase" && access.mode!=="view_purchase") || !audience || !start ||
+          typeof access.startsAt!=="string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(access.startsAt)) {
+        throw validation("برای دسترسی زودهنگام مخاطب، زمان معتبر و تاریخ شروع عمومی لازم است.");
+      }
+      const inputTime=access.startsAt as string;
+      const instant=new Date(inputTime);
+      const canonical=inputTime.includes(".") ? inputTime : inputTime.replace(/Z$/, ".000Z");
+      if (!Number.isFinite(instant.getTime()) || instant.toISOString() !== canonical || instant.getTime()>=new Date(`${start}T00:00:00Z`).getTime()) throw validation("زمان دسترسی زودهنگام باید معتبر و پیش از شروع عمومی باشد.");
+      earlyAccess={mode:access.mode,startsAt:instant.toISOString()};
+    }
     const id = `cmp-${randomUUID()}`;
-    const campaign = { id, name, kind, value, minSpend, maxDiscount, scope, scopeId, start, end, freeShipping, active: false, uses: 0, banner: { title: "", text: "", active: false, tone: "gold" }, priority: 0, stackable: false, createdAt: Date.now() };
+    const campaign = { id, name, kind, value, minSpend, maxDiscount, scope, scopeId, start, end, freeShipping, audience, earlyAccess, active: false, uses: 0, banner: { title: "", text: "", active: false, tone: "gold" }, priority: 0, stackable: false, createdAt: Date.now() };
     await withTransaction(async client => {
       const res = await client.query<{value:Record<string,any>}>("select value from state_documents where key='admin' for update");
       const doc = res.rows[0]?.value; if (!doc) throw notFound("سند فروشگاه پیدا نشد.");
@@ -58,6 +86,27 @@ export async function adminLiveRoutes(app: FastifyInstance) {
       await recordAudit({actor:actor.subject,action:"campaign.created",targetType:"campaign",targetId:id,after:campaign,requestId:req.id},client);
     });
     return reply.code(201).send({ok:true,id});
+  });
+
+  // Restricted campaigns are drafts only; discarding one cannot affect an
+  // active promotion or historic order. Keep document and projection atomic.
+  app.post<{Params:{id:string}}>("/api/admin/marketing/campaigns/:id/discard",async req=>{
+    const actor=await requirePermission(req,"campaigns:edit");
+    return withTransaction(async client=>{
+      const row=(await client.query<{value:Record<string,any>}>("select value from state_documents where key='admin' for update")).rows[0];
+      const doc=row?.value;if(!doc || !Array.isArray(doc.campaigns))throw notFound("پیش‌نویس پیدا نشد.");
+      const index=doc.campaigns.findIndex((c:any)=>c?.id===req.params.id);
+      if(index<0)throw notFound("پیش‌نویس پیدا نشد.");
+      const draft=doc.campaigns[index];
+      if(!hasUnsupportedCampaignRestrictions(draft))throw conflict("فقط پیش‌نویس محدود غیرفعال قابل حذف است.","campaign_draft_not_discardable");
+      const projected=(await client.query<{active:boolean}>("select active from price_rules where id=$1 for update",[req.params.id])).rows[0];
+      if(projected?.active)throw conflict("قانون قیمت‌گذاری فعال است و باید ابتدا غیرفعال شود.","campaign_draft_not_discardable");
+      doc.campaigns.splice(index,1);
+      await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='admin'",[JSON.stringify(doc)]);
+      await client.query("delete from price_rules where id=$1 and active=false",[req.params.id]);
+      await recordAudit({actor:actor.subject,action:"campaign.draft_discarded",targetType:"campaign",targetId:req.params.id,before:draft,requestId:req.id},client);
+      return {ok:true};
+    });
   });
 
   app.post<{Body: Record<string, unknown>}>("/api/admin/marketing/coupons", async (req,reply) => {
