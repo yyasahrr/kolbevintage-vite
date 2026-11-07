@@ -986,17 +986,23 @@ test("older journal-free backups require explicit opt-in and restore only in an 
   const precision=`restore-precision-${randomUUID()}`;
   try {
     await query("insert into state_documents(key,value) values($1,$2::jsonb)",[precision,'{"amount":900719925474099312345,"fraction":123456789012345.678901}']);
-    const payload=await dumpAll();for (const row of payload.data.customers) delete (row as Record<string,unknown>).manual_labels;for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;for (const row of payload.data.payment_attempts) delete (row as Record<string,unknown>).quote_snapshot;for (const row of payload.data.checkout_sessions) delete (row as Record<string,unknown>).manual_quote_confirm_required;payload.tables=payload.tables.filter(t=>t!=="journal_articles");delete payload.data.journal_articles;
+    const payload=await dumpAll();for (const row of payload.data.customers) delete (row as Record<string,unknown>).manual_labels;for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;for (const row of payload.data.payment_attempts) delete (row as Record<string,unknown>).quote_snapshot;for (const row of payload.data.checkout_sessions) delete (row as Record<string,unknown>).manual_quote_confirm_required;payload.tables=payload.tables.filter(t=>t!=="journal_articles" && t!=="support_tickets");delete payload.data.journal_articles;delete payload.data.support_tickets;
     const file=path.join(dir,"before-journal.json");await fs.writeFile(file,stringify(payload)!);
     const badFile=path.join(dir,"missing-two.json");const other={...payload,tables:payload.tables.filter(t=>t!=="products"),data:{...payload.data}};delete other.data.products;await fs.writeFile(badFile,stringify(other)!);
     await admin.query(`create database "${name}"`);created=true;conn=new pg.Client({connectionString:target.toString()});await conn.connect();await conn.query(await fs.readFile("server/src/schema.sql","utf8"));
     await conn.query("insert into journal_articles(id,slug,title) values('sentinel','sentinel','should survive refused restore')");
+    await conn.query("insert into customers(email,name,password_hash) values('a@example.com','A','test')");
+    await conn.query("insert into support_tickets(id,customer_email,subject,create_key) values('sentinel','a@example.com','must survive','sentinel')");
     const env={...process.env,DATABASE_URL:target.toString(),LOG_LEVEL:"silent"};const script=["--import","tsx","scripts/restore-backup.mjs"];
     const noYes=spawnSync(process.execPath,[...script,file,"--allow-empty-journal"],{env,encoding:"utf8",timeout:30000});assert.equal(noYes.status,1);
     const noOptIn=spawnSync(process.execPath,[...script,file,"--yes"],{env,encoding:"utf8",timeout:30000});assert.equal(noOptIn.status,1);assert.match(noOptIn.stderr,/جدول‌های پشتیبان/);
-    const mismatch=spawnSync(process.execPath,[...script,badFile,"--yes","--allow-empty-journal"],{env,encoding:"utf8",timeout:30000});assert.equal(mismatch.status,1);assert.match(mismatch.stderr,/جدول‌های پشتیبان/);
+    const missingSupport=spawnSync(process.execPath,[...script,file,"--yes","--allow-empty-journal"],{env,encoding:"utf8",timeout:30000});assert.equal(missingSupport.status,1);
+    const missingJournal=spawnSync(process.execPath,[...script,file,"--yes","--allow-empty-support"],{env,encoding:"utf8",timeout:30000});assert.equal(missingJournal.status,1);
+    const mismatch=spawnSync(process.execPath,[...script,badFile,"--yes","--allow-empty-journal","--allow-empty-support"],{env,encoding:"utf8",timeout:30000});assert.equal(mismatch.status,1);assert.match(mismatch.stderr,/جدول‌های پشتیبان/);
     assert.equal((await conn.query("select count(*)::int n from journal_articles where id='sentinel'")).rows[0].n,1,"failed restores cannot touch target data");
-    const ok=spawnSync(process.execPath,[...script,file,"--yes","--allow-empty-journal"],{env,encoding:"utf8",timeout:30000});assert.equal(ok.status,0,ok.stderr);assert.match(ok.stderr,/ژورنال خالی/);
+    assert.equal((await conn.query("select count(*)::int n from support_tickets where id='sentinel'")).rows[0].n,1);
+    const ok=spawnSync(process.execPath,[...script,file,"--yes","--allow-empty-journal","--allow-empty-support"],{env,encoding:"utf8",timeout:30000});assert.equal(ok.status,0,ok.stderr);assert.match(ok.stderr,/ژورنال خالی/);
+    assert.equal((await conn.query("select count(*)::int n from support_tickets")).rows[0].n,0);
     assert.equal((await conn.query("select count(*)::int n from journal_articles")).rows[0].n,0);assert.equal((await conn.query("select count(*)::int n from products")).rows[0].n,payload.data.products.length);
     assert.equal((await conn.query("select count(*)::int n from customers where manual_labels is not null")).rows[0].n,0,"old backup customers restore without labels");
     assert.equal((await conn.query("select count(*)::int n from price_rules where free_shipping")).rows[0].n,0,"old campaigns restore without the new shipping benefit");
@@ -1227,4 +1233,21 @@ test('payment review list is restricted to staff with finance view permission', 
   assert.equal((await guest.get('/api/commerce/admin/payments?status=exception')).status,401);
   assert.equal((await nonfinance.get('/api/commerce/admin/payments?status=exception')).status,403);
   const list=await viewer.get('/api/commerce/admin/payments?status=exception');assert.equal(list.status,200);assert.ok(Array.isArray(list.body));
+});
+
+test('support admin permissions separate viewing from replying and closing', async () => {
+  const {admin,client:viewer}=await staffWith(['customers:view'],'support-view','support-viewer','support-view-password');
+  const {client:editor}=await staffWith(['customers:view','customers:edit'],'support-edit','support-editor','support-edit-password');
+  const {client:outsider}=await staffWith(['catalog:view'],'support-other','support-outsider','support-other-password');
+  const {randomUUID}=await import('node:crypto');const id=`tkt-${randomUUID()}`;
+  await query(`insert into customers(email,name,password_hash) select 'private@example.com','Private',password_hash from customers where email='ava@example.com' on conflict(email) do nothing`);
+  await query(`insert into support_tickets(id,customer_email,subject,messages,create_key) values($1,'private@example.com','secret',$2::jsonb,$3)`,[id,JSON.stringify([{id:'original-key-001',role:'customer',text:'private body',at:new Date().toISOString()}]),`key-${randomUUID()}`]);
+  try{
+    assert.equal((await outsider.get('/api/admin/support/tickets')).status,403);
+    assert.equal((await viewer.get(`/api/admin/support/tickets/${id}`)).body.ticket.messages[0].text,'private body');
+    assert.equal((await viewer.post(`/api/admin/support/tickets/${id}/messages`,{message:'reply',requestKey:'viewer-message-001'})).status,403);
+    assert.equal((await viewer.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedStatus:'open'})).status,403);
+    assert.equal((await editor.post(`/api/admin/support/tickets/${id}/messages`,{message:'reply',requestKey:'editor-message-001'})).status,200);
+    assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedStatus:'answered'})).status,200);
+  }finally{await query('delete from support_tickets where id=$1',[id]);await query("delete from customers where email='private@example.com'");}
 });

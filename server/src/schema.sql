@@ -590,3 +590,18 @@ create table if not exists journal_articles (
   updated_at timestamptz not null default now()
 );
 create index if not exists journal_articles_public_idx on journal_articles(status,published_at desc);
+
+-- In-app support conversations; no message text is copied into audit logs.
+create table if not exists support_tickets (
+  id text primary key,
+  customer_email text not null references customers(email) on update restrict on delete restrict,
+  subject text not null,
+  status text not null default 'open' check (status in ('open','answered','closed')),
+  messages jsonb not null default '[]'::jsonb,
+  create_key text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (customer_email, create_key)
+);
+create index if not exists support_tickets_customer_idx on support_tickets(customer_email,created_at desc,id desc);
+create index if not exists support_tickets_created_idx on support_tickets(created_at desc,id desc);

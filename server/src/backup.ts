@@ -183,7 +183,7 @@ export async function readBackup(id: string): Promise<{ meta: BackupRow; buffer:
  */
 export async function restoreBackup(
   file: string,
-  options: { client?: pg.PoolClient; allowEmptyJournalFromOlderBackup?: boolean } = {},
+  options: { client?: pg.PoolClient; allowEmptyJournalFromOlderBackup?: boolean; allowEmptySupportFromOlderBackup?: boolean } = {},
 ): Promise<{ tables: number; rows: number }> {
   const raw = await fsp.readFile(file);
   const buffer = file.endsWith(".gz") ? gunzipSync(raw) : raw;
@@ -199,14 +199,14 @@ export async function restoreBackup(
     const backupTables = payload.tables.filter(t => t !== "sessions");
     const expected = new Set(existing), supplied = new Set(backupTables);
     const missing = existing.filter(t => !supplied.has(t));
-    // This opt-in is deliberately specific: an older backup had no journal
-    // table at all. Restore still replaces every target table and empties the
-    // journal; it must never silently accept any other schema mismatch.
-    const allowedMissingJournal = options.allowEmptyJournalFromOlderBackup === true &&
-      missing.length === 1 && missing[0] === "journal_articles" &&
-      !Object.prototype.hasOwnProperty.call(payload.data, "journal_articles");
+    // Missing tables require their own explicit opt-in; full restore still
+    // truncates those tables. Unknown schema mismatches never pass silently.
+    const explicitlyAllowed = new Set<string>();
+    if(options.allowEmptyJournalFromOlderBackup) explicitlyAllowed.add("journal_articles");
+    if(options.allowEmptySupportFromOlderBackup) explicitlyAllowed.add("support_tickets");
+    const allowedMissing = missing.every(name=>explicitlyAllowed.has(name) && !Object.prototype.hasOwnProperty.call(payload.data,name));
     if (supplied.size !== backupTables.length || backupTables.some(t => typeof t !== "string" || !expected.has(t)) ||
-        (missing.length !== 0 && !allowedMissingJournal) || payload.tables.some(t => !Array.isArray(payload.data[t]))) {
+        (missing.length !== 0 && !allowedMissing) || payload.tables.some(t => !Array.isArray(payload.data[t]))) {
       throw new Error("جدول‌های پشتیبان با نسخهٔ پایگاه داده مطابقت ندارند.");
     }
     const ident = (name:string) => `"${name.replace(/"/g, '""')}"`;

@@ -1,3 +1,4 @@
+import { supportRoutes } from "./routes/support";
 import { customerLabelRoutes } from "./routes/customer-labels";
 import { journalRoutes } from "./routes/journal";
 import { stylePackRoutes } from "./routes/style-packs";
@@ -138,6 +139,7 @@ export async function buildServer() {
   await app.register(galleryRoutes);
   await app.register(adminLiveRoutes);
   await app.register(customerLabelRoutes);
+  await app.register(supportRoutes);
   await app.register(stylePackRoutes);
   await app.register(journalRoutes);
 

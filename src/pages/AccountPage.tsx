@@ -1,3 +1,4 @@
+import { SupportTickets } from "@/components/account/SupportTickets";
 import { useEffect, useRef, useState } from "react";
 import { formatJalali } from "@/utils/date";
 import { Link, useNavigate } from "react-router-dom";
@@ -193,7 +194,7 @@ function AccountContent() {
 
           {tab === "returns" && <Returns email={acc.email} orderState={orderState} />}
 
-          {tab === "tickets" && <Unavailable title="تیکت‌ها" message="ثبت و پیگیری تیکت تا اتصال سامانه پشتیبانی غیرفعال است؛ پیامی از این بخش ارسال نمی‌شود." />}
+          {tab === "tickets" && <SupportTickets />}
 
           {tab === "size" && <SizeTab />}
 

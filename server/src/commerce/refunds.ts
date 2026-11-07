@@ -1,4 +1,3 @@
-import { requirePurchaseAccess } from "./early-access";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { config } from "../config";
@@ -91,24 +90,16 @@ export async function requestRefund(input: {
   // Use the immutable line snapshot; the amount is allocated under the line
   // lock below so multiple partial requests cannot exceed the amount paid.
   const kind = input.kind ?? "refund";
-  let targetPrice = 0;
-  if (kind === "exchange") {
-    if (!input.targetVariantId) {
-      throw new CommerceError("برای تعویض، واریانت مقصد لازم است.", 400, "exchange_target_required");
-    }
-    const target = await query<{ id: string; price: string | null }>(
-      "select v.id, p.price from product_variants v join products p on p.id = v.product_id where v.id = $1",
-      [input.targetVariantId],
-    );
-    if (!target.rows[0]) throw notFound("واریانت مقصد پیدا نشد.");
-    targetPrice = Number(target.rows[0].price ?? 0);
-  }
+  // The former exchange path marked mock differences and refunds as paid
+  // without allocating or dispatching replacement goods. Do not create new
+  // exchange requests until the complete workflow and provider are verified.
+  if (kind === "exchange") throw new CommerceError("تعویض کالا تا تکمیل کنترل موجودی، ارسال و پرداخت اختلاف در دسترس نیست؛ برای مرجوعی یا راهنمایی با فروشگاه تماس بگیرید.",503,"exchange_unavailable");
+  if (input.targetVariantId) throw new CommerceError("کالای مقصد فقط برای درخواست تعویض است.",422,"invalid_return_request");
   const id = `rfd_${randomUUID()}`;
   // Serialize requests for the same order line. Every open request reserves
   // quantity until rejected or settled; settled units are already reflected in
   // refunded_quantity and must not be counted twice.
   return withTransaction(async (client) => {
-    if (kind === "exchange" && input.targetVariantId) await requirePurchaseAccess(client,[input.targetVariantId],order.email);
     const locked = await client.query<{ quantity: number; refunded_quantity: number; line_total: string }>(
       "select quantity, refunded_quantity, line_total from order_lines where id = $1 for update", [line.id],
     );
@@ -127,7 +118,7 @@ export async function requestRefund(input: {
     const availableCents=Math.max(0,lineCents-Math.round(Number(pending.rows[0].amount)*100));
     const amountCents=quantity===remaining ? availableCents : Math.min(availableCents,Math.round(lineCents*quantity/current.quantity));
     const amount=amountCents/100;
-    const differenceAmount=kind === "exchange" ? Math.round((targetPrice*quantity-amount)*100)/100 : 0;
+    const differenceAmount=0;
     await client.query(
       `insert into refunds (id, order_id, order_line_id, quantity, amount, reason, status, requested_by, note,
                             kind, target_variant_id, difference_amount)
@@ -135,19 +126,10 @@ export async function requestRefund(input: {
       [id, input.orderId, line.id, quantity, amount, input.reason ?? null, input.actor,
         input.reason ?? null, kind, input.targetVariantId ?? null, differenceAmount],
     );
-    let exchangeToken: string | null = null;
-    if (kind === "exchange" && differenceAmount > 0) {
-      exchangeToken = `exc_${randomUUID()}`;
-      await client.query(
-        `insert into exchange_payments (id, refund_id, amount, token, status, expires_at)
-         values ($1, $2, $3, $4, 'unpaid', now() + interval '48 hours')`,
-        [`exp_${randomUUID()}`, id, differenceAmount, exchangeToken],
-      );
-    }
     const result = await client.query<RefundRow>("select * from refunds where id = $1", [id]);
     await recordAudit({ actor: input.actor, action: "refund.requested", targetType: "refund", targetId: id,
       after: { orderId: input.orderId, orderLineId: line.id, quantity, kind, amount }, reason: input.reason }, client);
-    return { ...publicRefund(result.rows[0]), exchangeToken };
+    return { ...publicRefund(result.rows[0]), exchangeToken:null };
   });
 }
 
@@ -325,37 +307,9 @@ export async function qcReturn(input: {
 }
 
 /** the customer pays the difference of a dearer exchange */
-export async function payExchangeDifference(input: { token: string; actor: string }) {
-  return withTransaction(async (client) => {
-    const res = await client.query<{ id: string; refund_id: string; amount: string; status: string; expires_at: Date | null }>(
-      "select * from exchange_payments where token = $1 for update",
-      [input.token],
-    );
-    const payment = res.rows[0];
-    if (!payment) throw notFound("لینک پرداخت اختلاف پیدا نشد.");
-    if (payment.status === "paid") return { ok: true, status: "paid", amount: Number(payment.amount) };
-    const target=(await client.query<{target_variant_id:string|null;email:string|null}>(`select r.target_variant_id,o.email from refunds r join orders o on o.id=r.order_id where r.id=$1`,[payment.refund_id])).rows[0];
-    if (target?.target_variant_id) await requirePurchaseAccess(client,[target.target_variant_id],target.email);
-    if (payment.expires_at && new Date(payment.expires_at) <= new Date()) {
-      throw new CommerceError("مهلت پرداخت اختلاف تمام شده است.", 409, "exchange_link_expired");
-    }
-    await client.query(
-      "update exchange_payments set status = 'paid', paid_at = now(), provider_ref = $2 where id = $1",
-      [payment.id, `mockdiff_${payment.id}`],
-    );
-    await recordAudit(
-      {
-        actor: input.actor,
-        action: "exchange.difference_paid",
-        targetType: "exchange_payment",
-        targetId: payment.id,
-        before: { status: payment.status },
-        after: { status: "paid", amount: Number(payment.amount) },
-      },
-      client,
-    );
-    return { ok: true, status: "paid", amount: Number(payment.amount) };
-  });
+export async function payExchangeDifference(_input: { token: string; actor: string }) {
+  // Covers old links, including ones already marked paid by the old mock.
+  throw new CommerceError("پرداخت اختلاف تعویض تا اتصال فرآیند معتبر غیرفعال است.",503,"exchange_unavailable");
 }
 
 /**
@@ -380,6 +334,7 @@ export async function settleRefund(input: { refundId: string; actor: string; not
 
   return withTransaction(async (client) => {
     const refund = await loadRefund(client, input.refundId);
+    if (refund.kind === "exchange") throw new CommerceError("تسویهٔ تعویض تا تکمیل فرآیند موجودی و ارسال غیرفعال است؛ درخواست قدیمی نیازمند بررسی دستی است.",503,"exchange_unavailable");
     if (refund.status === "settled" || refund.status === "manual_review") {
       return { ok: true, refund: publicRefund(refund), unchanged: true };
     }
@@ -387,10 +342,6 @@ export async function settleRefund(input: { refundId: string; actor: string; not
       throw new CommerceError("این درخواست برای تسویه آماده نیست.", 409, "refund_not_ready");
     }
     const needsGoods = refund.kind !== "refund";
-    if (refund.kind === "exchange" && refund.target_variant_id) {
-      const customer=(await client.query<{email:string|null}>("select email from orders where id=$1",[refund.order_id])).rows[0];
-      await requirePurchaseAccess(client,[refund.target_variant_id],customer?.email);
-    }
     if (needsGoods && !refund.qc_result) {
       throw new CommerceError(
         "تا وقتی کالا دریافت و QC نشده، پول یا موجودی جابه‌جا نمی‌شود.",
@@ -398,15 +349,6 @@ export async function settleRefund(input: { refundId: string; actor: string; not
         "qc_required",
       );
     }
-    if (needsGoods && refund.kind === "exchange" && Number(refund.difference_amount) > 0) {
-      const paid = await client.query("select 1 from exchange_payments where refund_id = $1 and status = 'paid'", [
-        refund.id,
-      ]);
-      if (!paid.rowCount) {
-        throw new CommerceError("اختلاف قیمت تعویض پرداخت نشده است.", 409, "exchange_difference_unpaid");
-      }
-    }
-
     const lineRes = await client.query<{
       id: string;
       order_id: string;
@@ -491,17 +433,6 @@ export async function settleRefund(input: { refundId: string; actor: string; not
       });
     }
 
-    /* a cheaper exchange leaves a credit in the wallet */
-    let exchangeCredit = 0;
-    if (refund.kind === "exchange" && Number(refund.difference_amount) < 0 && walletEmail) {
-      exchangeCredit = await creditWalletForRefund(client, {
-        email: walletEmail,
-        orderId: refund.order_id,
-        refundId: `${refund.id}:diff`,
-        amount: Math.abs(Number(refund.difference_amount)),
-      });
-    }
-
     const settled = await client.query<RefundRow>(
       `update refunds set status = 'settled', approved_by = $2, decided_at = now(), provider_ref = $3,
               note = coalesce($4, note)
@@ -521,7 +452,6 @@ export async function settleRefund(input: { refundId: string; actor: string; not
           provider: providerId,
           providerRef,
           walletRefunded,
-          exchangeCredit,
           cashbackReversed: clawedBack,
         },
       },

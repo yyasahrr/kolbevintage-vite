@@ -204,6 +204,12 @@ const NAV_GROUPS: NavGroup[] = [
         module: "crm",
         icon: Users,
       },
+      {
+        label: "پشتیبانی مشتریان",
+        href: "/crm/support",
+        module: "crm",
+        icon: MessageSquareMore,
+      },
     ],
   },
   {
@@ -308,6 +314,7 @@ const ROUTES: Record<string,{ section:string; permission:string; extra?:string; 
   "/returns": {section:"returns",permission:"orders:view"},
   "/marketing/campaigns": {section:"marketing",permission:"campaigns:view",partial:true},
   "/crm/customers": {section:"customers",permission:"customers:view",partial:true},
+  "/crm/support": {section:"support",permission:"customers:view"},
   "/content/blog": {section:"journal",permission:"content:view",partial:true},
   "/content/gallery": {section:"gallery",permission:"content:view",partial:true},
   "/appearance/studio": {section:"brand",permission:"design:view",partial:true},

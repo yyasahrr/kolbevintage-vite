@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
+import { SupportTickets } from "@/components/admin/SupportTickets";
 import { LivePrintCenter } from "@/components/admin/LivePrintCenter";
 import { LiveJournal } from "@/components/admin/LiveJournal";
 import { LiveSizeSets, type SizeSet } from "@/components/admin/LiveSizeSets";
@@ -18,7 +19,7 @@ import { ProductCreate } from "@/components/admin/ProductCreate";
 import { ReturnsModule } from "@/components/admin/ReturnsModule";
 import { GalleryModule, CustomersModule, ManualOrder, Fulfillment, StaffModule, AuditModule, ProductEditor, type Product, type Order, type Stock } from "@/components/admin/LiveModules";
 
-type Section = "sizeSets" | "print" | "journal" | "dashboard" | "categories" | "products" | "inventory" | "inventoryLabels" | "inventoryActivity" | "orders" | "manual" | "fulfillment" | "gallery" | "customers" | "staff" | "audit" | "returns" | "marketing" | "brand" | "stylePacks" | "settings" | "finance" | "analytics";
+type Section = "support" | "sizeSets" | "print" | "journal" | "dashboard" | "categories" | "products" | "inventory" | "inventoryLabels" | "inventoryActivity" | "orders" | "manual" | "fulfillment" | "gallery" | "customers" | "staff" | "audit" | "returns" | "marketing" | "brand" | "stylePacks" | "settings" | "finance" | "analytics";
 type Identity = { authenticated: boolean; subject: string | null; staff?: { name: string; roleName: string } | null; permissions: string[]; openAccess: boolean };
 type InventoryStock = Stock & { stockVersion:string; productId:string; reserved: number; quarantined: number; lowStock: boolean; outOfStock: boolean };
 
@@ -155,6 +156,7 @@ export default function DashboardPage() {
         {section === "finance" && <FinanceModule api={liveApi} can={can}/>}
         {section === "analytics" && <AnalyticsModule api={liveApi} can={can}/>}
         {section === "customers" && <CustomersModule api={liveApi} can={can}/>}
+        {section === "support" && <SupportTickets api={liveApi} can={can}/>}
         {section === "print" && <LivePrintCenter orders={orders} api={liveApi}/>}
         {section === "journal" && <LiveJournal api={liveApi} can={can}/>}
         {section === "gallery" && <GalleryModule api={liveApi} can={can}/>}

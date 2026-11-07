@@ -1438,46 +1438,26 @@ test("a saleable return goes back to stock only after QC", async () => {
   assert.equal((await stockOf(SKU)).onHand, 3, "a clean unit returns to saleable stock");
 });
 
-test("a dearer exchange waits for its price difference", async () => {
-  const CHEAP = "P-HEAVY-TEE-CHARCOAL-S";
-  const DEAR = "P-GRAND-TRENCH-CAMEL-L";
-  const variantId = await setStock(CHEAP, 3);
-  const targetId = await setStock(DEAR, 3);
-  const client = await customerClient();
-  await query("delete from price_rules");
-  const { settled } = await payAndSettle(client, [{ variantId, quantity: 1 }]);
-
-  const order = await client.get(`/api/commerce/orders/${settled.orderId}`);
-  const requested = await client.post(`/api/commerce/orders/${settled.orderId}/returns`, {
-    lineId: order.body.lines[0].id,
-    quantity: 1,
-    kind: "exchange",
-    targetVariantId: targetId,
-    reason: "تعویض با مدل گران‌تر",
-  });
-  assert.equal(requested.status, 201, JSON.stringify(requested.body));
-  assert.equal(requested.body.refund.kind, "exchange");
-  assert.equal(requested.body.refund.status, "requested", "the request keeps its place in the queue");
-  assert.ok(requested.body.refund.exchangeToken, "the customer gets exactly one difference link");
-  assert.ok(requested.body.refund.differenceAmount > 0);
-
-  const refundId = requested.body.refund.id;
-  const superAdmin = await superAdminClient();
-  await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
-  await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" });
-  await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/receive`, {});
-  await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/qc`, { result: "saleable" });
-
-  const unpaid = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
-  assert.equal(unpaid.status, 409, JSON.stringify(unpaid.body));
-  assert.equal(unpaid.body.code, "exchange_difference_unpaid");
-
-  const paid = await client.post(`/api/commerce/exchange/${requested.body.refund.exchangeToken}/pay`, {});
-  assert.equal(paid.status, 200, JSON.stringify(paid.body));
-
-  const settledExchange = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
-  assert.equal(settledExchange.status, 200, JSON.stringify(settledExchange.body));
-  assert.equal(settledExchange.body.refund.status, "settled");
+test("exchange requests and old payment links fail closed until replacement fulfillment is implemented", async () => {
+  const variantId=await setStock(SKU,3),targetId=await setStock(SKU2,3),buyer=await customerClient();
+  const {settled}=await payAndSettle(buyer,[{variantId,quantity:1}]);const order=await buyer.get(`/api/commerce/orders/${settled.orderId}`);
+  const result=await buyer.post(`/api/commerce/orders/${settled.orderId}/returns`,{lineId:order.body.lines[0].id,quantity:1,kind:"exchange",targetVariantId:targetId});
+  assert.equal(result.status,503);assert.equal(result.body.code,'exchange_unavailable');
+  assert.equal(Number((await query('select count(*)::int n from refunds where order_id=$1',[settled.orderId])).rows[0].n),0);
+  const beforeStock=[await stockOf(SKU),await stockOf(SKU2)];
+  const beforeLine=(await query('select refunded_quantity from order_lines where id=$1',[order.body.lines[0].id])).rows[0].refunded_quantity;
+  const refundId=`rfd_${randomUUID()}`,token=`exc_${randomUUID()}`;
+  await query(`insert into refunds(id,order_id,order_line_id,quantity,amount,kind,target_variant_id,status,qc_result,difference_amount)
+    values($1,$2,$3,1,1,'exchange',$4,'qc_passed','saleable',1)`,[refundId,settled.orderId,order.body.lines[0].id,targetId]);
+  await query("insert into exchange_payments(id,refund_id,amount,token,status,expires_at) values($1,$2,1,$3,'unpaid',now()+interval '1 day')",[`exp_${randomUUID()}`,refundId,token]);
+  const payment=await buyer.post(`/api/commerce/exchange/${token}/pay`,{});assert.equal(payment.status,503);assert.equal(payment.body.code,'exchange_unavailable');
+  assert.equal((await query('select status from exchange_payments where token=$1',[token])).rows[0].status,'unpaid');
+  const admin=await superAdminClient();await admin.put('/api/commerce/admin/settings',{liveRefundsEnabled:true});
+  const action=await admin.post(`/api/commerce/admin/refunds/${refundId}/settle`,{});assert.equal(action.status,503);assert.equal(action.body.code,'exchange_unavailable');
+  assert.equal((await query('select status from refunds where id=$1',[refundId])).rows[0].status,'qc_passed');
+  assert.deepEqual([await stockOf(SKU),await stockOf(SKU2)],beforeStock);
+  assert.equal((await query('select refunded_quantity from order_lines where id=$1',[order.body.lines[0].id])).rows[0].refunded_quantity,beforeLine);
+  assert.equal((await query("select count(*)::int n from cashback_ledger where ref_id=$1 or ref_id=$2",[refundId,`${refundId}:diff`])).rows[0].n,0);
 });
 
 test("an installment refund the provider cannot reverse is parked for a human", async () => {
@@ -2829,7 +2809,7 @@ test('initiated early payment remains payable after eligibility changes, while e
     assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200);
     const completed=await ava.post(`/api/commerce/payments/${attempt.body.attempt.id}/simulate`,{result:'success'});assert.equal(completed.body.orderStatus,'paid');
     const exchange=await ava.post(`/api/commerce/orders/${original.settled.orderId}/returns`,{lineId:originalOrder.body.lines[0].id,quantity:1,kind:'exchange',targetVariantId:target});
-    assert.equal(exchange.status,409,JSON.stringify(exchange.body));assert.equal(exchange.body.code,'early_purchase_restricted');
+    assert.equal(exchange.status,503,JSON.stringify(exchange.body));assert.equal(exchange.body.code,'exchange_unavailable');
   } finally {await fx.cleanup()}
 });
 
@@ -2885,24 +2865,35 @@ test('early-purchase eligibility uses one snapshot during concurrent membership 
   } finally {await fx.cleanup()}
 });
 
-test('exchange payment and final settlement recheck revoked early-purchase eligibility', async () => {
-  const fx=await audienceFixture();
-  try {
-    const variant=await setStock(SKU,6),target=await setStock(SKU2,6),ava=await customerClient();
-    const original=await payAndSettle(ava,[{variantId:variant,quantity:1}]);const order=await ava.get(`/api/commerce/orders/${original.settled.orderId}`);
-    await purchaseEarlyCampaign(fx);
-    const exchange=await ava.post(`/api/commerce/orders/${original.settled.orderId}/returns`,{lineId:order.body.lines[0].id,quantity:1,kind:'exchange',targetVariantId:target});assert.equal(exchange.status,201,JSON.stringify(exchange.body));
-    const refundId=exchange.body.refund.id,token=`exc_test_${randomUUID()}`;
-    // The chosen seeded variants may have equal prices; supply an unpaid
-    // difference to exercise the payment endpoint independently of price.
-    await query("insert into exchange_payments(id,refund_id,amount,token,status,expires_at) values($1,$2,1,$3,'unpaid',now()+interval '1 day')",[`exp_${randomUUID()}`,refundId,token]);
-    assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200);
-    const blocked=await ava.post(`/api/commerce/exchange/${token}/pay`,{});assert.equal(blocked.status,409,JSON.stringify(blocked.body));assert.equal(blocked.body.code,'early_purchase_restricted');
-    assert.equal((await query('select status from exchange_payments where token=$1',[token])).rows[0].status,'unpaid');
-    const superAdmin=await superAdminClient();await superAdmin.put('/api/commerce/admin/settings',{liveRefundsEnabled:true});
-    assert.equal((await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`,{decision:'approve'})).status,200);
-    assert.equal((await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/receive`,{})).status,200);
-    assert.equal((await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/qc`,{result:'saleable'})).status,200);
-    const settlement=await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`,{});assert.equal(settlement.status,409,JSON.stringify(settlement.body));assert.equal(settlement.body.code,'early_purchase_restricted');
-  } finally {await fx.cleanup()}
+
+test('support tickets enforce ownership, idempotent replies, closed state and audit privacy', async () => {
+  await query("delete from support_tickets where customer_email in ('ava@example.com','support-other@example.com')");
+  await query(`insert into customers(email,name,password_hash) select 'support-other@example.com','Other',password_hash from customers where email='ava@example.com' on conflict(email) do update set password_hash=excluded.password_hash`);
+  const customer=await customerClient(),other=makeClient(),guest=makeClient(),admin=await adminClient();
+  assert.equal((await other.post('/api/auth/login',{email:'support-other@example.com',password:'demo1234'})).status,200);
+  assert.equal((await guest.get('/api/support/tickets')).status,401);
+  const body={subject:'موضوع محرمانه',message:'متن خصوصی <script>alert(1)</script>',requestKey:'support-create-key-001'};
+  const created=await customer.post('/api/support/tickets',body);assert.equal(created.status,201,JSON.stringify(created.body));const id=created.body.ticket.id;
+  assert.equal((await customer.post('/api/support/tickets',body)).body.ticket.id,id);
+  assert.equal((await customer.post('/api/support/tickets',{...body,message:'دیگر'})).status,409);
+  assert.equal((await other.get('/api/support/tickets')).body.tickets.length,0);
+  assert.equal((await other.get(`/api/support/tickets/${id}`)).status,404);
+  assert.equal((await other.post(`/api/support/tickets/${id}/messages`,{message:'test',requestKey:'other-message-key-001'})).status,404);
+  const reply={message:'پیام دوم محرمانه',requestKey:'support-reply-key-001'};
+  const [a,b]=await Promise.all([customer.post(`/api/support/tickets/${id}/messages`,reply),customer.post(`/api/support/tickets/${id}/messages`,reply)]);
+  assert.equal(a.status,200,JSON.stringify(a.body));assert.equal(b.status,200,JSON.stringify(b.body));
+  assert.equal((await customer.get(`/api/support/tickets/${id}`)).body.ticket.messages.length,2);
+  const staff=await admin.post(`/api/admin/support/tickets/${id}/messages`,{message:'پاسخ',requestKey:'staff-reply-key-001'});assert.equal(staff.status,200,JSON.stringify(staff.body));assert.equal(staff.body.ticket.status,'answered');
+  const closed=await admin.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedStatus:'answered'});assert.equal(closed.status,200,JSON.stringify(closed.body));
+  assert.equal((await customer.post(`/api/support/tickets/${id}/messages`,{message:'بعد از بسته شدن',requestKey:'support-reply-key-002'})).status,409);
+  assert.equal((await customer.post(`/api/support/tickets/${id}/messages`,reply)).body.reused,true,'retry remains idempotent even after close');
+  assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'open',expectedStatus:'answered'})).status,409);
+  assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'open',expectedStatus:'closed'})).status,200);
+  const audit=await query("select before,after from audit_events where target_type='support_ticket' and target_id=$1",[id]);
+  assert.ok(audit.rows.length>=4);assert.doesNotMatch(JSON.stringify(audit.rows),/محرمانه|script|پاسخ/);
+  assert.equal((await customer.post('/api/support/tickets',{...body,requestKey:'support-new-key-002',message:'x'.repeat(4001)})).status,422);
+  await query(`insert into support_tickets(id,customer_email,subject,messages,create_key,created_at) select 'tkt-'||gen_random_uuid(),'ava@example.com','bulk','[]'::jsonb,'bulk-'||g,now()-g*interval '1 second' from generate_series(1,102) g`);
+  const page1=await customer.get('/api/support/tickets');assert.equal(page1.body.tickets.length,100);assert.ok(page1.body.nextCursor);
+  const page2=await customer.get(`/api/support/tickets?before=${page1.body.nextCursor}`);assert.equal(page2.body.tickets.length,3);assert.equal(page2.body.nextCursor,null);
+  assert.equal(new Set([...page1.body.tickets,...page2.body.tickets].map((t:any)=>t.id)).size,103);
 });

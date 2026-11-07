@@ -72,8 +72,37 @@ try {
     assert.deepEqual(violations,[],`${tab} serious/critical axe violations`);
   }
   await page.locator('.acc-nav').getByRole('button',{name:'تیکت‌ها',exact:true}).click();
-  await page.getByText('ثبت و پیگیری تیکت تا اتصال سامانه پشتیبانی غیرفعال است؛ پیامی از این بخش ارسال نمی‌شود.').waitFor();
-  assert.equal(await page.locator('.acc-main form').count(),0);
+  const supportSubject=`پیگیری آزمون مرورگر ${Date.now()}`;
+  await page.getByLabel('موضوع درخواست').fill(supportSubject);
+  await page.getByLabel('پیام درخواست').fill('سلام، درخواست آزمایشی مشتری');
+  await page.getByRole('button',{name:'ثبت درخواست پشتیبانی'}).click();
+  await page.getByRole('status').filter({hasText:'درخواست ثبت شد'}).waitFor();
+  const admin=await browser.newPage({viewport:{width:390,height:900}});
+  await admin.goto(`${base}/panel`,{waitUntil:'networkidle'});
+  await admin.getByRole('button',{name:'باز کردن منوی ناوبری'}).click();
+  await admin.getByRole('button',{name:'بازاریابی و مشتریان',exact:true}).click();
+  await admin.getByRole('button',{name:'پشتیبانی مشتریان',exact:true}).click();
+  await admin.locator('article').filter({hasText:supportSubject}).getByRole('button',{name:'مشاهده گفتگو'}).click();
+  await admin.getByText('سلام، درخواست آزمایشی مشتری').waitFor();
+  await admin.getByLabel('پاسخ پشتیبانی').fill('پاسخ آزمایشی فروشگاه');
+  await admin.getByRole('button',{name:'ثبت پاسخ'}).click();
+  await admin.getByRole('status').filter({hasText:'پاسخ ثبت شد'}).waitFor();
+  await page.getByRole('button',{name:'تازه‌سازی گفتگو'}).click();
+  await page.getByText('پاسخ آزمایشی فروشگاه').waitFor();
+  await page.getByLabel('پاسخ شما').fill('دریافت شد، ممنون');
+  await page.getByRole('button',{name:'ارسال پاسخ'}).click();
+  await page.getByRole('status').filter({hasText:'پیام ثبت شد'}).waitFor();
+  await page.reload({waitUntil:'networkidle'});
+  await page.locator('.acc-nav').getByRole('button',{name:'تیکت‌ها',exact:true}).click();
+  await page.locator('.acc-orders li').filter({hasText:supportSubject}).getByRole('button',{name:'مشاهده گفتگو'}).click();
+  await page.getByText('دریافت شد، ممنون').waitFor();
+  for(const width of [320,390,768,1440]) {
+    await page.setViewportSize({width,height:900});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`support overflow at ${width}`);
+    await admin.setViewportSize({width,height:900});
+    assert.ok(await admin.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`admin support overflow at ${width}`);
+  }
+  await admin.close();
   await page.locator('.acc-nav').getByRole('button',{name:'پرو آنلاین',exact:true}).click();
   await page.getByText('خرید و ثبت درخواست پرو تا اتصال سرویس و پرداخت معتبر غیرفعال است. درخواست یا اعتباری در این بخش ثبت نمی‌شود.').waitFor();
   assert.equal(await page.locator('.acc-main form').count(),0);
@@ -85,7 +114,7 @@ try {
   assert.equal(await page.getByText('هنوز تراکنش کش‌بکی ثبت نشده است.').count(),0);
   await page.unroute('**/api/commerce/cashback');
   assert.deepEqual(errors,[],'browser exceptions');
-  console.log('Account smoke: real mock order, errors/retry, return submission, history after reload, quantity protection, 4 widths, axe and wallet failure passed.');
+  console.log('Account smoke: real mock order, errors/retry, return submission, history after reload, quantity protection, support customer/admin round-trip, 4 widths, axe and wallet failure passed.');
 } catch (err) {
   console.error('Account page text:', await page.locator('.acc-main').innerText().catch(()=>''));
   await page.screenshot({path:'/tmp/kv-account-smoke-failure.png',fullPage:true}).catch(()=>{});
