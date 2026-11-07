@@ -1562,14 +1562,14 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 5px;
+  gap: 3px;
+  padding: 4px;
   border: 1px solid rgba(22,19,15,.1);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fffdfa;
   font-family: inherit;
   cursor: pointer;
-  width: 82px;
+  width: 64px;
 }
 .sb-cat-tile.is-on { border-color: #16130f; box-shadow: inset 0 0 0 1px #16130f; }
 .sb-cat-thumb {
@@ -1729,7 +1729,7 @@ html[data-theme] button.sb-canvas-item:not(:disabled):is(:hover,:active) { box-s
 .sb-tray-search:focus-within { outline:2px solid #8c4a2f; outline-offset:2px; }
 .sb-tray-info { padding:8px 12px 0; }
 .sb-tray-groups { flex-wrap:nowrap; overflow-x:auto; padding-bottom:5px; scrollbar-width:thin; }
-.sb-tray-groups .sb-chip { flex:none; }
+.sb-tray-groups .sb-chip { flex:none; min-height:36px; padding:4px 8px; font-size:10px; }
 .sb-tray-filters { display:flex; flex-wrap:wrap; gap:5px; padding:6px 12px 0; }
 .sb-tray-filters .sb-chip { font-size:10px; padding:6px 8px; }
 .sb-tray-scroll { grid-template-columns:minmax(0,1fr) !important; gap:7px; padding:10px; }

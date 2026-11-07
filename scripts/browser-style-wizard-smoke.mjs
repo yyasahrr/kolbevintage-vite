@@ -23,6 +23,13 @@ try {
     assert.ok(await tray.getByText('قطعه‌ای با این فیلتر پیدا نشد.').isVisible());
     await tray.getByRole('button',{name:'پاک کردن فیلترها'}).click();
     assert.ok(await tray.locator('.sb-tray-card').count()>0);
+    const groups=tray.getByRole('group',{name:'دسته‌بندی محصولات'});
+    const groupButtons=groups.getByRole('button');
+    assert.ok(await groupButtons.count()>2);
+    await groupButtons.last().click();
+    assert.equal(await groupButtons.last().getAttribute('aria-pressed'),'true');
+    await groupButtons.first().click();
+    assert.equal(await groupButtons.first().getAttribute('aria-pressed'),'true');
     await tray.getByRole('button',{name:'فقط موجودها'}).click();
     assert.equal(await tray.getByRole('button',{name:'فقط موجودها'}).getAttribute('aria-pressed'),'true');
     await tray.getByRole('button',{name:'فقط موجودها'}).click();
