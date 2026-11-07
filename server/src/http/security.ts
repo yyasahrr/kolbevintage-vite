@@ -201,7 +201,12 @@ export function registerSecurity(app: FastifyInstance) {
     }
     reply.header("cross-origin-resource-policy", "same-site");
     const path = req.url.split("?")[0];
-    if (path.startsWith("/api/auth") || path.startsWith("/api/admin") || path.startsWith("/api/commerce/cashback")) {
+    // Panel HTML / RSC must not be cached by shared proxies: it carries the
+    // admin shell and references a particular Next build. A stale response can
+    // point at chunks removed by a later deployment. Hashed static assets keep
+    // Next's own caching policy.
+    const panelDocument = (path === "/panel" || path.startsWith("/panel/")) && !path.startsWith("/panel/_next/static/");
+    if (panelDocument || path.startsWith("/api/auth") || path.startsWith("/api/admin") || path.startsWith("/api/commerce/cashback")) {
       reply.header("cache-control", "no-store");
     }
 

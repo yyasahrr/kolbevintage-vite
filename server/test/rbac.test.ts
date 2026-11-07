@@ -1495,3 +1495,12 @@ test('color library is authenticated, audited, versioned and independent of prod
     await query("update state_documents set value=jsonb_set(value,'{colorLibrary}','{\"invalid\":true}'::jsonb) where key='ops'");assert.equal((await admin.get('/api/admin/color-library')).status,409);assert.equal((await admin.post('/api/admin/color-library',data)).status,409);assert.deepEqual((await query("select value->'colorLibrary' c from state_documents where key='ops'")).rows[0].c,{invalid:true});
   }finally{await query("update state_documents set value=$1 where key='ops'",[JSON.stringify(original)])}
 });
+
+test('panel proxy never shared-caches the shell or RSC but keeps hashed static asset caching', async () => {
+  const http=await import('node:http');const server=http.createServer((req,res)=>{res.setHeader('cache-control','s-maxage=31536000');res.setHeader('content-type',req.url?.startsWith('/panel/_next/static/')?'application/javascript':'text/html');res.end('test')});await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const addr=server.address();assert.ok(addr&&typeof addr==='object');
+  const prev=process.env.ADMIN_PANEL_UPSTREAM;process.env.ADMIN_PANEL_UPSTREAM=`http://127.0.0.1:${addr.port}`;let proxy:FastifyInstance|undefined;
+  try{proxy=await (await import('../src/index')).buildServer();await proxy.listen({port:0,host:'127.0.0.1'});const bound=proxy.server.address();assert.ok(bound&&typeof bound==='object');const url=`http://127.0.0.1:${bound.port}`;
+    for(const path of ['/panel','/panel/catalog/colors','/panel?_rsc=test']){const res=await fetch(url+path);assert.equal(res.status,200);assert.equal(res.headers.get('cache-control'),'no-store',path)}
+    const asset=await fetch(url+'/panel/_next/static/chunks/test.js');assert.equal(asset.status,200);assert.equal(asset.headers.get('cache-control'),'s-maxage=31536000');
+  }finally{if(proxy)await proxy.close();if(prev===undefined)delete process.env.ADMIN_PANEL_UPSTREAM;else process.env.ADMIN_PANEL_UPSTREAM=prev;await new Promise<void>((resolve,reject)=>server.close(err=>err?reject(err):resolve()))}
+});
