@@ -76,7 +76,7 @@ export function ProductMediaEditor({ images, colors, onChange, emptyHint, video,
       const urls: string[] = [];
       // uploads go to the backend (files on disk); falls back to a data URL offline
       for (const f of list) urls.push(await uploadImage(f));
-      const hasCover = images.some((i) => i.role !== "hover");
+      const hasCover = images.some((i) => i.role !== "hover" && i.role !== "cutout");
       const next: ProductImage[] = urls.map((url, i) => ({
         id: `img-${uid()}`,
         url,

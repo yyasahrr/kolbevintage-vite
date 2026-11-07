@@ -3,6 +3,7 @@
  * PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium node scripts/browser-product-images-smoke.mjs */
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright-core';
+import sharp from 'sharp';
 const base=process.env.BROWSER_TEST_BASE;
 if(process.env.PRODUCT_IMAGES_SMOKE_ALLOW_MUTATIONS!=='1'||!base||!['localhost','127.0.0.1','::1'].includes(new URL(base).hostname))throw new Error('Requires opt-in and a disposable local database.');
 if(!process.env.PLAYWRIGHT_CHROMIUM_PATH)throw new Error('PLAYWRIGHT_CHROMIUM_PATH is required.');
@@ -18,7 +19,11 @@ try {
   await staleImages.getByLabel('یا نشانی HTTPS تصویر جدید').fill('https://example.com/stale.jpg');await staleImages.getByRole('button',{name:'افزودن تصویر'}).click();await staleImages.getByRole('alert').getByText(/تصاویر هم‌زمان تغییر کرده‌اند/).waitFor();
   const list=await p.evaluate(async id=>(await (await fetch(`/api/products/${encodeURIComponent(id)}`)).json()).images,id);
   assert.equal(list.length,2);assert.equal(list[0].url,'https://example.com/two.jpg');assert.equal(list[0].role,'main');assert.equal(list[0].colorId,'c1');assert.equal(list[1].role,'gallery');
+  // The board cutout is an explicitly uploaded, alpha-bearing product asset.
+  const transparent=await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="100"><rect x="20" y="15" width="40" height="70" fill="#224422"/></svg>')).png().toBuffer();
+  await images.getByLabel('نقش تصویر جدید').selectOption('cutout');await images.getByLabel('فایل تصویر جدید').setInputFiles({name:'cutout.png',mimeType:'image/png',buffer:transparent});await images.getByRole('button',{name:'افزودن تصویر'}).click();await images.getByLabel('نقش تصویر 3').waitFor();assert.equal(await images.getByLabel('نقش تصویر 3').inputValue(),'cutout');
+  const updated=await p.evaluate(async id=>(await (await fetch(`/api/products/${encodeURIComponent(id)}`)).json()).images,id);const cutout=updated.find(i=>i.role==='cutout');assert.ok(cutout?.url.startsWith('/uploads/'));const response=await ctx.request.get(`${base}${cutout.url}`);const alpha=(await sharp(await response.body()).stats()).channels[3];assert.equal(alpha.min,0);assert.ok(alpha.max>0);
   for(const width of [320,390,768,1440]){await p.setViewportSize({width,height:900});assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`overflow ${width}`);assert.ok(await p.getByRole('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth),`dialog overflow ${width}`)}
   await p.setViewportSize({width:390,height:900});await p.addScriptTag({path:'node_modules/axe-core/axe.min.js'});const violations=await p.evaluate(()=>window.axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}).then(r=>r.violations.filter(v=>v.impact==='serious'||v.impact==='critical').map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}))));assert.deepEqual(violations,[]);assert.deepEqual(errors,[]);
-  console.log('Product images: add, edit, order, stale conflict, four widths and axe passed.');
+  console.log('Product images: add, edit, order, transparent canvas upload, stale conflict, four widths and axe passed.');
 }finally{await browser.close()}

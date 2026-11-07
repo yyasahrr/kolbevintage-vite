@@ -37,7 +37,7 @@ function validProduct(value: unknown): value is LiveProduct {
     Array.isArray(p.sizes) && p.sizes.length > 0 && p.sizes.every(z => z && text(z.id) && text(z.label)) &&
     !!p.stock && typeof p.stock === "object" && !Array.isArray(p.stock) &&
     Object.values(p.stock).every(v => typeof v === "number" && Number.isFinite(v) && v >= 0) &&
-    Array.isArray(p.images) && p.images.every(i => i && text(i.id) && text(i.url) && text(i.colorId) && ["main","gallery","detail","hover"].includes(i.role)) &&
+    Array.isArray(p.images) && p.images.every(i => i && text(i.id) && text(i.url) && text(i.colorId) && ["main","gallery","detail","hover","cutout"].includes(i.role)) &&
     Array.isArray(p.complements) && p.complements.every(text) &&
     (p.crop === null || (!!p.crop && Number.isFinite(p.crop.cx) && Number.isFinite(p.crop.cy) && Number.isFinite(p.crop.zoom) && p.crop.zoom > 0));
 }

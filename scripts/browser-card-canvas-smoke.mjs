@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright-core";
 import pg from "pg";
+import sharp from "sharp";
 const base = process.env.BROWSER_TEST_BASE,
   dbUrl = process.env.BROWSER_TEST_DATABASE_URL;
 if (
@@ -62,6 +63,121 @@ try {
     );
     assert.equal(r.status(), 200, await r.text());
   }
+  const opaque = await sharp({
+    create: { width: 40, height: 50, channels: 3, background: "#336644" },
+  })
+    .jpeg()
+    .toBuffer();
+  const rejected = await context.request.post(
+    `${base}/api/admin/products/${id}/images`,
+    {
+      headers,
+      data: {
+        action: "add",
+        imageData: `data:image/jpeg;base64,${opaque.toString("base64")}`,
+        role: "cutout",
+        colorId: "*",
+      },
+    },
+  );
+  assert.equal(
+    rejected.status(),
+    422,
+    "opaque photo must not be mislabeled as transparent",
+  );
+  const blank = await sharp({
+    create: {
+      width: 40,
+      height: 50,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .png()
+    .toBuffer();
+  const rejectedBlank = await context.request.post(
+    `${base}/api/admin/products/${id}/images`,
+    {
+      headers,
+      data: {
+        action: "add",
+        imageData: `data:image/png;base64,${blank.toString("base64")}`,
+        role: "cutout",
+        colorId: "*",
+      },
+    },
+  );
+  assert.equal(
+    rejectedBlank.status(),
+    422,
+    "entirely transparent file must be rejected",
+  );
+  const rejectedUrl = await context.request.post(
+    `${base}/api/admin/products/${id}/images`,
+    {
+      headers,
+      data: {
+        action: "add",
+        url: "https://example.com/cutout.png",
+        role: "cutout",
+        colorId: "*",
+      },
+    },
+  );
+  assert.equal(
+    rejectedUrl.status(),
+    422,
+    "remote URL is not verified as transparent",
+  );
+  const originalImages = (
+    await (await context.request.get(`${base}/api/products/${id}`)).json()
+  ).images.map(({ id, url, colorId, role }) => ({ id, url, colorId, role }));
+  const rejectedRelabel = await context.request.post(
+    `${base}/api/admin/products/${id}/images`,
+    {
+      headers,
+      data: {
+        action: "update",
+        imageId: originalImages[0].id,
+        role: "cutout",
+        colorId: "*",
+        expected: originalImages,
+      },
+    },
+  );
+  assert.equal(
+    rejectedRelabel.status(),
+    422,
+    "existing opaque images cannot be relabeled",
+  );
+  const makeCutout = async (paint, colorId) => {
+    const svg = Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="100"><rect x="20" y="15" width="40" height="70" fill="${paint}"/></svg>`,
+    );
+    const png = await sharp(svg).png().toBuffer();
+    const res = await context.request.post(
+      `${base}/api/admin/products/${id}/images`,
+      {
+        headers,
+        data: {
+          action: "add",
+          imageData: `data:image/png;base64,${png.toString("base64")}`,
+          role: "cutout",
+          colorId,
+        },
+      },
+    );
+    assert.equal(res.status(), 200, await res.text());
+    return (await res.json()).images.find(
+      (i) => i.role === "cutout" && i.colorId === colorId,
+    ).url;
+  };
+  const sharedCutout = await makeCutout("#664422", "*"),
+    greenCutout = await makeCutout("#448855", color);
+  const cutoutImage = await context.request.get(`${base}${greenCutout}`);
+  assert.equal(cutoutImage.status(), 200);
+  const alpha = (await sharp(await cutoutImage.body()).stats()).channels[3];
+  assert.ok(alpha.min === 0 && alpha.max > 0, "alpha preserved on upload");
   const activated = await context.request.patch(
     `${base}/api/admin/products/${id}`,
     { headers, data: { active: true } },
@@ -340,6 +456,17 @@ try {
   let item = board.getByRole("button", { name: `قطعه ${name} روی بوم` });
   await item.waitFor();
   assert.equal(await item.getAttribute("aria-pressed"), "true");
+  assert.equal(await item.locator("img").getAttribute("src"), sharedCutout);
+  assert.equal(
+    await item.locator(".sb-canvas-caption").count(),
+    0,
+    "no card caption on canvas",
+  );
+  assert.equal(
+    await item.evaluate((el) => getComputedStyle(el).backgroundColor),
+    "rgba(0, 0, 0, 0)",
+    "no card background",
+  );
   const pos = await item.evaluate((el) => ({
     left: el.style.left,
     top: el.style.top,
@@ -392,12 +519,12 @@ try {
   );
   await page.getByRole("slider", { name: "چرخش قطعه" }).fill("20");
   assert.match(
-    await item.locator(".sb-canvas-art").evaluate((el) => el.style.transform),
+    await item.evaluate((el) => el.style.getPropertyValue("--item-rotation")),
     /20deg/,
   );
   await page.getByRole("button", { name: "بازنشانی قطعه" }).click();
   assert.match(
-    await item.locator(".sb-canvas-art").evaluate((el) => el.style.transform),
+    await item.evaluate((el) => el.style.getPropertyValue("--item-rotation")),
     /0deg/,
   );
   await page.getByRole("button", { name: "بازنشانی بزرگ‌نمایی" }).click();
@@ -416,10 +543,7 @@ try {
   );
   const summary = page.locator(".sb-summary");
   await summary.getByRole("button", { name: "رنگ سبز", exact: true }).click();
-  assert.equal(
-    await item.locator("img").getAttribute("src"),
-    "https://example.com/green.jpg",
-  );
+  assert.equal(await item.locator("img").getAttribute("src"), greenCutout);
   await page.getByRole("button", { name: `افزودن ${name} به بوم` }).click();
   assert.equal(
     await summary
@@ -503,7 +627,7 @@ try {
       ),
       `page overflow at ${width}`,
     );
-    if (width >= 900) {
+    if (width >= 768) {
       const sides = await page.evaluate(() => {
         const tray = document.querySelector(".sb-tray").getBoundingClientRect();
         const canvas = document
@@ -519,6 +643,26 @@ try {
         sides,
         { right: true, left: true },
         `side placement at ${width}`,
+      );
+    }
+    if (width < 768) {
+      const mobileLayout = await page.evaluate(() => ({
+        main: document
+          .querySelector(".sb-main")
+          .getBoundingClientRect()
+          .toJSON(),
+        side: document
+          .querySelector(".sb-side")
+          .getBoundingClientRect()
+          .toJSON(),
+      }));
+      assert.ok(
+        mobileLayout.side.top >= mobileLayout.main.bottom,
+        `summary must be below board at ${width}`,
+      );
+      assert.equal(
+        await page.getByRole("button", { name: "امتیاز و ست" }).count(),
+        0,
       );
     }
     const rects = await board.evaluate((el) => {
@@ -555,21 +699,30 @@ try {
     name: "محصولات",
     exact: true,
   });
-  const scoreToggle = page.getByRole("button", { name: "امتیاز و ست" });
   await productsToggle.click();
   assert.equal(await productsToggle.getAttribute("aria-expanded"), "true");
   assert.equal(
     await page.getByRole("region", { name: "محصولات برای بوم" }).isVisible(),
     true,
   );
+  const productPanelIssues = await page.evaluate(() =>
+    window.axe
+      .run(document, {
+        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] },
+      })
+      .then((r) =>
+        r.violations
+          .filter((v) => v.impact === "serious" || v.impact === "critical")
+          .map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })),
+      ),
+  );
+  assert.deepEqual(productPanelIssues, []);
   await page.keyboard.press("Escape");
   assert.equal(await productsToggle.getAttribute("aria-expanded"), "false");
   assert.equal(
     await productsToggle.evaluate((el) => document.activeElement === el),
     true,
   );
-  await scoreToggle.click();
-  assert.equal(await scoreToggle.getAttribute("aria-expanded"), "true");
   await page
     .getByRole("complementary", { name: "امتیاز و خلاصه استایل" })
     .getByText("هماهنگی رنگ")
@@ -586,7 +739,6 @@ try {
       ),
   );
   assert.deepEqual(panelIssues, []);
-  await scoreToggle.click();
   assert.deepEqual(errors, []);
   await page.goto(`${base}/?themePreview=neo-brutalism#/style-builder`, {
     waitUntil: "networkidle",
@@ -785,6 +937,18 @@ try {
     old,
     "touch should drag item",
   );
+  await touch.getByRole("button", { name: "محصولات", exact: true }).click();
+  await touch
+    .getByRole("textbox", { name: "جست‌وجوی محصول" })
+    .fill(fixtures.find((f) => f.mode === "none").name);
+  await touch
+    .getByRole("button", {
+      name: `افزودن ${fixtures.find((f) => f.mode === "none").name} به بوم`,
+    })
+    .click();
+  await touchBoard
+    .getByText("تصویر شفاف محصول برای بوم ثبت نشده است")
+    .waitFor();
   await mobile.close();
   assert.deepEqual(errors, []);
   console.log(

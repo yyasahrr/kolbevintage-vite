@@ -6,7 +6,7 @@ import { config } from "./config";
 import { validation } from "./commerce/errors";
 
 /** Decode and re-encode user-supplied pixels; never publish active SVG/HTML or metadata. */
-export async function prepareProductImage(data: unknown): Promise<{ url: string; discard: () => Promise<void> }> {
+export async function prepareProductImage(data: unknown, requireTransparency = false): Promise<{ url: string; discard: () => Promise<void> }> {
   if (typeof data !== "string") throw validation("فایل تصویر معتبر نیست.");
   const match = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(data);
   if (!match || match[2].length > 11_184_812) throw validation("فایل باید JPEG، PNG یا WebP حداکثر ۸ مگابایت باشد.");
@@ -17,9 +17,14 @@ export async function prepareProductImage(data: unknown): Promise<{ url: string;
     const image = sharp(bytes, { limitInputPixels: 40_000_000, failOn: "error" });
     const meta = await image.metadata();
     if (!["jpeg", "png", "webp"].includes(meta.format ?? "")) throw new Error("invalid image");
+    if (requireTransparency) {
+      if (!meta.hasAlpha) throw new Error("not transparent");
+      const alpha = (await image.clone().stats()).channels[3];
+      if (!alpha || alpha.min >= 250 || alpha.max === 0) throw new Error("not transparent");
+    }
     processed = await image.rotate().resize(2048, 2048, { fit: "inside", withoutEnlargement: true }).webp({ quality: 85 }).toBuffer();
   } catch {
-    throw validation("فایل تصویر قابل خواندن نیست.");
+    throw validation(requireTransparency ? "برای بوم، فایل PNG یا WebP واقعی با پس‌زمینهٔ شفاف و محصول جداشده بارگذاری کنید." : "فایل تصویر قابل خواندن نیست.");
   }
   await fs.mkdir(config.uploadsDir, { recursive: true });
   const filename = `product-${randomUUID()}.webp`;

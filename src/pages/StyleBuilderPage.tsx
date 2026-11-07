@@ -37,12 +37,8 @@ export function StyleBuilderPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [group, setGroup] = useState("all");
   const [query, setQuery] = useState("");
-  const [trayOpen, setTrayOpen] = useState(true);
-  const [mobilePanel, setMobilePanel] = useState<"products" | "score" | null>(
-    null,
-  );
+  const [mobilePanel, setMobilePanel] = useState<"products" | null>(null);
   const productToggleRef = useRef<HTMLButtonElement>(null);
-  const scoreToggleRef = useRef<HTMLButtonElement>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const { items } = useOutfit();
   const { notify } = useCart();
@@ -76,7 +72,7 @@ export function StyleBuilderPage() {
     setSelectedId(id);
     if (
       mobilePanel === "products" &&
-      window.matchMedia("(max-width: 899px)").matches
+      window.matchMedia("(max-width: 767px)").matches
     ) {
       requestAnimationFrame(() =>
         document
@@ -175,10 +171,7 @@ export function StyleBuilderPage() {
         className={cn("sb-shell", mode === "wizard" && "is-wizard")}
         onKeyDown={(e) => {
           if (e.key === "Escape" && mobilePanel) {
-            (mobilePanel === "products"
-              ? productToggleRef
-              : scoreToggleRef
-            ).current?.focus();
+            productToggleRef.current?.focus();
             setMobilePanel(null);
           }
         }}
@@ -197,17 +190,6 @@ export function StyleBuilderPage() {
               <Plus size={16} /> محصولات
             </button>
           )}
-          <button
-            type="button"
-            ref={scoreToggleRef}
-            aria-controls="sb-score-panel"
-            aria-expanded={mobilePanel === "score"}
-            onClick={() =>
-              setMobilePanel(mobilePanel === "score" ? null : "score")
-            }
-          >
-            <Sparkles size={16} /> امتیاز و ست
-          </button>
         </div>
         {mode === "canvas" && (
           <section
@@ -215,25 +197,14 @@ export function StyleBuilderPage() {
             aria-label="محصولات برای بوم"
             className={cn(
               "sb-tray",
-              !trayOpen && "is-closed",
               mobilePanel === "products" && "is-mobile-open",
             )}
           >
             <header className="sb-tray-head">
-              <button
-                type="button"
-                className="sb-tray-toggle"
-                onClick={() => setTrayOpen((v) => !v)}
-                aria-expanded={trayOpen}
-              >
-                <Plus
-                  width={14}
-                  height={14}
-                  className={cn("sb-tray-ic", trayOpen && "is-open")}
-                />
-                افزودن محصول به بوم
+              <h2 className="sb-tray-toggle">
+                <Plus width={14} height={14} aria-hidden /> افزودن محصول به بوم{" "}
                 <small>{products.length.toLocaleString("fa-IR")} قطعه</small>
-              </button>
+              </h2>
               <div className="sb-tray-search">
                 <Search width={13} height={13} />
                 <input
@@ -254,84 +225,82 @@ export function StyleBuilderPage() {
               </div>
             </header>
 
-            {trayOpen && (
-              <>
-                <div className="sb-tray-groups">
-                  {GROUPS.map((g) => (
+            <p className="sb-tray-info">
+              برای نمایش روی بوم، تصویر شفاف و جداشدهٔ هر محصول باید در مدیریت
+              تصاویر آن ثبت شود.
+            </p>
+            <div className="sb-tray-groups">
+              {GROUPS.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => setGroup(g.id)}
+                  aria-pressed={group === g.id}
+                  className={cn("sb-chip", group === g.id && "is-on")}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+            <div className="sb-tray-scroll">
+              {products.length === 0 && (
+                <p className="sb-empty-note">قطعه‌ای با این فیلتر پیدا نشد.</p>
+              )}
+              {products.map((p) => {
+                const inBoard = items.some((i) => i.productId === p.id);
+                return (
+                  <article
+                    key={p.id}
+                    className={cn("sb-tray-card", inBoard && "is-in")}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", p.id);
+                      e.dataTransfer.effectAllowed = "copy";
+                    }}
+                  >
+                    <ProductThumb
+                      product={p}
+                      tileAspect={0.86}
+                      className="w-full"
+                    />
+                    <div className="sb-tray-meta">
+                      <span className="sb-tray-cat">{p.category}</span>
+                      <b className="sb-tray-name">{p.name}</b>
+                      <span className="sb-tray-price">
+                        {formatPrice(p.price)}
+                      </span>
+                      <div className="sb-tray-dots">
+                        {p.colors.map((c) => (
+                          <i
+                            key={c.id}
+                            style={{ background: c.hex }}
+                            title={c.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
                     <button
-                      key={g.id}
                       type="button"
-                      onClick={() => setGroup(g.id)}
-                      aria-pressed={group === g.id}
-                      className={cn("sb-chip", group === g.id && "is-on")}
+                      className="sb-tray-add"
+                      onClick={() => addProduct(p.id)}
+                      aria-label={`افزودن ${p.name} به بوم`}
+                      title={
+                        inBoard
+                          ? "روی بوم هست — دوباره اضافه نمی‌شود"
+                          : "افزودن به بوم"
+                      }
                     >
-                      {g.label}
+                      {inBoard ? (
+                        <Layers width={14} height={14} />
+                      ) : (
+                        <Plus width={14} height={14} />
+                      )}
+                      <span>{inBoard ? "روی بوم" : "افزودن"}</span>
                     </button>
-                  ))}
-                </div>
-                <div className="sb-tray-scroll">
-                  {products.length === 0 && (
-                    <p className="sb-empty-note">
-                      قطعه‌ای با این فیلتر پیدا نشد.
-                    </p>
-                  )}
-                  {products.map((p) => {
-                    const inBoard = items.some((i) => i.productId === p.id);
-                    return (
-                      <article
-                        key={p.id}
-                        className={cn("sb-tray-card", inBoard && "is-in")}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/plain", p.id);
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                      >
-                        <ProductThumb
-                          product={p}
-                          tileAspect={0.86}
-                          className="w-full"
-                        />
-                        <div className="sb-tray-meta">
-                          <span className="sb-tray-cat">{p.category}</span>
-                          <b className="sb-tray-name">{p.name}</b>
-                          <span className="sb-tray-price">
-                            {formatPrice(p.price)}
-                          </span>
-                          <div className="sb-tray-dots">
-                            {p.colors.map((c) => (
-                              <i
-                                key={c.id}
-                                style={{ background: c.hex }}
-                                title={c.name}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="sb-tray-add"
-                          onClick={() => addProduct(p.id)}
-                          aria-label={`افزودن ${p.name} به بوم`}
-                          title={
-                            inBoard
-                              ? "روی بوم هست — دوباره اضافه نمی‌شود"
-                              : "افزودن به بوم"
-                          }
-                        >
-                          {inBoard ? (
-                            <Layers width={14} height={14} />
-                          ) : (
-                            <Plus width={14} height={14} />
-                          )}
-                          <span>{inBoard ? "روی بوم" : "افزودن"}</span>
-                        </button>
-                      </article>
-                    );
-                  })}
-                </div>
-              </>
-            )}
+                  </article>
+                );
+              })}
+            </div>
           </section>
         )}
         <div className="sb-main">
@@ -393,7 +362,7 @@ export function StyleBuilderPage() {
         <aside
           id="sb-score-panel"
           aria-label="امتیاز و خلاصه استایل"
-          className={cn("sb-side", mobilePanel === "score" && "is-mobile-open")}
+          className="sb-side"
         >
           <OutfitSummary
             profile={profile}

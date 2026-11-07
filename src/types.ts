@@ -40,7 +40,7 @@ export interface Crop {
  * same gallery can feed the product page, the card hover state and the
  * editorial close-ups without any cropping UI.
  */
-export type ProductImageRole = "main" | "gallery" | "hover" | "detail";
+export type ProductImageRole = "main" | "gallery" | "hover" | "detail" | "cutout";
 
 export interface ProductImage {
   id: string;

@@ -2373,7 +2373,7 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
     })
     .sort((a, b) => rankOf(a.garment) - rankOf(b.garment) || a.name.localeCompare(b.name, "fa"));
 
-  const coverPreview = images.find((i) => i.role === "main")?.url ?? images.find((i) => i.role !== "hover")?.url;
+  const coverPreview = images.find((i) => i.role === "main")?.url ?? images.find((i) => i.role !== "hover" && i.role !== "cutout")?.url;
   const previewProduct: CatalogProduct = product ?? {
     id: "preview",
     name: name || "پیش‌نمایش",

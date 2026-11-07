@@ -11,11 +11,10 @@ import {
   Minus,
   Plus,
   RotateCcw,
-  Tag,
   Trash2,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { formatPrice, stockOf } from "@/data/looks";
+import { stockOf } from "@/data/looks";
 import { liveGetProduct } from "@/data/catalog";
 import {
   bringToFront,
@@ -29,7 +28,7 @@ import {
   setZoom,
 } from "@/state/outfit";
 import type { CanvasItem } from "@/state/outfit";
-import { ProductThumb } from "./ProductThumb";
+import { useLiveCatalog } from "@/state/live-catalog";
 
 const clamp = (n: number, min: number, max: number) =>
   Math.max(min, Math.min(max, n));
@@ -46,7 +45,7 @@ export function StyleCanvas({
   onDropProduct: (productId: string, x: number, y: number) => void;
 }) {
   const { items, board, snap, zoom } = useOutfit();
-  const [showPrices, setShowPrices] = useState(true);
+  const catalog = useLiveCatalog();
   const [size, setSize] = useState({ width: 1, height: 1 });
   const [moving, setMoving] = useState<string | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -82,19 +81,25 @@ export function StyleCanvas({
   }, [zoom]);
   const position = (item: CanvasItem) => {
     const base = size.width / zoom < 500 ? 34 : 24;
-    // Keep even the largest item inside the visible board, including its caption.
+    // Bound the rotated 4:5 image, not just its unrotated hit area.
+    const radians = (item.rotate * Math.PI) / 180;
+    const cos = Math.abs(Math.cos(radians)),
+      sin = Math.abs(Math.sin(radians));
+    const rotatedWidth = cos + 1.25 * sin;
+    const rotatedHeight = sin + 1.25 * cos;
     const maxWidthForHeight = Math.max(
       1,
-      ((size.height - 60) / 1.25 / size.width) * 100,
+      ((size.height - 12) / rotatedHeight / size.width) * 100,
     );
+    const maxWidthForWidth = 98 / rotatedWidth;
     const width = Math.min(
       clamp(base * item.scale, base * 0.4, base * 2.4),
-      96,
+      maxWidthForWidth,
       maxWidthForHeight,
     );
-    const halfX = width / 2 + 1;
+    const halfX = (width * rotatedWidth) / 2 + 0.5;
     const halfY =
-      ((((size.width * width) / 100) * 1.25 + 60) / size.height) * 50 + 1;
+      ((((size.width * width) / 100) * rotatedHeight) / size.height) * 50 + 0.5;
     return {
       x: limit(item.x, halfX),
       y: limit(item.y, halfY),
@@ -232,16 +237,6 @@ export function StyleCanvas({
           >
             <Grid3x3 size={16} />
           </button>
-          <button
-            type="button"
-            className={cn("sb-tool", showPrices && "is-on")}
-            onClick={() => setShowPrices(!showPrices)}
-            aria-label="نمایش قیمت"
-            aria-pressed={showPrices}
-            title="نمایش قیمت"
-          >
-            <Tag size={16} />
-          </button>
           <div
             className="sb-zoom-controls"
             role="group"
@@ -321,7 +316,8 @@ export function StyleCanvas({
               <h3>استایل خودت را بساز</h3>
               <p>
                 از پنل محصولات کنار بوم، قطعه‌ای را اضافه کن یا با ماوس آن را
-                اینجا بکش.
+                اینجا بکش. فقط تصویر شفاف ثبت‌شدهٔ محصول روی بوم نمایش داده
+                می‌شود.
               </p>
               <small>
                 برای جابه‌جایی با صفحه‌کلید، قطعه را انتخاب و از کلیدهای جهت‌دار
@@ -337,7 +333,19 @@ export function StyleCanvas({
                 color =
                   p?.colors.find((c) => c.id === item.colorId) ?? p?.colors[0],
                 pos = position(item),
-                active = item.id === selectedId;
+                active = item.id === selectedId,
+                productImages =
+                  catalog.products.find(
+                    (product) => product.id === item.productId,
+                  )?.images ?? [],
+                cutout =
+                  productImages.find(
+                    (image) =>
+                      image.role === "cutout" && image.colorId === color?.id,
+                  ) ??
+                  productImages.find(
+                    (image) => image.role === "cutout" && image.colorId === "*",
+                  );
               return (
                 <button
                   key={item.id}
@@ -347,14 +355,20 @@ export function StyleCanvas({
                     active && "is-selected",
                     moving === item.id && "is-moving",
                   )}
-                  style={{
-                    left: `${pos.x}%`,
-                    top: `${pos.y}%`,
-                    width: `${pos.width}%`,
-                    zIndex: item.z,
-                  }}
+                  style={
+                    {
+                      left: `${pos.x}%`,
+                      top: `${pos.y}%`,
+                      width: `${pos.width}%`,
+                      zIndex: item.z,
+                      "--item-rotation": `${item.rotate}deg`,
+                      "--item-flip": item.flip ? -1 : 1,
+                    } as React.CSSProperties
+                  }
                   aria-label={
-                    p ? `قطعه ${p.name} روی بوم` : "قطعه ناموجود روی بوم"
+                    p
+                      ? `قطعه ${p.name} روی بوم${cutout ? "" : "؛ تصویر شفاف ثبت نشده"}`
+                      : "قطعه ناموجود روی بوم"
                   }
                   aria-pressed={active}
                   aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Delete"
@@ -369,39 +383,10 @@ export function StyleCanvas({
                   onLostPointerCapture={stopDrag}
                   onKeyDown={(e) => keyMove(e, item)}
                 >
-                  <span className="sb-canvas-photo">
-                    <span
-                      className="sb-canvas-art"
-                      style={{
-                        transform: `rotate(${item.rotate}deg) scaleX(${item.flip ? -1 : 1})`,
-                      }}
-                    >
-                      {p ? (
-                        <ProductThumb
-                          product={p}
-                          colorId={color?.id}
-                          tint={color?.hex}
-                          decorative
-                          tileAspect={0.8}
-                          className="w-full"
-                        />
-                      ) : (
-                        <span className="sb-missing-item">
-                          محصول در دسترس نیست
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                  <span className="sb-canvas-caption">
-                    <span className="sb-canvas-name">
-                      {p?.name ?? "محصول ناموجود"}
-                    </span>
-                    {showPrices && p && (
-                      <span className="sb-canvas-price">
-                        {formatPrice(p.price)}
-                      </span>
-                    )}
-                  </span>
+                  <CanvasCutout
+                    key={cutout?.url ?? "missing"}
+                    url={cutout?.url}
+                  />
                 </button>
               );
             })}
@@ -556,5 +541,25 @@ export function StyleCanvas({
         </div>
       )}
     </section>
+  );
+}
+
+/** Do not claim to remove a photo's background: only a merchant-supplied cutout is composited. */
+function CanvasCutout({ url }: { url?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!url || failed)
+    return (
+      <span className="sb-cutout-missing">
+        تصویر شفاف محصول برای بوم ثبت نشده است
+      </span>
+    );
+  return (
+    <img
+      className="sb-cutout-image"
+      src={url}
+      alt=""
+      draggable={false}
+      onError={() => setFailed(true)}
+    />
   );
 }

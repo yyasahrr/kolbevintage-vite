@@ -1403,6 +1403,13 @@ test('product images edit and reorder with authorization, stale protection and d
     assert.equal(current.filter((i:any)=>i.role==='main').length,1);assert.equal(current.find((i:any)=>i.id===target.id).colorId,'c1');
     if(current[0].id!==target.id){const moved=await admin.post(url,{action:'move',imageId:target.id,direction:'earlier',expected:current});assert.equal(moved.status,200);current=moved.body.images;}
     assert.equal(current[0].id,target.id);assert.equal((await admin.post(url,{action:'move',imageId:target.id,direction:'earlier',expected:current})).status,422);
+    const sharp=(await import('sharp')).default;
+    const png=await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="50"><rect x="10" y="10" width="20" height="30" fill="red"/></svg>')).png().toBuffer();
+    const imageData=`data:image/png;base64,${png.toString('base64')}`;
+    assert.equal((await viewer.post(url,{action:'add',imageData,role:'cutout',colorId:'*'})).status,403);
+    assert.equal((await admin.post(url,{action:'add',url:'https://example.com/a.png',role:'cutout',colorId:'*'})).status,422);
+    const cutout=await admin.post(url,{action:'add',imageData,role:'cutout',colorId:'c1',expected:current});assert.equal(cutout.status,200,JSON.stringify(cutout.body));current=cutout.body.images;
+    assert.equal(current.filter((i:any)=>i.role==='cutout').length,1);
     const docs=await query("select key,value from state_documents where key in ('admin','ops')");const map=Object.fromEntries(docs.rows.map(row=>[row.key,row.value]));await (await import('../src/projection')).syncProjection(map.admin,map.ops);
     assert.deepEqual((await admin.get(`/api/products/${id}`)).body.images,current);
     assert.equal((await admin.patch(`/api/admin/products/${id}`,{active:true})).status,200);

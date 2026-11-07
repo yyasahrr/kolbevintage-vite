@@ -221,7 +221,7 @@ export const liveCatalog = (): CatalogProduct[] => {
   mappedSource = source;
   mappedCatalog = source.map(row => {
     const legacy = CATALOG.find(item => item.id === row.id);
-    const cover = row.images?.find(image => image.role === "main")?.url ?? row.images?.find(image => image.role !== "hover")?.url;
+    const cover = row.images?.find(image => image.role === "main")?.url ?? row.images?.find(image => image.role !== "hover" && image.role !== "cutout")?.url;
     return {
       id:row.id, name:row.name, category:row.category, garment:row.garment,
       price:row.price, compareAt:row.compareAt ?? undefined, colors:row.colors, sizes:row.sizes, stock:row.stock ?? {},

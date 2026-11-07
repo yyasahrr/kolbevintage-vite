@@ -360,13 +360,14 @@ export async function catalogRoutes(app: FastifyInstance) {
     let url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
     const imageData = req.body?.imageData;
     const role = req.body?.role ?? "gallery", colorId = req.body?.colorId ?? "*";
-    if (action === "add" && ((!imageData && (url.length > 2000 || !(/^https:\/\/[^\s]+$/i.test(url) || /^\/uploads\/[a-z0-9._-]+$/i.test(url)))) || (imageData !== undefined && !!url) || !["main","gallery","hover","detail"].includes(role))) throw validation("نشانی یا نقش تصویر معتبر نیست.");
-    if (action === "update" && (!req.body?.role || !["main","gallery","hover","detail"].includes(role) || typeof colorId !== "string" || !colorId)) throw validation("نقش یا رنگ تصویر معتبر نیست.");
+    if (action === "add" && ((!imageData && (url.length > 2000 || !(/^https:\/\/[^\s]+$/i.test(url) || /^\/uploads\/[a-z0-9._-]+$/i.test(url)))) || (imageData !== undefined && !!url) || !["main","gallery","hover","detail","cutout"].includes(role))) throw validation("نشانی یا نقش تصویر معتبر نیست.");
+    if (action === "update" && (!req.body?.role || !["main","gallery","hover","detail","cutout"].includes(role) || typeof colorId !== "string" || !colorId)) throw validation("نقش یا رنگ تصویر معتبر نیست.");
     if (action === "move" && !["earlier","later"].includes(req.body?.direction ?? "")) throw validation("جهت جابه‌جایی تصویر معتبر نیست.");
     const expected=req.body?.expected;
     if ((action === "update" || action === "move") && expected === undefined) throw validation("نسخه فهرست تصاویر لازم است.");
     if (expected !== undefined && (!Array.isArray(expected) || expected.length>30 || !expected.every(i=>i && typeof i==="object" && !Array.isArray(i) && Object.keys(i).length===4 && ["id","url","role","colorId"].every(k=>typeof i[k]==="string")))) throw validation("نسخه فهرست تصاویر معتبر نیست.");
-    const uploaded = action === "add" && imageData !== undefined ? await prepareProductImage(imageData) : null;
+    if (action === "add" && role === "cutout" && !imageData) throw validation("تصویر بوم باید به‌صورت فایل شفاف بارگذاری شود؛ نشانی خارجی پذیرفته نیست.");
+    const uploaded = action === "add" && imageData !== undefined ? await prepareProductImage(imageData, role === "cutout") : null;
     if (uploaded) url = uploaded.url;
     try { return await withTransaction(async client => {
       const docResult = await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");
@@ -390,6 +391,7 @@ export async function catalogRoutes(app: FastifyInstance) {
           if (images.length === 1) throw validation("دست‌کم یک تصویر باید باقی بماند.");
           images = images.filter(i=>i.id!==imageId);
         } else if(action === "update") {
+          if(role === "cutout" && images[index].role !== "cutout") throw validation("برای اطمینان از شفافیت، تصویر بوم را به‌صورت فایل جدید بارگذاری کنید.");
           if(role === "main") images=images.map(i=>i.role==="main" && i.id!==imageId ? {...i,role:"gallery"} : i);
           images[index]={...images[index],role,colorId};
         } else {

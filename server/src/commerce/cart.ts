@@ -95,7 +95,7 @@ export async function cartLines(cartId: string): Promise<CartLineView[]> {
                select sum(r.quantity) from stock_reservations r
                where r.variant_id = v.id and r.status = 'active' and r.expires_at > now()
              ), 0))::int as available,
-            (select url from product_images i where i.product_id = p.id order by position limit 1) as image_url
+            (select url from product_images i where i.product_id = p.id and i.role <> 'cutout' order by position limit 1) as image_url
        from cart_lines cl
        join product_variants v on v.id = cl.variant_id
        join products p on p.id = v.product_id

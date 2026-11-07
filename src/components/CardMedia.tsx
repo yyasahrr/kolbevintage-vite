@@ -28,18 +28,18 @@ export function CardMedia({
     catalog.products.find((item) => item.id === product.id)?.images ?? [];
   const legacy = ops.hoverMedia[product.id];
   const specific = colorId
-    ? gallery.filter((i) => i.colorId === colorId && i.role !== "hover")
+    ? gallery.filter((i) => i.colorId === colorId && i.role !== "hover" && i.role !== "cutout")
     : [];
   const cover =
     specific.find((i) => i.role === "main") ??
     specific[0] ??
     gallery.find((i) => i.role === "main") ??
-    gallery.find((i) => i.role !== "hover");
+    gallery.find((i) => i.role !== "hover" && i.role !== "cutout");
   const images = useMemo(() => {
     // null means ProductThumb's existing crop/fallback, not a fabricated image.
     const urls: (string | null)[] = [cover?.url ?? null];
     for (const image of gallery)
-      if (image.url && !urls.includes(image.url)) urls.push(image.url);
+      if (image.role !== "cutout" && image.url && !urls.includes(image.url)) urls.push(image.url);
     if (legacy?.hoverImage && !urls.includes(legacy.hoverImage))
       urls.push(legacy.hoverImage);
     return urls;

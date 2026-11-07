@@ -26,9 +26,9 @@ export function ProductThumb({ product, tint = "#bba893", className, tileAspect 
   const catalog = useLiveCatalog();
   const uploaded = catalog.products.find(item => item.id === product.id)?.images ?? [];
   // an uploaded photo always wins over the runway crop
-  const specific = colorId ? uploaded.filter(i => i.colorId === colorId && i.role !== "hover") : [];
-  const shared = uploaded.filter(i => i.colorId === "*" && i.role !== "hover");
-  const cover = (specific.find(i => i.role === "main") ?? specific[0] ?? shared.find(i => i.role === "main") ?? shared[0] ?? uploaded.find(i => i.role === "main") ?? uploaded.find(i => i.role !== "hover"))?.url;
+  const specific = colorId ? uploaded.filter(i => i.colorId === colorId && i.role !== "hover" && i.role !== "cutout") : [];
+  const shared = uploaded.filter(i => i.colorId === "*" && i.role !== "hover" && i.role !== "cutout");
+  const cover = (specific.find(i => i.role === "main") ?? specific[0] ?? shared.find(i => i.role === "main") ?? shared[0] ?? uploaded.find(i => i.role === "main") ?? uploaded.find(i => i.role !== "hover" && i.role !== "cutout"))?.url;
   const hFrac = Math.min(1, (crop.zoom * aspect) / tileAspect);
   const cy = Math.min(Math.max(crop.cy, hFrac / 2), 1 - hFrac / 2);
 

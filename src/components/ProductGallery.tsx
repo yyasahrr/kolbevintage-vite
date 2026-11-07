@@ -42,9 +42,9 @@ export function ProductGallery({
   const slides = useMemo<Slide[]>(() => {
     const out: Slide[] = [];
     const all = catalog.products.find(item => item.id === product.id)?.images ?? [];
-    const rank = { main: 0, gallery: 1, detail: 2, hover: 9 } as const;
+    const rank = { main: 0, gallery: 1, detail: 2, hover: 9, cutout: 10 } as const;
     // hover-only pictures never enter the gallery
-    const usable = all.filter((i) => i.role !== "hover").sort((a, b) => rank[a.role] - rank[b.role]);
+    const usable = all.filter((i) => i.role !== "hover" && i.role !== "cutout").sort((a, b) => rank[a.role] - rank[b.role]);
     const forColor = (colorId: string) => usable.filter((i) => i.colorId === "*" || i.colorId === colorId);
     const push = (list: typeof usable) => {
       list.forEach((img) => {

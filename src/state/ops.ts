@@ -70,6 +70,7 @@ export const IMAGE_ROLE_LABEL: Record<ProductImageRole, string> = {
   gallery: "گالری",
   hover: "نمایش در هاور",
   detail: "جزئیات / بافت",
+  cutout: "تصویر بدون پس‌زمینهٔ بوم",
 };
 
 export const IMAGE_ROLE_HINT: Record<ProductImageRole, string> = {
@@ -77,6 +78,7 @@ export const IMAGE_ROLE_HINT: Record<ProductImageRole, string> = {
   gallery: "بین بقیهٔ تصاویر گالری",
   hover: "وقتی نشانگر روی کارت محصول می‌رود",
   detail: "برای نمای نزدیک پارچه و دوخت",
+  cutout: "فقط تصویر جداشده و شفاف محصول برای بوم استایل",
 };
 
 export interface CustomerLabel {
@@ -674,9 +676,9 @@ export const removeProductImage = (productId: string, imageId: string) =>
 
 /** gallery images for a colour, main first, then gallery, then close-ups */
 export const galleryImagesOf = (productId: string, colorId?: string) => {
-  const rank: Record<ProductImageRole, number> = { main: 0, gallery: 1, detail: 2, hover: 9 };
+  const rank: Record<ProductImageRole, number> = { main: 0, gallery: 1, detail: 2, hover: 9, cutout: 10 };
   return productImagesOf(productId)
-    .filter((i) => i.role !== "hover" && (!colorId || i.colorId === "*" || i.colorId === colorId))
+    .filter((i) => i.role !== "hover" && i.role !== "cutout" && (!colorId || i.colorId === "*" || i.colorId === colorId))
     .sort((a, b) => rank[a.role] - rank[b.role]);
 };
 /** the picture a product card shows while hovered */
