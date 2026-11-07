@@ -21,6 +21,7 @@ import { AboutPage } from "@/pages/AboutPage";
 import { WishlistPage } from "@/pages/WishlistPage";
 import { CheckoutPage } from "@/pages/CheckoutPage";
 import { PaymentReturnPage } from "@/pages/PaymentReturnPage";
+import { StudioPublicPage } from "@/pages/StudioPublicPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { adminUnlocked, openPanelForReview } from "@/state/admin";
@@ -128,6 +129,7 @@ function SiteRoutes() {
         <Route path="/style" element={<StylePage />} />
         <Route path="/style-builder" element={<StyleBuilderPage />} />
         <Route path="/style/:lookId" element={<StylePage />} />
+        <Route path="/studio/:slug" element={<StudioPublicPage />} />
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/journal" element={<JournalPage />} />
         <Route path="/gallery" element={<GalleryPage />} />
