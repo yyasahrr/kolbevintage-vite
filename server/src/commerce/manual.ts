@@ -1,5 +1,5 @@
 import { query, withTransaction } from "../db";
-import { assertQuoteFresh } from "./payments";
+import { assertQuoteFresh, refreshQuoteUnderLock, staleQuoteError } from "./payments";
 import { loadCommerceSettings } from "./settings";
 import { normalizeItems, startCheckout, type CheckoutAddress, type CheckoutItemInput, type CheckoutRow } from "./checkout";
 import { CommerceError } from "./errors";
@@ -51,7 +51,7 @@ export async function createManualOrder(input: ManualOrderInput, actor: string) 
 
   const started = await startCheckout({
     items: input.items,
-    customerEmail: input.customerEmail?.trim() || null,
+    customerEmail: input.customerEmail?.trim().toLowerCase() || null,
     address: input.address,
     shippingMethod: input.shippingMethod,
     couponCode: input.couponCode,
@@ -85,6 +85,7 @@ export async function createManualOrder(input: ManualOrderInput, actor: string) 
   if (!checked) throw new CommerceError("فرآیند تسویه پیدا نشد.",404,"checkout_not_found");
   await assertQuoteFresh(checked,await loadCommerceSettings(),true);
   const created = await withTransaction(async (client) => {
+    await client.query("set transaction isolation level repeatable read");
     const locked = await client.query<CheckoutRow>("select * from checkout_sessions where id = $1 for update", [checkoutId]);
     const checkout = locked.rows[0];
     if (checkout && checkout.status !== "reserved") {
@@ -102,6 +103,8 @@ export async function createManualOrder(input: ManualOrderInput, actor: string) 
         checkout.shipping_method!==checked.shipping_method || checkout.coupon_code!==checked.coupon_code) {
       throw new CommerceError("تسویه هم‌زمان تغییر کرد؛ دوباره بررسی کنید.",409,"checkout_changed");
     }
+    const fresh=await refreshQuoteUnderLock(client,checkout,true);
+    if(fresh) return {stale:fresh,id:null,reused:false};
     if (checkout.manual_quote_confirm_required && input.confirmedQuoteVersion!==checkout.quote_version) {
       throw new CommerceError("مبلغ جدید را با پرداخت خارجی تطبیق و تأیید کنید.",409,"manual_quote_confirmation_required",{quote:checkout.quote});
     }
@@ -138,9 +141,12 @@ export async function createManualOrder(input: ManualOrderInput, actor: string) 
       ],
     );
     await enqueue(client, "order.paid", { orderId: inserted.id, actor, manual: true }, `order.paid:${inserted.id}`);
-    return {id:inserted.id,reused:false};
+    return {id:inserted.id,reused:false,stale:null};
+  }).catch(error=>{
+    if ((error as {code?:string})?.code === "40001") throw new CommerceError("تسویه هم‌زمان تغییر کرد؛ دوباره بررسی کنید.",409,"checkout_changed");
+    throw error;
   });
-
-  const found = await getOrder(created.id);
+  if ('stale' in created && created.stale) throw staleQuoteError(created.stale);
+  const found = await getOrder(created.id!);
   return { order: publicOrder(found.order, found.lines), legacy: found.order.data, reused: created.reused };
 }

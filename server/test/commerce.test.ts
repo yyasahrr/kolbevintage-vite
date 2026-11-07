@@ -1516,15 +1516,18 @@ test("an installment refund the provider cannot reverse is parked for a human", 
 test("the panel's campaign ceiling and coupon limits reach the pricing tables", async () => {
   const { syncPromotions } = await import("../src/commerce/promotions");
   const couponSnapshot = (await query("select * from coupons")).rows;
+  const docSnapshot=(await query("select value from state_documents where key='admin'")).rows[0].value;
 
-  await syncPromotions({
+  const desired={
     campaigns: [
       { id: "sync-cap", name: "کمپین سقف‌دار", kind: "percent", value: 20, minSpend: 100, maxDiscount: 5000, active: true, start: "2026-01-01", end: "2026-12-31" },
       { id: "sync-plain", name: "کمپین بی‌سقف", kind: "percent", value: 5, active: true },
     ],
     discountRules: [],
     coupons: [{ code: "CAPX", kind: "percent", value: 10, maxDiscount: 700, usageLimit: 5, active: true }],
-  });
+  };
+  await query("update state_documents set value=$1::jsonb where key='admin'",[JSON.stringify(desired)]);
+  await syncPromotions(desired);
 
   const capped = await query(
     "select max_discount, min_subtotal from price_rules where id = 'sync-cap'",
@@ -1541,6 +1544,7 @@ test("the panel's campaign ceiling and coupon limits reach the pricing tables", 
   assert.equal(coupon.rows[0].usage_limit, 5);
 
   // the sync mirrors the document, so put the seeded codes back for anything that follows
+  await query("update state_documents set value=$1::jsonb where key='admin'",[JSON.stringify(docSnapshot)]);
   await query("delete from coupons");
   for (const row of couponSnapshot) {
     const cols = Object.keys(row);
@@ -2594,4 +2598,165 @@ test('simultaneous manual requests with the same key consume stock only once', a
   assert.ok(responses.every(r=>[200,201,409].includes(r.status)),JSON.stringify(responses));assert.ok(responses.some(r=>r.status===201),JSON.stringify(responses));
   const orders=await query("select id from orders where checkout_id=(select id from checkout_sessions where idempotency_key='manual:manual-concurrent')");
   assert.equal(orders.rows.length,1);assert.equal((await stockOf(SKU)).onHand,3);
+});
+
+/** A private audience fixture isolated from previous customer and document state. */
+async function audienceFixture() {
+  const admin=await adminClient();
+  const doc=(await query("select value from state_documents where key='admin'")).rows[0].value;
+  const labels=(await query("select value from commerce_settings where key='customer_labels_v1'")).rows[0]?.value;
+  const old=(await query("select manual_labels from customers where email='ava@example.com'")).rows[0].manual_labels;
+  const manual=(await admin.post('/api/admin/customer-labels',{name:`manual-${randomUUID()}`})).body.label;
+  const automatic=(await admin.post('/api/admin/customer-labels',{name:`auto-${randomUUID()}`,minDeliveredOrders:1})).body.label;
+  const previous=old??[];
+  const path='/api/admin/customers/ava%40example.com/labels';
+  assert.equal((await admin.put(path,{labels:[...previous,manual.id],expected:previous})).status,200);
+  const make=async (mode:'any'|'all',value:number,freeShipping=false)=>{
+    const made=await admin.post('/api/admin/marketing/campaigns',{name:`target-${randomUUID()}`,kind:'percent',scope:'all',value,minSpend:0,start:'',end:'',freeShipping,audience:{mode,labels:[manual.id,automatic.id]}});
+    assert.equal(made.status,201,JSON.stringify(made.body));
+    const enabled=await admin.patch(`/api/admin/marketing/campaigns/${made.body.id}`,{active:true});assert.equal(enabled.status,200,JSON.stringify(enabled.body));
+    return made.body.id as string;
+  };
+  const cleanup=async()=>{
+    await query("update state_documents set value=$1::jsonb where key='admin'",[JSON.stringify(doc)]);
+    await query("update customers set manual_labels=$1::jsonb where email='ava@example.com'",[old===null?null:JSON.stringify(old)]);
+    if(labels===undefined)await query("delete from commerce_settings where key='customer_labels_v1'");else await query("update commerce_settings set value=$1::jsonb where key='customer_labels_v1'",[JSON.stringify(labels)]);
+    const {syncPromotions}=await import('../src/commerce/promotions');await syncPromotions(doc);
+  };
+  return {admin,manual,automatic,path,previous,make,cleanup};
+}
+
+test('targeted any audience uses authenticated identity and keeps shipping separate from best discount', async () => {
+  const fx=await audienceFixture();
+  try {
+    const {saveCommerceSettings}=await import('../src/commerce/settings');await saveCommerceSettings({freeShippingThreshold:99999999});
+    const variantId=await setStock(SKU,4),id=await fx.make('any',20,true);
+    const guest=makeClient(),ava=await customerClient();
+    const other=makeClient(),email=`aud-other-${randomUUID()}@example.com`;
+    const {hashPassword}=await import('../src/security');
+    await query("insert into customers(email,name,password_hash) values($1,$2,$3)",[email,'مشتری دوم',hashPassword('demo1234')]);
+    assert.equal((await other.post('/api/auth/login',{email,password:'demo1234'})).status,200);
+    const body={items:[{variantId,quantity:1}],customerEmail:'ava@example.com'};
+    const [g,o,a]=await Promise.all([guest.post('/api/commerce/quote',body),other.post('/api/commerce/quote',body),ava.post('/api/commerce/quote',body)]);
+    assert.equal(g.status,200,JSON.stringify(g.body));assert.equal(o.status,200);assert.equal(a.status,200);
+    assert.equal(g.body.campaignDiscount,0);assert.equal(o.body.campaignDiscount,0);assert.equal(g.body.freeShipping,false);assert.equal(o.body.freeShipping,false);
+    assert.equal(a.body.lines[0].campaignId,id);assert.ok(a.body.campaignDiscount>0);assert.equal(a.body.freeShippingBy,'campaign');
+    await query(`insert into coupons(code,kind,value,min_subtotal,active,used_count) values('TARGETWIN','percent',50,0,true,0) on conflict(code) do update set kind='percent',value=50,min_subtotal=0,max_discount=null,usage_limit=null,active=true`);
+    const coupon=await ava.post('/api/commerce/quote',{...body,couponCode:'TARGETWIN'});assert.equal(coupon.status,200,JSON.stringify(coupon.body));
+    assert.ok(coupon.body.couponDiscount>a.body.campaignDiscount);assert.equal(coupon.body.campaignDiscount,0);assert.equal(coupon.body.freeShippingBy,'campaign');
+    const publicDoc=await guest.get('/api/bootstrap');assert.ok(!publicDoc.body.admin.campaigns.some((c:any)=>c.id===id));
+    assert.equal((await fx.admin.put('/api/state/admin',{})).body.code,'campaign_draft_legacy_conflict');
+    const res=await fetch(`${base}/api/commerce/quote`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    // CSRF may reject an anonymous write without a token; the regular guest path above verifies eligibility.
+    if(res.ok)assert.equal(res.headers.get('cache-control'),'no-store');
+  } finally {await fx.cleanup()}
+});
+
+test('all audience combines manual and automatic labels and excludes fully refunded loyalty orders', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variantId=await setStock(SKU,5),id=await fx.make('all',40),ava=await customerClient();
+    const quote=()=>ava.post('/api/commerce/quote',{items:[{variantId,quantity:1}]});
+    assert.equal((await quote()).body.campaignDiscount,0);
+    const manual=await fx.admin.post('/api/commerce/admin/orders/manual',{items:[{variantId,quantity:2}],customerEmail:'ava@example.com',address:{receiver:'مشتری',phone:'09121234567',street:'نشانی'},paymentReference:'LOYALTY-TEST',idempotencyKey:'loyalty-real-audience'});
+    assert.equal(manual.status,201,JSON.stringify(manual.body));await deliverOrder(manual.body.order.id,SKU);
+    const eligible=await quote();assert.equal(eligible.status,200);assert.equal(eligible.body.lines[0].campaignId,id);
+    await query('update order_lines set refunded_quantity=1 where order_id=$1',[manual.body.order.id]);assert.equal((await quote()).body.lines[0].campaignId,id);
+    await query('update order_lines set refunded_quantity=quantity where order_id=$1',[manual.body.order.id]);assert.equal((await quote()).body.campaignDiscount,0);
+    await query('update order_lines set refunded_quantity=0 where order_id=$1',[manual.body.order.id]);
+    await query("update orders set data=data-'manual' where id=$1",[manual.body.order.id]);assert.equal((await quote()).body.campaignDiscount,0,'unknown or mock payment never grants loyalty');
+  } finally {await fx.cleanup()}
+});
+
+test('membership changes invalidate payment quotes but not an already initiated attempt snapshot', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variantId=await setStock(SKU,5);await fx.make('any',25,true);const ava=await customerClient();
+    const initial=await startCheckout(ava,[{variantId,quantity:1}]);const checkout=initial.body.checkout;
+    assert.ok(checkout.quote.campaignDiscount>0);
+    assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200);
+    const stale=await ava.post(`/api/commerce/checkout/${checkout.id}/pay`,{method:'online'});assert.equal(stale.status,409,JSON.stringify(stale.body));assert.equal(stale.body.code,'quote_stale');
+    assert.equal(stale.body.details.quote.campaignDiscount,0);assert.notEqual(stale.body.details.quote.quoteVersion,checkout.quoteVersion);
+    const pay=await ava.post(`/api/commerce/checkout/${checkout.id}/pay`,{method:'online'});assert.equal(pay.status,200,JSON.stringify(pay.body));
+    assert.equal((await ava.post(`/api/commerce/payments/${pay.body.attempt.id}/simulate`,{result:'success'})).body.orderStatus,'paid');
+    assert.equal((await fx.admin.put(fx.path,{labels:[...fx.previous,fx.manual.id],expected:fx.previous})).status,200);
+    const next=await startCheckout(ava,[{variantId,quantity:1}]);const original=next.body.checkout.quote;assert.ok(original.campaignDiscount>0);
+    const attempt=await ava.post(`/api/commerce/checkout/${next.body.checkout.id}/pay`,{method:'online',idempotencyKey:'audience-frozen-attempt'});assert.equal(attempt.status,200);
+    assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200);
+    const replay=await ava.post(`/api/commerce/checkout/${next.body.checkout.id}/pay`,{method:'online',idempotencyKey:'audience-frozen-attempt'});assert.equal(replay.body.attempt.id,attempt.body.attempt.id);
+    const settled=await ava.post(`/api/commerce/payments/${attempt.body.attempt.id}/simulate`,{result:'success'});assert.equal(settled.body.orderStatus,'paid');
+    const order=(await fx.admin.get(`/api/commerce/orders/${settled.body.orderId}`)).body;assert.equal(order.total,original.grandTotal);assert.equal(order.discountTotal,original.discountTotal);
+  } finally {await fx.cleanup()}
+});
+
+test('manual order uses the designated customer audience and unknown customer remains ineligible', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variantId=await setStock(SKU,4),id=await fx.make('any',30);
+    const body={items:[{variantId,quantity:1}],address:{receiver:'مشتری',phone:'09121234567',street:'نشانی'},paymentReference:'AUD-MANUAL',idempotencyKey:'aud-manual-eligible'};
+    const matched=await fx.admin.post('/api/commerce/admin/orders/manual',{...body,customerEmail:'AVA@EXAMPLE.COM'});assert.equal(matched.status,201,JSON.stringify(matched.body));
+    const recorded=(await query("select quote from checkout_sessions where id=$1",[matched.body.order.checkoutId])).rows[0].quote;
+    assert.equal(recorded.lines[0].campaignId,id);assert.equal(matched.body.order.email,'ava@example.com');assert.ok(matched.body.order.discountTotal>0);
+    const unmatched=await fx.admin.post('/api/commerce/admin/orders/manual',{...body,idempotencyKey:'aud-manual-unknown',customerEmail:'nobody@example.com'});assert.equal(unmatched.status,201,JSON.stringify(unmatched.body));assert.equal(unmatched.body.order.discountTotal,0);
+  } finally {await fx.cleanup()}
+});
+
+test('pricing reads membership and product prices from the same snapshot under the checkout lock', async () => {
+  const fx=await audienceFixture();let productId:string|undefined,oldPrice:unknown;
+  try {
+    const variantId=await setStock(SKU,3);await fx.make('any',20);const ava=await customerClient();
+    const created=await startCheckout(ava,[{variantId,quantity:1}]);const checkoutId=created.body.checkout.id;
+    const product=(await query('select p.id,p.price from products p join product_variants v on v.product_id=p.id where v.id=$1',[variantId])).rows[0];productId=product.id;oldPrice=product.price;
+    const {withTransaction}=await import('../src/db');const {refreshQuoteUnderLock}=await import('../src/commerce/payments');
+    let ready!:()=>void,release!:()=>void;const locked=new Promise<void>(r=>ready=r),gate=new Promise<void>(r=>release=r);
+    const pending=withTransaction(async client=>{
+      await client.query('set transaction isolation level repeatable read');
+      const checkout=(await client.query('select * from checkout_sessions where id=$1 for update',[checkoutId])).rows[0];ready();await gate;
+      return refreshQuoteUnderLock(client,checkout);
+    });
+    await locked;
+    try {
+      assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200);
+      await query('update products set price=price+100 where id=$1',[productId]);
+    } finally {release()}
+    assert.equal(await pending,null,'the earlier snapshot cannot combine old eligibility with new prices');
+    const fresh=await withTransaction(async client=>{
+      await client.query('set transaction isolation level repeatable read');
+      const checkout=(await client.query('select * from checkout_sessions where id=$1 for update',[checkoutId])).rows[0];
+      return refreshQuoteUnderLock(client,checkout,true);
+    });
+    assert.ok(fresh);assert.equal(fresh.campaignDiscount,0);assert.equal(fresh.lines[0].unitPrice,Number(oldPrice)+100);
+    const saved=(await query('select quote,manual_quote_confirm_required from checkout_sessions where id=$1',[checkoutId])).rows[0];assert.equal(saved.quote.quoteVersion,fresh.quoteVersion);assert.equal(saved.manual_quote_confirm_required,true);
+  } finally {if(productId)await query('update products set price=$1 where id=$2',[oldPrice,productId]);await fx.cleanup()}
+});
+
+test('stale promotion projections cannot overwrite targeted rules, and invalid audiences fail closed', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variantId=await setStock(SKU,3),id=await fx.make('any',25);const ava=await customerClient();
+    const doc=(await query("select value from state_documents where key='admin'")).rows[0].value;
+    const old=structuredClone(doc);old.campaigns.find((r:any)=>r.id===id).audience=null;
+    const {syncPromotions}=await import('../src/commerce/promotions');await syncPromotions(old);
+    await query('update price_rules set active=false where id<>$1',[id]);
+    const rule=(await query('select audience,active from price_rules where id=$1',[id])).rows[0];assert.equal(rule.active,true);assert.equal(rule.audience.labels.includes(fx.manual.id),true);
+    const quote=()=>ava.post('/api/commerce/quote',{items:[{variantId,quantity:1}]});assert.ok((await quote()).body.campaignDiscount>0);
+    for(const audience of [{mode:'any',labels:[]},{mode:'any',labels:[fx.manual.id],unknown:true},{mode:'any',labels:['deleted-label']}]) {
+      await query('update price_rules set audience=$2::jsonb where id=$1',[id,JSON.stringify(audience)]);assert.equal((await quote()).body.campaignDiscount,0);
+    }
+    await syncPromotions(old);await query('update price_rules set active=false where id<>$1',[id]);assert.ok((await quote()).body.campaignDiscount>0);
+  } finally {await fx.cleanup()}
+});
+
+test('manual order requires renewed confirmation when customer audience changes after quote', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variantId=await setStock(SKU,3);await fx.make('any',20);
+    const body={items:[{variantId,quantity:1}],customerEmail:'ava@example.com',address:{receiver:'مشتری',phone:'09121234567',street:'نشانی'},paymentReference:'AUD-CONFIRM',idempotencyKey:'aud-confirmation'};
+    const {startCheckout:reserve}=await import('../src/commerce/checkout');
+    const initial=await reserve({items:body.items,customerEmail:body.customerEmail,address:body.address,idempotencyKey:`manual:${body.idempotencyKey}`,allowAnonymousReuse:true});assert.ok(initial.checkout.quote.campaignDiscount>0);
+    assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200);
+    const stale=await fx.admin.post('/api/commerce/admin/orders/manual',body);assert.equal(stale.status,409,JSON.stringify(stale.body));assert.equal(stale.body.code,'quote_stale');assert.equal(stale.body.details.quote.campaignDiscount,0);
+    const missing=await fx.admin.post('/api/commerce/admin/orders/manual',body);assert.equal(missing.status,409);assert.equal(missing.body.code,'manual_quote_confirmation_required');
+    const confirmed=await fx.admin.post('/api/commerce/admin/orders/manual',{...body,confirmedQuoteVersion:stale.body.details.quote.quoteVersion});assert.equal(confirmed.status,201,JSON.stringify(confirmed.body));assert.equal(confirmed.body.order.discountTotal,0);
+  } finally {await fx.cleanup()}
 });

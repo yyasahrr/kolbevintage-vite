@@ -1,5 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { config } from "../config";
+import type { PoolClient } from "pg";
 import { query, withTransaction } from "../db";
 import type { CheckoutRow } from "./checkout";
 import { getCheckout } from "./checkout";
@@ -10,7 +11,7 @@ import { insertOrder, type OrderStatus } from "./orders";
 import { cashbackWallet, redeemCashback, round2 } from "./cashback";
 import { enqueue } from "./outbox";
 import { buildQuote, type Quote } from "./pricing";
-import { loadCommerceSettings, type CommerceSettings } from "./settings";
+import { loadCommerceSettings, loadCommerceSettingsSnapshot, type CommerceSettings } from "./settings";
 import { gatewayConfigured, gatewayProvider } from "./gateway";
 
 /* =====================================================================
@@ -237,6 +238,7 @@ export async function assertQuoteFresh(checkout: CheckoutRow, settings: Commerce
   const fresh = await buildQuote({
     lines: pricedLines,
     couponCode: checkout.coupon_code,
+    customerEmail:checkout.customer_email,
     shippingMethod: checkout.shipping_method,
     settings,
   });
@@ -268,6 +270,30 @@ export async function assertQuoteFresh(checkout: CheckoutRow, settings: Commerce
     );
   }
   return fresh;
+}
+
+/** Re-evaluate under the same repeatable-read snapshot as the financial
+ * commitment. The caller holds the checkout row lock; changes are returned so
+ * the transaction can commit the new quote before a 409 is reported. */
+export async function refreshQuoteUnderLock(client:PoolClient, checkout:CheckoutRow, manualConfirmation=false):Promise<Quote | null> {
+  const settings=await loadCommerceSettingsSnapshot(client);
+  const prices=await client.query<{id:string;price:string;category:string;look_id:string|null}>(`select v.id,p.price,p.category,p.look_id from product_variants v
+    join products p on p.id=v.product_id where v.id=any($1::text[])`,[checkout.quote.lines.map(line=>line.variantId)]);
+  const byId=new Map(prices.rows.map(row=>[row.id,row]));
+  if(checkout.quote.lines.some(line=>!byId.has(line.variantId))) throw new CommerceError("یکی از کالاهای سفارش دیگر در دسترس نیست.",409,"variant_not_found");
+  const lines=quoteInputFrom(checkout).map(line=>{const product=byId.get(line.variantId)!;return {...line,unitPrice:Number(product.price),category:product.category,lookId:product.look_id};});
+  const fresh=await buildQuote({lines,couponCode:checkout.coupon_code,customerEmail:checkout.customer_email,
+    shippingMethod:checkout.shipping_method,settings},client);
+  if(fresh.quoteVersion===checkout.quote_version && !lines.some((line,index)=>line.unitPrice!==checkout.quote.lines[index].unitPrice || line.category!==checkout.quote.lines[index].category || line.lookId!==checkout.quote.lines[index].lookId))return null;
+  await client.query(`update checkout_sessions set quote=$2::jsonb,quote_version=$3,subtotal=$4,discount_total=$5,
+    shipping_total=$6,grand_total=$7,quote_expires_at=$8,updated_at=now(),
+    manual_quote_confirm_required=case when $9 then true else manual_quote_confirm_required end where id=$1`,
+    [checkout.id,JSON.stringify(fresh),fresh.quoteVersion,fresh.subtotal,fresh.discountTotal,fresh.shippingTotal,fresh.grandTotal,new Date(fresh.expiresAt),manualConfirmation]);
+  return fresh;
+}
+
+export function staleQuoteError(quote:Quote) {
+  return new CommerceError("قیمت یا شرایط سبد تغییر کرده است. مبلغ به‌روز شد؛ یک بار دیگر تأیید کن.",409,"quote_stale",{quote});
 }
 
 export async function startPayment(input: {
@@ -397,30 +423,39 @@ export async function startPayment(input: {
   const attemptId = `pay_${randomUUID()}`;
   const expiresAt = new Date(Date.now() + settings.paymentWindowMinutes * 60_000);
   const chargeable = round2(Math.max(0, Number(checkout.quote.grandTotal) - walletApplied));
-  const res = await withTransaction(async client => {
+  const result = await withTransaction(async client => {
+    await client.query("set transaction isolation level repeatable read");
     const locked=(await client.query<CheckoutRow>("select * from checkout_sessions where id=$1 for update",[checkout.id])).rows[0];
     if (!locked || locked.status!=="reserved" || (locked.reservation_expires_at && new Date(locked.reservation_expires_at)<=new Date()) ||
         locked.quote_version!==checkout.quote_version || JSON.stringify(locked.quote)!==JSON.stringify(checkout.quote) ||
         locked.shipping_method!==checkout.shipping_method || locked.coupon_code!==checkout.coupon_code) {
       throw new CommerceError("تسویه هم‌زمان تغییر کرد؛ دوباره بررسی کنید.",409,"checkout_changed");
     }
+    const fresh=await refreshQuoteUnderLock(client,locked);
+    if(fresh) return {stale:fresh,attempt:null};
     const uncertain=await client.query("select id from payment_attempts where checkout_id=$1 and status='exception' and last_error='payment_initiation_unconfirmed'",[locked.id]);
     if (uncertain.rowCount) throw new CommerceError("نتیجه پرداخت قبلی نامشخص است؛ ابتدا بررسی مالی لازم است.",409,"payment_initiation_unconfirmed");
     if (idempotencyKey) {
       const existing=await client.query("select id from payment_attempts where idempotency_key=$1",[idempotencyKey]);
       if (existing.rowCount) throw new CommerceError("درخواست پرداخت در حال پردازش است؛ دوباره امتحان کنید.",409,"idempotency_in_progress");
     }
-    return client.query<PaymentAttemptRow>(
+    const inserted=await client.query<PaymentAttemptRow>(
       `insert into payment_attempts (id, checkout_id, provider, method, amount, wallet_applied, wallet_email,
                                      status, idempotency_key, expires_at, quote_snapshot)
        values ($1, $2, $3, $4, $5, $6, $7, 'initiated', $8, $9, $10::jsonb) returning *`,
       [attemptId, locked.id, provider.id, method, chargeable, walletApplied, walletApplied > 0 ? walletEmail : null, idempotencyKey, expiresAt, JSON.stringify(locked.quote)],
     );
+    return {stale:null,attempt:inserted.rows[0]};
+  }).catch(error=>{
+    if ((error as {code?:string})?.code === "40001") throw new CommerceError("تسویه هم‌زمان تغییر کرد؛ دوباره بررسی کنید.",409,"checkout_changed");
+    throw error;
   });
+  if(result.stale) throw staleQuoteError(result.stale);
+  const attempt=result.attempt!;
 
   let initiated: Awaited<ReturnType<PaymentProvider["initiate"]>>;
   try {
-    initiated = await provider.initiate(res.rows[0]);
+    initiated = await provider.initiate(attempt);
   } catch {
     // Even a timeout may have created a remote payment. Preserve the attempt
     // and queue a financial review rather than automatically calling again.

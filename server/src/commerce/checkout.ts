@@ -176,6 +176,7 @@ export async function startCheckout(input: {
   const quote = await buildQuote({
     lines,
     couponCode: input.couponCode ?? null,
+    customerEmail:input.customerEmail ?? null,
     shippingMethod,
     settings,
   });
@@ -302,7 +303,7 @@ export async function requoteCheckout(
 
   const shippingMethod = patch.shippingMethod ?? checkout.shipping_method;
   const couponCode = patch.couponCode === undefined ? checkout.coupon_code : patch.couponCode;
-  const quote = await buildQuote({ lines, couponCode, shippingMethod, settings });
+  const quote = await buildQuote({ lines, couponCode, shippingMethod, settings, customerEmail:checkout.customer_email });
 
   // the hold quantity never changes here; only money does
   const updated = await query(

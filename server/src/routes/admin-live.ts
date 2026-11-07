@@ -81,8 +81,8 @@ export async function adminLiveRoutes(app: FastifyInstance) {
       const doc = res.rows[0]?.value; if (!doc) throw notFound("سند فروشگاه پیدا نشد.");
       doc.campaigns = [campaign, ...(Array.isArray(doc.campaigns) ? doc.campaigns : [])];
       await client.query("update state_documents set value=$1::jsonb, updated_at=now() where key='admin'", [JSON.stringify(doc)]);
-      await client.query(`insert into price_rules(id,name,kind,value,scope,scope_id,min_subtotal,max_discount,priority,stackable,starts_at,ends_at,active,free_shipping)
-        values($1,$2,$3,$4,$5,$6,$7,$8,0,false,$9,$10,false,$11)`, [id,name,kind === "fixed" ? "amount" : kind,value,scope,scopeId || null,minSpend,maxDiscount,start ? `${start}T00:00:00Z` : null,end ? `${end}T23:59:59.999Z` : null,freeShipping]);
+      await client.query(`insert into price_rules(id,name,kind,value,scope,scope_id,min_subtotal,max_discount,priority,stackable,starts_at,ends_at,active,free_shipping,audience)
+        values($1,$2,$3,$4,$5,$6,$7,$8,0,false,$9,$10,false,$11,$12::jsonb)`, [id,name,kind === "fixed" ? "amount" : kind,value,scope,scopeId || null,minSpend,maxDiscount,start ? `${start}T00:00:00Z` : null,end ? `${end}T23:59:59.999Z` : null,freeShipping,audience === null ? null : JSON.stringify(audience)]);
       await recordAudit({actor:actor.subject,action:"campaign.created",targetType:"campaign",targetId:id,after:campaign,requestId:req.id},client);
     });
     return reply.code(201).send({ok:true,id});
@@ -98,7 +98,7 @@ export async function adminLiveRoutes(app: FastifyInstance) {
       const index=doc.campaigns.findIndex((c:any)=>c?.id===req.params.id);
       if(index<0)throw notFound("پیش‌نویس پیدا نشد.");
       const draft=doc.campaigns[index];
-      if(!hasUnsupportedCampaignRestrictions(draft))throw conflict("فقط پیش‌نویس محدود غیرفعال قابل حذف است.","campaign_draft_not_discardable");
+      if(draft.audience == null && !hasUnsupportedCampaignRestrictions(draft))throw conflict("فقط پیش‌نویس محدود غیرفعال قابل حذف است.","campaign_draft_not_discardable");
       const projected=(await client.query<{active:boolean}>("select active from price_rules where id=$1 for update",[req.params.id])).rows[0];
       if(projected?.active)throw conflict("قانون قیمت‌گذاری فعال است و باید ابتدا غیرفعال شود.","campaign_draft_not_discardable");
       doc.campaigns.splice(index,1);
@@ -136,6 +136,7 @@ export async function adminLiveRoutes(app: FastifyInstance) {
     const {kind,id} = req.params, active = req.body?.active;
     if (!["campaigns","coupons"].includes(kind) || typeof active !== "boolean") throw validation("وضعیت معتبر نیست.");
     await withTransaction(async client => {
+      const labels=kind === "campaigns" ? await lockedDefinitions(client) : [];
       const result = await client.query<{value:Record<string,any>}>("select value from state_documents where key='admin' for update");
       const doc = result.rows[0]?.value; if (!doc) throw notFound("سند فروشگاه پیدا نشد.");
       const key = kind === "campaigns" ? "campaigns" : "coupons";
@@ -143,10 +144,15 @@ export async function adminLiveRoutes(app: FastifyInstance) {
       const index = list.findIndex((item:any) => kind === "campaigns" ? item.id === id : String(item.code).toUpperCase() === id.toUpperCase());
       if (index < 0) throw notFound("کمپین یا کد در سند فروشگاه پیدا نشد.");
       if (kind === "campaigns" && active && hasUnsupportedCampaignRestrictions(list[index])) {
-        throw conflict("هدف‌گیری برچسب یا دسترسی زودهنگام این کمپین هنوز پشتیبانی نمی‌شود و فعال‌سازی امن نیست.","campaign_restriction_unsupported");
+        throw conflict("تنظیمات مخاطب نامعتبر است یا دسترسی زودهنگام این کمپین هنوز پشتیبانی نمی‌شود.","campaign_restriction_unsupported");
+      }
+      const rawAudience=kind === "campaigns" ? list[index].audience ?? null : null;
+      if (active && rawAudience !== null) {
+        const audience=labelAudience(rawAudience);
+        if(audience.labels.some(labelId=>!labels.some(label=>label.id===labelId))) throw conflict("برچسب مخاطب پیدا نشد؛ فعال‌سازی ممکن نیست.","campaign_audience_invalid");
       }
       list[index] = { ...list[index], active }; doc[key] = list;
-      const updated = kind === "campaigns" ? await client.query("update price_rules set active=$2,updated_at=now() where id=$1 returning id", [id,active]) : await client.query("update coupons set active=$2,updated_at=now() where code=$1 returning code", [id.toUpperCase(),active]);
+      const updated = kind === "campaigns" ? await client.query("update price_rules set active=$2,audience=$3::jsonb,updated_at=now() where id=$1 returning id", [id,active,rawAudience === null ? null : JSON.stringify(rawAudience)]) : await client.query("update coupons set active=$2,updated_at=now() where code=$1 returning code", [id.toUpperCase(),active]);
       if (!updated.rowCount) throw notFound("کمپین یا کد در قیمت‌گذاری پیدا نشد.");
       await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='admin'",[JSON.stringify(doc)]);
       await recordAudit({actor:actor.subject,action:`${kind}.status`,targetType:kind,targetId:id,after:{active},requestId:req.id},client);

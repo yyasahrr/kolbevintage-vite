@@ -1,4 +1,5 @@
 import { query } from "../db";
+import type { PoolClient } from "pg";
 import { getDocument } from "../seed";
 
 /* =====================================================================
@@ -151,6 +152,13 @@ export async function loadCommerceSettings(force = false): Promise<CommerceSetti
   const value = { ...DEFAULT_COMMERCE_SETTINGS, ...(res.rows[0]?.value ?? {}) };
   cache = { value, at: Date.now() };
   return value;
+}
+
+/** For financial commitments, read settings within the same MVCC snapshot as
+ * promotions, prices and customer eligibility; bypass the UI cache. */
+export async function loadCommerceSettingsSnapshot(client:PoolClient):Promise<CommerceSettings> {
+  const res=await client.query<{value:Partial<CommerceSettings>}>("select value from commerce_settings where key=$1",[SETTINGS_KEY]);
+  return {...DEFAULT_COMMERCE_SETTINGS,...(res.rows[0]?.value ?? {})};
 }
 
 export function invalidateCommerceSettings() {

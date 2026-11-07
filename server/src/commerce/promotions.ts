@@ -1,4 +1,5 @@
 import { withTransaction } from "../db";
+import { labelAudience } from "./audiences";
 
 /* =====================================================================
    Promotions — the admin panel edits campaigns and discount rules in the
@@ -20,10 +21,13 @@ const num = (value: unknown, fallback = 0) => {
 const dayStart = (value: string | undefined) => (value ? new Date(`${value}T00:00:00.000Z`) : null);
 const dayEnd = (value: string | undefined) => (value ? new Date(`${value}T23:59:59.999Z`) : null);
 
-// Reserved for the not-yet-supported audience / early-access contract. Never
-// silently turn such a document into an unrestricted, active promotion.
+// Only the explicit validated audience shape is supported. Unknown aliases or
+// any early-access restriction must not turn into an unrestricted promotion.
 export function hasUnsupportedCampaignRestrictions(rule: Doc): boolean {
-  return ["audience", "audienceLabels", "audienceMode", "customerLabels", "targetLabels",
+  if (rule.audience != null) {
+    try { labelAudience(rule.audience); } catch { return true; }
+  }
+  return ["audienceLabels", "audienceMode", "customerLabels", "targetLabels",
     "access", "accessMode", "earlyAccess", "earlyAccessMode", "earlyStartAt"]
     .some(key => Object.prototype.hasOwnProperty.call(rule, key) && rule[key] != null);
 }
@@ -51,9 +55,16 @@ interface RuleRow {
   active: boolean;
   createdAt: Date;
   freeShipping: boolean;
+  audience: unknown;
 }
 
-export async function syncPromotions(admin: Doc) {
+export async function syncPromotions(fallback: Doc) {
+  // The caller's document may already be stale. Lock and re-read the source in
+  // this same transaction so a concurrent targeted save cannot be projected as
+  // an old unrestricted campaign, or erased by an older background sync.
+  await withTransaction(async (client) => {
+  const source=await client.query<{value:Doc}>("select value from state_documents where key='admin' for update");
+  const admin=source.rows[0]?.value ?? fallback;
   const rules = new Map<string, RuleRow>();
 
   for (const campaign of (admin.campaigns ?? []) as Doc[]) {
@@ -75,6 +86,7 @@ export async function syncPromotions(admin: Doc) {
       active: campaign.active !== false && !hasUnsupportedCampaignRestrictions(campaign),
       createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(0),
       freeShipping: campaign.freeShipping === true,
+      audience: campaign.audience ?? null,
     });
   }
 
@@ -99,6 +111,7 @@ export async function syncPromotions(admin: Doc) {
       active: rule.active !== false && !hasUnsupportedCampaignRestrictions(rule),
       createdAt: rule.createdAt ? new Date(rule.createdAt) : new Date(0),
       freeShipping: rule.freeShipping === true,
+      audience: rule.audience ?? null,
     });
   }
 
@@ -109,22 +122,21 @@ export async function syncPromotions(admin: Doc) {
     coupons.set(code, coupon);
   }
 
-  await withTransaction(async (client) => {
     const ids = [...rules.keys()];
     for (const rule of rules.values()) {
       await client.query(
         `insert into price_rules (id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable,
-                                  starts_at, ends_at, active, created_at, free_shipping, updated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,coalesce($14, now()),$15, now())
+                                  starts_at, ends_at, active, created_at, free_shipping, audience, updated_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,coalesce($14, now()),$15,$16::jsonb, now())
          on conflict (id) do update set
            name = excluded.name, kind = excluded.kind, value = excluded.value, scope = excluded.scope,
            scope_id = excluded.scope_id, min_subtotal = excluded.min_subtotal,
            max_discount = excluded.max_discount, priority = excluded.priority,
            stackable = excluded.stackable, starts_at = excluded.starts_at, ends_at = excluded.ends_at,
-           active = excluded.active, free_shipping = excluded.free_shipping, updated_at = now()`,
+           active = excluded.active, free_shipping = excluded.free_shipping, audience = excluded.audience, updated_at = now()`,
         [
           rule.id, rule.name, rule.kind, rule.value, rule.scope, rule.scopeId, rule.minSubtotal,
-          rule.maxDiscount, rule.priority, rule.stackable, rule.startsAt, rule.endsAt, rule.active, rule.createdAt, rule.freeShipping,
+          rule.maxDiscount, rule.priority, rule.stackable, rule.startsAt, rule.endsAt, rule.active, rule.createdAt, rule.freeShipping, rule.audience === null ? null : JSON.stringify(rule.audience),
         ],
       );
     }

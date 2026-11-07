@@ -54,10 +54,10 @@ function publicAdminDoc(doc: Record<string, unknown> | null): Record<string, unk
   // Drafts, stock movements and coupon codes are not public storefront data.
   clone.movements = [];
   clone.coupons = [];
-  // Do not advertise a restricted campaign whose restrictions are not yet
-  // enforced. Admins still see the draft in their privileged document.
+  // Targeted and unsupported campaigns are private to the admin document;
+  // personalized eligibility is returned only by the server quote endpoints.
   for (const key of ["campaigns", "discountRules"]) {
-    if (Array.isArray(clone[key])) clone[key] = (clone[key] as any[]).filter(item => !item || typeof item !== "object" || !hasUnsupportedCampaignRestrictions(item));
+    if (Array.isArray(clone[key])) clone[key] = (clone[key] as any[]).filter(item => !item || typeof item !== "object" || item.audience == null && !hasUnsupportedCampaignRestrictions(item));
   }
   if (Array.isArray(clone.customProducts)) clone.customProducts = clone.customProducts.filter((product: any) => product?.active === true);
   if (Array.isArray(clone.customLooks)) clone.customLooks = clone.customLooks.filter((look: any) => look?.published === true);
@@ -189,7 +189,7 @@ export async function stateRoutes(app: FastifyInstance) {
       await withTransaction(async client => {
         const current=(await client.query<{value:Record<string,any>}>("select value from state_documents where key='admin' for update")).rows[0]?.value ?? {};
         const next=body as Record<string,any>;
-        const restricted=(doc:Record<string,any>) => ["campaigns","discountRules"].some(field => Array.isArray(doc[field]) && doc[field].some((item:any)=>item && typeof item === "object" && hasUnsupportedCampaignRestrictions(item)));
+        const restricted=(doc:Record<string,any>) => ["campaigns","discountRules"].some(field => Array.isArray(doc[field]) && doc[field].some((item:any)=>item && typeof item === "object" && (item.audience != null || hasUnsupportedCampaignRestrictions(item))));
         if (restricted(current) || restricted(next)) throw conflict("سند قدیمی با پیش‌نویس محدود سازگار نیست؛ از پنل کمپین‌ها استفاده کنید.","campaign_draft_legacy_conflict");
         await client.query("insert into state_documents(key,value,updated_at) values('admin',$1::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()",[JSON.stringify(next)]);
       });

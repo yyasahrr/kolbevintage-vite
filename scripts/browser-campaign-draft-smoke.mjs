@@ -18,16 +18,27 @@ try {
  const form=page.locator('form').filter({has:page.getByRole('heading',{name:'پیش‌نویس کمپین'})});
  await form.getByLabel('نام',{exact:true}).fill(name);await form.getByLabel('مقدار',{exact:true}).fill('20');
  await form.getByLabel(label,{exact:true}).check();await form.getByLabel('نحوه تطبیق مخاطب').selectOption('all');
+ await form.getByRole('button',{name:'ثبت پیش‌نویس کمپین'}).click();
+ await page.getByRole('status').filter({hasText:'پیش‌نویس ثبت شد'}).waitFor();
+ let article=page.locator('article').filter({has:page.getByRole('heading',{name,exact:true})});
+ await article.getByRole('button',{name:'فعال‌سازی'}).click();
+ await page.getByRole('status').filter({hasText:'فعال شد'}).waitFor();
+ assert.match(await article.innerText(),/فعال/);
+ await article.getByRole('button',{name:'غیرفعال‌سازی'}).click();
+ page.once('dialog',d=>d.accept());await article.getByRole('button',{name:'حذف پیش‌نویس'}).click();
+ await page.getByRole('status').filter({hasText:'پیش‌نویس محدود حذف شد'}).waitFor();
+ await form.getByLabel('نام',{exact:true}).fill(name);await form.getByLabel('مقدار',{exact:true}).fill('20');
+ await form.getByLabel(label,{exact:true}).check();await form.getByLabel('نحوه تطبیق مخاطب').selectOption('all');
  await form.getByLabel('حالت دسترسی زودهنگام').selectOption('view_purchase');
  await form.getByLabel('زمان آغاز زودهنگام').fill('2029-01-02T12:00');
  await form.getByLabel('شروع',{exact:true}).fill('2030-01-03');
  await form.getByRole('button',{name:'ثبت پیش‌نویس کمپین'}).click();
- await page.getByRole('status').filter({hasText:'پیش‌نویس محدود ذخیره شد'}).waitFor();
- const article=page.locator('article').filter({has:page.getByRole('heading',{name,exact:true})});
+ await page.getByRole('status').filter({hasText:'پیش‌نویس دسترسی زودهنگام ذخیره شد'}).waitFor();
+ article=page.locator('article').filter({has:page.getByRole('heading',{name,exact:true})});
  assert.match(await article.innerText(),/مشاهده و خرید/);assert.match(await article.innerText(),new RegExp(label));
  assert.equal(await article.getByRole('button',{name:'فعال‌سازی'}).isDisabled(),true);
  for(const width of [320,390,768,1280]) {await page.setViewportSize({width,height:850});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow ${width}`)}
  page.once('dialog',d=>d.accept());await article.getByRole('button',{name:'حذف پیش‌نویس'}).click();
  await page.getByRole('status').filter({hasText:'پیش‌نویس محدود حذف شد'}).waitFor();assert.equal(await article.count(),0);
- assert.deepEqual(errors,[]);console.log('OK restricted draft, audience, early access, blocked activation, discard, four widths; isolated database only');
+ assert.deepEqual(errors,[]);console.log('OK audience activation and discard, early access draft, blocked activation, discard, four widths; isolated database only');
 } finally {await browser.close();}

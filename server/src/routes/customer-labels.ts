@@ -34,8 +34,9 @@ function withLabels(row:CustomerRow, definitions:Label[]) {
   const automaticLabels=definitions.filter(d=>d.rule?.type === "delivered_orders" && Number(row.delivered_count)>=d.rule.minCount).map(d=>d.id);
   return {email:row.email,name:row.name,phone:row.phone,createdAt:row.created_at,deliveredOrders:Number(row.delivered_count),manualLabels,automaticLabels,labels:[...new Set([...manualLabels,...automaticLabels])]};
 }
-async function customersWithLabels(definitions:Label[], email?:string) {
-  const rows=await query<CustomerRow>(`select c.email,c.name,c.phone,c.created_at,c.manual_labels,
+async function customersWithLabels(definitions:Label[], email?:string, client?:PoolClient) {
+  const run=client ? client.query.bind(client) : query;
+  const rows=await run<CustomerRow>(`select c.email,c.name,c.phone,c.created_at,c.manual_labels,
     count(o.id)::int as delivered_count from customers c left join orders o
     on o.email=c.email and o.status='delivered' and o.payment_status='settled'
     and (o.data->>'manual'='true' or exists (select 1 from payment_attempts p where p.id=o.data->'commerce'->>'paymentAttemptId' and p.order_id=o.id and p.status='settled' and p.provider not like 'mock%'))
@@ -44,8 +45,9 @@ async function customersWithLabels(definitions:Label[], email?:string) {
     group by c.email order by c.created_at desc,c.email`,[email ?? null]);
   return rows.rows.map(row=>withLabels(row,definitions));
 }
-export async function definitions() {
-  const result=await query<{value:unknown}>("select value from commerce_settings where key=$1",[KEY]);
+export async function definitions(client?:PoolClient) {
+  const run=client ? client.query.bind(client) : query;
+  const result=await run<{value:unknown}>("select value from commerce_settings where key=$1",[KEY]);
   return parseLabels(result.rows[0]?.value);
 }
 /** The same live definitions and delivered-order rule drive previews and pricing. */
@@ -54,6 +56,14 @@ export async function labelsForCustomer(email:string | null | undefined):Promise
   const all=await definitions();
   const rows=await customersWithLabels(all,email.trim().toLowerCase());
   return rows[0]?.labels ?? [];
+}
+
+/** The caller supplies a single transaction snapshot for both the definition
+ * and the delivered-order / manual-assignment facts used to evaluate it. */
+export async function customerLabelContext(client:PoolClient,email:string | null | undefined) {
+  const all=await definitions(client);
+  const rows=email ? await customersWithLabels(all,email.trim().toLowerCase(),client) : [];
+  return {defined:all.map(label=>label.id),actual:rows[0]?.labels ?? []};
 }
 
 export async function customerLabelRoutes(app:FastifyInstance) {

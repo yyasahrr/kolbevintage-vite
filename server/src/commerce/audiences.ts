@@ -1,6 +1,6 @@
 import { validation } from "./errors";
 
-/** Shared contract for the CRM preview and future campaign eligibility.
+/** Shared contract for the CRM preview and campaign eligibility.
  * A restricted audience must contain at least one distinct label. */
 export type LabelAudience = { mode: "any" | "all"; labels: string[] };
 
@@ -9,7 +9,8 @@ export function labelAudience(value: unknown): LabelAudience {
     throw validation("مخاطب برچسب معتبر نیست.");
   }
   const candidate = value as { mode?: unknown; labels?: unknown };
-  if ((candidate.mode !== "any" && candidate.mode !== "all") || !Array.isArray(candidate.labels) ||
+  if (Object.keys(candidate).some(key=>key!=="mode" && key!=="labels") ||
+      (candidate.mode !== "any" && candidate.mode !== "all") || !Array.isArray(candidate.labels) ||
       candidate.labels.length < 1 || candidate.labels.length > 200 ||
       candidate.labels.some(id => typeof id !== "string" || !/^lbl-[a-f0-9-]{36}$/.test(id)) ||
       new Set(candidate.labels).size !== candidate.labels.length) {

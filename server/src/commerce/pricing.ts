@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { query } from "../db";
+import type { PoolClient } from "pg";
+import { withTransaction } from "../db";
+import { customerLabelContext } from "../routes/customer-labels";
+import { labelAudience, matchesLabelAudience } from "./audiences";
 import { computeCashback, type CashbackResult } from "./cashback";
 import { CommerceError } from "./errors";
 import type { CommerceSettings } from "./settings";
@@ -79,6 +82,7 @@ interface RuleRow {
   stackable: boolean;
   active: boolean;
   free_shipping: boolean;
+  audience: unknown;
   updated_at: Date;
 }
 
@@ -123,20 +127,32 @@ export async function buildQuote(params: {
   shippingMethod: "standard" | "express";
   settings: CommerceSettings;
   now?: Date;
-}): Promise<Quote> {
+  customerEmail?: string | null;
+}, client?:PoolClient): Promise<Quote> {
+  if (!client) return withTransaction(async tx=>{
+    await tx.query("set transaction isolation level repeatable read read only");
+    return buildQuote(params,tx);
+  });
+  const run=client.query.bind(client);
   const { lines, shippingMethod, settings } = params;
   if (!lines.length) throw new CommerceError("سبد خرید خالی است.", 400, "empty_cart");
   const now = params.now ?? new Date();
 
-  const rulesRes = await query<RuleRow>(
-    `select id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable, active, free_shipping, updated_at
+  const rulesRes = await run<RuleRow>(
+    `select id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable, active, free_shipping, audience, updated_at
        from price_rules
       where active
         and (starts_at is null or starts_at <= now())
         and (ends_at is null or ends_at >= now())
       order by priority desc, created_at asc, id asc`,
   );
-  const rules = rulesRes.rows;
+  const targeted=rulesRes.rows.some(rule=>rule.audience !== null);
+  const context=targeted ? await customerLabelContext(client,params.customerEmail) : {defined:[],actual:[]};
+  const rules=rulesRes.rows.filter(rule=>{
+    if(rule.audience === null) return true;
+    try { return matchesLabelAudience(labelAudience(rule.audience),context.actual,context.defined); }
+    catch { return false; }
+  });
 
   const subtotal = round2(lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0));
   const eligible = rules.filter((rule) => Number(rule.min_subtotal) <= subtotal);
@@ -159,7 +175,7 @@ export async function buildQuote(params: {
   let couponCandidate = 0;
   let couponRow: { code: string; kind: string; value: string | number; combinable: boolean } | null = null;
   if (code) {
-    const res = await query<{
+    const res = await run<{
       code:string;kind:string;value:string;min_subtotal:string;combinable:boolean;usage_limit:number|null;used_count:number;max_discount:string|null;expired:boolean;started:boolean;
     }>(`select code,kind,value,min_subtotal,combinable,usage_limit,used_count,max_discount,
               (ends_at is not null and ends_at < now()) as expired,
@@ -235,7 +251,8 @@ export async function buildQuote(params: {
     coupon: couponRow,
     shippingMethod,
     settings,
-    outcome: {discounts, shippingTotal, grandTotal, lineDiscounts:quoteLines.map(l=>l.discountAmount)},
+    outcome: {discounts, shippingTotal, grandTotal, freeShippingBy:freeshipCampaign ? "campaign" : thresholdMet ? "threshold" : null,
+      cashback, installments, lineDiscounts:quoteLines.map(l=>l.discountAmount)},
   });
 
   return {

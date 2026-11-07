@@ -905,7 +905,8 @@ export async function commerceRoutes(app: FastifyInstance) {
   /** a browser-side quote preview; the authoritative quote is stored server-side */
   app.post<{
     Body: { items?: CheckoutItemInput[]; couponCode?: string; shippingMethod?: "standard" | "express" };
-  }>("/api/commerce/quote", async (req) => {
+  }>("/api/commerce/quote", async (req,reply) => {
+    reply.header("cache-control","no-store");
     const input = req.body?.items ?? [];
     if (!input.length) throw new CommerceError("سبد خرید خالی است.", 400, "empty_cart");
     const settings = await loadCommerceSettings();
@@ -938,8 +939,10 @@ export async function commerceRoutes(app: FastifyInstance) {
         quantity: Math.trunc(item.quantity),
       };
     });
+    const session=await requireCustomerSessionOrNull(req);
     return buildQuote({
       lines,
+      customerEmail:session?.subject ?? null,
       couponCode: req.body?.couponCode ?? null,
       shippingMethod: req.body?.shippingMethod === "express" ? "express" : "standard",
       settings,
