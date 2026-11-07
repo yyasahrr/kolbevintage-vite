@@ -1,17 +1,22 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, BookOpen } from "lucide-react";
-import { POSTS, useJournal } from "@/data/journal";
+import { useJournalPage } from "@/data/journal";
 import { Chip, EmptyState, PageIntro, Reveal } from "@/components/ui";
 
 
 
 export function JournalPage() {
   const [category, setCategory] = useState<string>("همه");
-  const journal = useJournal();
-  const categories = ["همه", ...new Set(POSTS.map(p => p.category))];
-  const posts = category === "همه" ? POSTS : POSTS.filter((p) => p.category === category);
-  const featured = POSTS.find((p) => p.featured) ?? POSTS[0];
+  const [cursors,setCursors]=useState<(string|null)[]>([null]);
+  const [navigationKey,setNavigationKey]=useState(0);
+  const cursor=cursors[cursors.length-1];
+  const journal=useJournalPage(cursor,navigationKey);
+  const categories=["همه",...new Set(journal.items.map(p=>p.category))];
+  const posts=category === "همه" ? journal.items : journal.items.filter(p=>p.category===category);
+  const featured=cursor===null ? journal.items.find(p=>p.featured) ?? journal.items[0] : undefined;
+  const back=()=>{setCursors(old=>old.slice(0,-1));setNavigationKey(v=>v+1);setCategory("همه")};
+  const next=()=>{if(journal.nextCursor){setCursors(old=>[...old,journal.nextCursor]);setNavigationKey(v=>v+1);setCategory("همه")}};
 
   // the owner can switch the journal off from the panel; when it is off the
   // section is really gone instead of showing an empty shell (decision 62)
@@ -28,19 +33,19 @@ export function JournalPage() {
     );
   }
 
-  if (!featured) return <div className="p-10"><EmptyState icon={<BookOpen className="h-5 w-5" />} title="هنوز مقاله‌ای منتشر نشده" body="به‌زودی دوباره سر بزنید." /></div>;
+  if (!journal.items.length) return <div className="p-10"><EmptyState icon={<BookOpen className="h-5 w-5" />} title={cursor?"مقاله‌ای در این صفحه پیدا نشد":"هنوز مقاله‌ای منتشر نشده"} body={cursor?"فهرست ممکن است تغییر کرده باشد؛ به صفحهٔ قبل برگردید.":"به‌زودی دوباره سر بزنید."} />{cursor&&<button type="button" onClick={back} className="mt-4 rounded-full border px-4 py-2">صفحهٔ قبل</button>}</div>;
   return (
     <div className="pb-14">
       <PageIntro
         crumbs={[{ label: "ژورنال" }]}
-        eyebrow={`${POSTS.length.toLocaleString("fa-IR")} مقاله`}
+        eyebrow={`صفحهٔ ${cursors.length.toLocaleString("fa-IR")} ژورنال`}
         title="ژورنال"
         description="یادداشت‌هایی از آتلیه، رانوی و کمدی که هر روز می‌پوشیم. دربارهٔ پارچه، نسبت و ماندگاری."
       />
 
       <div className="mx-auto w-full max-w-[1500px] px-4 sm:px-6 lg:px-10">
         {/* featured */}
-        <Reveal>
+        {featured&&<Reveal>
           <Link
             to={`/journal/${featured.slug}`}
             className="group grid overflow-hidden rounded-2xl border border-black/[0.06] bg-[#f1ebe2] lg:grid-cols-[1.15fr_1fr]"
@@ -80,7 +85,7 @@ export function JournalPage() {
               </span>
             </div>
           </Link>
-        </Reveal>
+        </Reveal>}
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1.5">
@@ -90,7 +95,7 @@ export function JournalPage() {
               </Chip>
             ))}
           </div>
-          <p className="text-[11px] text-ink-45">{posts.length.toLocaleString("fa-IR")} مقاله</p>
+          <p className="text-[11px] text-ink-45">{posts.length.toLocaleString("fa-IR")} مقاله در این صفحه · فیلتر دسته فقط همین صفحه را پوشش می‌دهد</p>
         </div>
 
         <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -134,6 +139,11 @@ export function JournalPage() {
             </Reveal>
           ))}
         </div>
+        {(cursor||journal.nextCursor)&&<nav aria-label="صفحه‌بندی ژورنال" className="mt-8 flex flex-wrap items-center gap-3">
+          <button type="button" className="rounded-full border border-current px-4 py-2 text-sm disabled:opacity-40" onClick={back} disabled={!cursor}>صفحهٔ قبل</button>
+          <span className="text-sm">صفحهٔ {cursors.length.toLocaleString("fa-IR")}</span>
+          <button type="button" className="rounded-full border border-current px-4 py-2 text-sm disabled:opacity-40" onClick={next} disabled={!journal.nextCursor}>مقالات قدیمی‌تر</button>
+        </nav>}
       </div>
 
       <div className="mt-12">

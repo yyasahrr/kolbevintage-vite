@@ -27,16 +27,25 @@ function cleanFields(b:Record<string,unknown>) {
 }
 
 export async function journalRoutes(app:FastifyInstance) {
-  app.get("/api/public/journal",async (_req,reply)=>{
+  app.get<{Querystring:{before?:unknown}}>("/api/public/journal",async (req,reply)=>{
     reply.header("cache-control","no-store");
-    if(!await isEnabled()) return {items:[],enabled:false};
-    const rows=await query<Article>(`select ${fields} from journal_articles where status='published' and published_at<=now() order by published_at desc,id desc limit 100`);
-    return {items:rows.rows.map(dto),enabled:true};
+    const before=req.query.before;
+    if(before!==undefined && (typeof before!=="string" || !/^article-[a-f0-9-]{36}$/.test(before))) throw validation("نشانگر صفحه معتبر نیست.");
+    if(!await isEnabled()) return {items:[],enabled:false,nextCursor:null};
+    // Recheck visibility in the same statement as the list so an intervening
+    // disable cannot expose articles. Cursor anchors are also public articles.
+    const rows=await query<Article>(`select ${fields} from journal_articles
+      where status='published' and published_at<=now()
+        and exists(select 1 from state_documents where key='ops' and value->'features'->>'journal'='true')
+        and ($1::text is null or (published_at,id)<(select published_at,id from journal_articles where id=$1 and status='published' and published_at<=now()))
+      order by published_at desc,id desc limit 101`,[before ?? null]);
+    const page=rows.rows.slice(0,100);
+    return {items:page.map(dto),enabled:true,nextCursor:rows.rows.length>100?page[page.length-1].id:null};
   });
   app.get<{Params:{slug:string}}>("/api/public/journal/:slug",async (req,reply)=>{
     reply.header("cache-control","no-store");
     if(!await isEnabled()) throw notFound("مقاله پیدا نشد.");
-    const rows=await query<Article>(`select ${fields} from journal_articles where slug=$1 and status='published' and published_at<=now()`,[req.params.slug]);
+    const rows=await query<Article>(`select ${fields} from journal_articles where slug=$1 and status='published' and published_at<=now() and exists(select 1 from state_documents where key='ops' and value->'features'->>'journal'='true')`,[req.params.slug]);
     if(!rows.rows[0]) throw notFound("مقاله پیدا نشد.");
     return dto(rows.rows[0]);
   });

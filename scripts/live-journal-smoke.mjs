@@ -10,13 +10,20 @@ Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configu
 window.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){},addListener(){},removeListener(){}});window.scrollTo=()=>{};
 class Observer{observe(){} unobserve(){} disconnect(){}}Object.assign(globalThis,{IntersectionObserver:Observer,ResizeObserver:Observer});
 const row={slug:'real',title:'مقاله واقعی',excerpt:'خلاصه واقعی',category:'راهنما',body:'متن واقعی\n\n<script>bad()</script>',coverUrl:'',publishedAt:'2026-01-01T00:00:00.000Z',seoTitle:'عنوان اختصاصی',seoDescription:'توضیح اختصاصی'};
-let mode='empty';
+const older={...row,slug:'old',title:'مقاله قدیمی',category:'قدیمی'};
+const cursor='article-00000000-0000-4000-8000-000000000001';
+let mode='empty',resolveDelayed,resolveFirst;
 globalThis.fetch=async url=>{
  const p=String(url);
  if(p.startsWith('/api/public/journal')){
    if(mode==='offline')throw new Error('offline');
    if(p.endsWith('/real'))return mode==='published'?new Response(JSON.stringify(row)):new Response('{}',{status:404});
-   return new Response(JSON.stringify({enabled:mode!=='disabled',items:mode==='published'?[row]:[]}));
+   if(mode==='first-delayed' && p==='/api/public/journal')return new Promise(resolve=>{resolveFirst=resolve});
+   if(p.includes('?before=')) {
+     if(mode==='delayed')return new Promise(resolve=>{resolveDelayed=resolve});
+     return new Response(JSON.stringify({enabled:mode!=='disabled',items:mode==='pages'?[older]:[],nextCursor:null}));
+   }
+   return new Response(JSON.stringify({enabled:mode!=='disabled',items:['published','pages','delayed'].includes(mode)?[row]:[],nextCursor:['pages','delayed'].includes(mode)?cursor:null}));
  }
  return new Response('{}',{status:401});
 };
@@ -31,9 +38,22 @@ try{
  assert.match(document.body.textContent,/در حال بارگذاری/);assert.doesNotMatch(document.body.textContent,/شعرِ پالتوی بلند/);
  await act(async()=>{await journal.refreshJournal()});assert.match(document.body.textContent,/هنوز مقاله‌ای منتشر نشده/);
  mode='published';await act(async()=>{await journal.refreshJournal()});assert.match(document.body.textContent,/مقاله واقعی/);assert.match(document.body.textContent,/راهنما/);
+ mode='pages';await act(async()=>{await journal.refreshJournal()});
+ let button=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('مقالات قدیمی‌تر'));assert.ok(button);
+ await act(async()=>{button.click();await new Promise(r=>setTimeout(r,30))});assert.match(document.body.textContent,/مقاله قدیمی/);assert.match(document.body.textContent,/صفحهٔ ۲/);
+ button=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('صفحهٔ قبل'));assert.ok(button);
+ await act(async()=>button.click());assert.match(document.body.textContent,/مقاله واقعی/);
+ mode='delayed';await act(async()=>journal.refreshJournal());button=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('مقالات قدیمی‌تر'));assert.ok(button);
+ await act(async()=>{button.click();await new Promise(r=>setTimeout(r,5))});assert.ok(resolveDelayed);
+ mode='disabled';await act(async()=>{await journal.refreshJournal();resolveDelayed(new Response(JSON.stringify({enabled:true,items:[older],nextCursor:null})));await new Promise(r=>setTimeout(r,10))});
+ assert.match(document.body.textContent,/ژورنال فعلاً خاموش است/);assert.doesNotMatch(document.body.textContent,/مقاله قدیمی/);
+ mode='published';await act(async()=>journal.refreshJournal());
  await act(async()=>{root.render(renderPage('/journal/real',ArticlePage));await new Promise(r=>setTimeout(r,30))});
  assert.match(document.body.textContent,/متن واقعی/);assert.match(document.body.textContent,/<script>bad\(\)<\/script>/);assert.equal(document.querySelector('article script'),null);assert.equal(document.title,'عنوان اختصاصی');
  mode='disabled';await act(async()=>{await journal.refreshJournal();await new Promise(r=>setTimeout(r,30))});assert.doesNotMatch(document.body.textContent,/متن واقعی/);assert.equal(journal.POSTS.length,0);
  mode='offline';await act(async()=>{await journal.refreshJournal();await new Promise(r=>setTimeout(r,30))});assert.match(document.body.textContent,/ارتباط با ژورنال برقرار نشد/);
+ await act(async()=>root.render(renderPage('/journal',JournalPage)));
+ mode='first-delayed';await act(async()=>{journal.startJournal();await new Promise(r=>setTimeout(r,5))});assert.ok(resolveFirst);
+ await act(async()=>{window.dispatchEvent(new window.Event('offline'));resolveFirst(new Response(JSON.stringify({enabled:true,items:[row],nextCursor:null})));await new Promise(r=>setTimeout(r,10))});assert.equal(journal.POSTS.length,0);assert.match(document.body.textContent,/ارتباط با ژورنال برقرار نشد/);
  await act(async()=>root.unmount());console.log('Live journal smoke: loading, empty, published list/detail, escaped text, disabled and offline passed');
 }finally{await vite.close();dom.window.close()}

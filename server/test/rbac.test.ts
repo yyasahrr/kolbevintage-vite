@@ -1293,3 +1293,28 @@ test('journal admin pagination retains older drafts across edits with server per
     assert.ok(!(await guest.get('/api/public/journal')).body.items.some((a:any)=>a.slug.startsWith('page-fixture-')),'drafts never become public through pagination');
   } finally {await query("delete from journal_articles where slug like 'page-fixture-%'");}
 });
+
+test('public journal pages expose only currently published articles and respect disabled journal', async () => {
+  const admin=owner();await admin.login(OWNER_PASSCODE);const guest=makeClient();
+  const original=(await query("select value from state_documents where key='ops'")).rows[0].value;
+  const state=await admin.get('/api/admin/journal');
+  if(!state.body.enabled)assert.equal((await admin.patch('/api/admin/journal-settings',{enabled:true,expectedEnabled:false})).status,200);
+  await query(`insert into journal_articles(id,slug,title,category,status,body,published_at,created_at)
+    select 'article-'||gen_random_uuid(), 'public-page-'||g, 'مقاله عمومی '||g,'test','published','متن',now()-interval '1 hour',now()-interval '1 day' from generate_series(1,105) g`);
+  await query(`insert into journal_articles(id,slug,title,category,status,body,published_at) values
+    ('article-'||gen_random_uuid(),'public-page-secret','draft','test','draft','secret',now()-interval '1 day'),
+    ('article-'||gen_random_uuid(),'public-page-future','future','test','published','future',now()+interval '1 day')`);
+  try {
+    assert.equal((await guest.get('/api/public/journal?before=bad!')).status,422);
+    const first=await guest.get('/api/public/journal');assert.equal(first.status,200);assert.equal(first.body.items.length,100);assert.ok(first.body.nextCursor);
+    const second=await guest.get(`/api/public/journal?before=${first.body.nextCursor}`);assert.equal(second.status,200);
+    const fixtures=[...first.body.items,...second.body.items].filter((a:any)=>/^public-page-\d+$/.test(a.slug));
+    assert.equal(fixtures.length,105);assert.equal(new Set(fixtures.map((a:any)=>a.id)).size,105);
+    assert.ok(![...first.body.items,...second.body.items].some((a:any)=>['public-page-secret','public-page-future'].includes(a.slug)));
+    await query("update journal_articles set status='draft' where id=$1",[first.body.nextCursor]);
+    const revoked=await guest.get(`/api/public/journal?before=${first.body.nextCursor}`);assert.deepEqual(revoked.body.items,[]);
+    assert.equal((await admin.patch('/api/admin/journal-settings',{enabled:false,expectedEnabled:true})).status,200);
+    const disabled=await guest.get(`/api/public/journal?before=${first.body.nextCursor}`);assert.equal(disabled.body.enabled,false);assert.deepEqual(disabled.body.items,[]);assert.equal(disabled.body.nextCursor,null);
+    assert.equal((await guest.get(`/api/public/journal/${fixtures[0].slug}`)).status,404);
+  } finally {await query("delete from journal_articles where slug like 'public-page-%'");await query("update state_documents set value=$1::jsonb where key='ops'",[JSON.stringify(original)]);}
+});

@@ -19,25 +19,53 @@ function valid(a:unknown):a is Article {
 }
 export const POSTS:Post[]=[];
 type Status="loading"|"online"|"offline";
-let snapshot:{status:Status;enabled:boolean}={status:"loading",enabled:false};
+type JournalPageData={status:Status;enabled:boolean;items:Post[];nextCursor:string|null};
+let snapshot:{status:Status;enabled:boolean;nextCursor:string|null}={status:"loading",enabled:false,nextCursor:null};
 const listeners=new Set<()=>void>();
 const subscribe=(fn:()=>void)=>{listeners.add(fn);return ()=>listeners.delete(fn)};
 const getSnapshot=()=>snapshot;
 export const useJournal=()=>useSyncExternalStore(subscribe,getSnapshot,getSnapshot);
-function publish(status:Status,enabled:boolean,posts:Post[]) {POSTS.splice(0,POSTS.length,...posts);snapshot={status,enabled};listeners.forEach(fn=>fn())}
+function publish(status:Status,enabled:boolean,posts:Post[],nextCursor:string|null=null) {POSTS.splice(0,POSTS.length,...posts);snapshot={status,enabled,nextCursor};listeners.forEach(fn=>fn())}
+async function fetchJournalPage(cursor:string|null) {
+  const url=cursor ? `/api/public/journal?before=${encodeURIComponent(cursor)}` : "/api/public/journal";
+  const response=await fetch(url,{cache:"no-store",credentials:"same-origin",signal:AbortSignal.timeout(10000)});
+  if(!response.ok)throw new Error("offline");const data:unknown=await response.json();
+  if(!data || typeof data!=="object")throw new Error("invalid");
+  const d=data as {items:unknown;enabled:unknown;nextCursor?:unknown};
+  if(typeof d.enabled!=="boolean" || !Array.isArray(d.items) || d.items.length>100 || !d.items.every(valid) || (!d.enabled && d.items.length) || (d.nextCursor != null && (typeof d.nextCursor!=="string" || !/^article-[a-f0-9-]{36}$/.test(d.nextCursor))) || (!d.enabled && d.nextCursor != null)) throw new Error("invalid");
+  return {enabled:d.enabled,posts:(d.items as Article[]).map(toPost),nextCursor:typeof d.nextCursor==="string"?d.nextCursor:null};
+}
 let pending:Promise<void>|null=null;
+let refreshGeneration=0;
 export function refreshJournal():Promise<void> {
   if(pending)return pending;
+  const generation=++refreshGeneration;
   pending=(async()=>{try{
-    const response=await fetch("/api/public/journal",{cache:"no-store",credentials:"same-origin",signal:AbortSignal.timeout(10000)});
-    if(!response.ok)throw new Error("offline");const data:unknown=await response.json();
-    if(!data || typeof data!=="object")throw new Error("invalid");
-    const d=data as {items:unknown;enabled:unknown};if(typeof d.enabled!=="boolean" || !Array.isArray(d.items) || !d.items.every(valid) || (!d.enabled && d.items.length)) throw new Error("invalid");
-    const posts=(d.items as Article[]).map(toPost);if(posts[0])posts[0].featured=true;publish("online",d.enabled,posts);
-  }catch {publish("offline",false,[])}finally{pending=null}})();return pending;
+    const data=await fetchJournalPage(null);if(generation!==refreshGeneration)return;
+    if(data.posts[0])data.posts[0].featured=true;publish("online",data.enabled,data.posts,data.nextCursor);
+  }catch {if(generation===refreshGeneration)publish("offline",false,[])}finally{if(generation===refreshGeneration)pending=null}})();return pending;
+}
+/** One page at a time. Refreshing the shared first page revalidates the
+ * currently viewed page, so unpublishing, disabling and network failures never
+ * leave a previously fetched page visible indefinitely. */
+export function useJournalPage(cursor:string|null,navigationKey:number):JournalPageData {
+  const journal=useJournal();
+  const [other,setOther]=useState<{cursor:string;navigationKey:number;revision:typeof journal;data:JournalPageData}|null>(null);
+  useEffect(()=>{
+    if(!cursor || journal.status!=="online" || !journal.enabled)return;
+    let cancelled=false;
+    setOther({cursor,navigationKey,revision:journal,data:{status:"loading",enabled:true,items:[],nextCursor:null}});
+    fetchJournalPage(cursor).then(data=>{if(!cancelled)setOther({cursor,navigationKey,revision:journal,data:{status:"online",enabled:data.enabled,items:data.posts,nextCursor:data.nextCursor}})})
+      .catch(()=>{if(!cancelled)setOther({cursor,navigationKey,revision:journal,data:{status:"offline",enabled:false,items:[],nextCursor:null}})});
+    return ()=>{cancelled=true};
+  },[cursor,journal,navigationKey]);
+  if(journal.status!=="online" || !journal.enabled) return {status:journal.status,enabled:journal.enabled,items:[],nextCursor:null};
+  if(!cursor)return {status:"online",enabled:true,items:POSTS,nextCursor:journal.nextCursor};
+  if(other?.cursor!==cursor || other.navigationKey!==navigationKey || other.revision!==journal)return {status:"loading",enabled:true,items:[],nextCursor:null};
+  return other.data;
 }
 let started=false;
-export function startJournal(){if(started)return;started=true;void refreshJournal();window.setInterval(()=>{if(document.visibilityState==="visible")void refreshJournal()},30000);window.addEventListener("focus",()=>void refreshJournal());window.addEventListener("online",()=>void refreshJournal());window.addEventListener("offline",()=>publish("offline",false,[]));}
+export function startJournal(){if(started)return;started=true;void refreshJournal();window.setInterval(()=>{if(document.visibilityState==="visible")void refreshJournal()},30000);window.addEventListener("focus",()=>void refreshJournal());window.addEventListener("online",()=>void refreshJournal());window.addEventListener("offline",()=>{refreshGeneration++;pending=null;publish("offline",false,[])});}
 export function useArticle(slug:string|undefined) {
   const journal=useJournal();
   const [result,setResult]=useState<{slug:string|undefined;status:"loading"|"online"|"not-found"|"offline";post?:Post}>({slug,status:"loading"});
