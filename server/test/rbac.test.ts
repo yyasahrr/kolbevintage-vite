@@ -986,7 +986,7 @@ test("older journal-free backups require explicit opt-in and restore only in an 
   const precision=`restore-precision-${randomUUID()}`;
   try {
     await query("insert into state_documents(key,value) values($1,$2::jsonb)",[precision,'{"amount":900719925474099312345,"fraction":123456789012345.678901}']);
-    const payload=await dumpAll();for (const row of payload.data.customers) delete (row as Record<string,unknown>).manual_labels;for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;for (const row of payload.data.payment_attempts) delete (row as Record<string,unknown>).quote_snapshot;for (const row of payload.data.checkout_sessions) delete (row as Record<string,unknown>).manual_quote_confirm_required;payload.tables=payload.tables.filter(t=>t!=="journal_articles" && t!=="support_tickets");delete payload.data.journal_articles;delete payload.data.support_tickets;
+    const payload=await dumpAll();for (const row of payload.data.customers) {delete (row as Record<string,unknown>).manual_labels;delete (row as Record<string,unknown>).personal_measurements;}for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;for (const row of payload.data.payment_attempts) delete (row as Record<string,unknown>).quote_snapshot;for (const row of payload.data.checkout_sessions) delete (row as Record<string,unknown>).manual_quote_confirm_required;payload.tables=payload.tables.filter(t=>t!=="journal_articles" && t!=="support_tickets");delete payload.data.journal_articles;delete payload.data.support_tickets;
     const file=path.join(dir,"before-journal.json");await fs.writeFile(file,stringify(payload)!);
     const badFile=path.join(dir,"missing-two.json");const other={...payload,tables:payload.tables.filter(t=>t!=="products"),data:{...payload.data}};delete other.data.products;await fs.writeFile(badFile,stringify(other)!);
     await admin.query(`create database "${name}"`);created=true;conn=new pg.Client({connectionString:target.toString()});await conn.connect();await conn.query(await fs.readFile("server/src/schema.sql","utf8"));
@@ -1005,6 +1005,7 @@ test("older journal-free backups require explicit opt-in and restore only in an 
     assert.equal((await conn.query("select count(*)::int n from support_tickets")).rows[0].n,0);
     assert.equal((await conn.query("select count(*)::int n from journal_articles")).rows[0].n,0);assert.equal((await conn.query("select count(*)::int n from products")).rows[0].n,payload.data.products.length);
     assert.equal((await conn.query("select count(*)::int n from customers where manual_labels is not null")).rows[0].n,0,"old backup customers restore without labels");
+    assert.equal((await conn.query("select count(*)::int n from customers where personal_measurements is not null")).rows[0].n,0,"old backup cannot manufacture personal measurements");
     assert.equal((await conn.query("select count(*)::int n from price_rules where free_shipping")).rows[0].n,0,"old campaigns restore without the new shipping benefit");
     assert.equal((await conn.query("select count(*)::int n from checkout_sessions where manual_quote_confirm_required is not null")).rows[0].n,0,"old checkouts remain compatible without confirmation column");
     const restored=(await conn.query("select (value->'amount')::text amount,(value->'fraction')::text fraction from state_documents where key=$1",[precision])).rows[0];assert.equal(restored.amount,"900719925474099312345");assert.equal(restored.fraction,"123456789012345.678901");
@@ -1250,4 +1251,24 @@ test('support admin permissions separate viewing from replying and closing', asy
     assert.equal((await editor.post(`/api/admin/support/tickets/${id}/messages`,{message:'reply',requestKey:'editor-message-001'})).status,200);
     assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedStatus:'answered'})).status,200);
   }finally{await query('delete from support_tickets where id=$1',[id]);await query("delete from customers where email='private@example.com'");}
+});
+
+test('current backups retain personal measurements when restored inside an isolated transaction', async () => {
+  const {createBackup,restoreBackup}=await import('../src/backup');const {withTransaction}=await import('../src/db');const fs=await import('node:fs/promises');
+  const values={height:173.5,chest:94,waist:null,hip:101,shoulder:null,sleeve:null,inseam:null};
+  const original=(await query("select personal_measurements from customers where email='ava@example.com'")).rows[0].personal_measurements;
+  let file='';
+  try {
+    await query("update customers set personal_measurements=$1::jsonb where email='ava@example.com'",[JSON.stringify(values)]);
+    const backup=await createBackup('manual');file=backup.file;
+    await withTransaction(async tx=>{
+      await tx.query("update customers set personal_measurements=null where email='ava@example.com'");
+      await restoreBackup(file,{client:tx});
+      assert.deepEqual((await tx.query("select personal_measurements from customers where email='ava@example.com'")).rows[0].personal_measurements,values);
+      throw new Error('rollback');
+    }).catch((error:Error)=>assert.equal(error.message,'rollback'));
+  } finally {
+    await query("update customers set personal_measurements=$1::jsonb where email='ava@example.com'",[original===null?null:JSON.stringify(original)]);
+    if(file)await fs.unlink(file).catch(()=>undefined);
+  }
 });

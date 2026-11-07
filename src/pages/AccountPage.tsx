@@ -1,3 +1,4 @@
+import { MeasurementsTab } from "@/components/account/Measurements";
 import { SupportTickets } from "@/components/account/SupportTickets";
 import { useEffect, useRef, useState } from "react";
 import { formatJalali } from "@/utils/date";
@@ -196,7 +197,7 @@ function AccountContent() {
 
           {tab === "tickets" && <SupportTickets />}
 
-          {tab === "size" && <SizeTab />}
+          {tab === "size" && <MeasurementsTab />}
 
           {tab === "security" && <SecurityTab />}
         </main>
@@ -436,12 +437,6 @@ function Returns({email,orderState}:{email:string;orderState:Remote<CustomerOrde
       {history.status === "loading" ? <p role="status">در حال دریافت درخواست‌ها…</p> : history.status === "error" ? <p role="alert">دریافت درخواست‌ها ناموفق بود. <button type="button" className="acc-link" onClick={history.reload}>تلاش دوباره</button></p> : history.data?.length ? <ul className="acc-orders">{history.data.map(r=><li key={r.id}><div className="acc-order-row"><div><b>{r.name}</b><p className="acc-muted">{r.kind === "exchange" ? "تعویض" : r.kind === "refund" ? "بازپرداخت" : r.kind === "return" ? "مرجوعی" : "درخواست"}</p><p className="acc-muted">{r.color || "—"} / {r.size || "—"} · {r.quantity.toLocaleString("fa-IR")} عدد</p><p className="acc-muted">{formatJalali(r.createdAt)} · سفارش <span dir="ltr">{r.orderId}</span></p></div><span className="acc-pill is-open">{returnStatus(r.status)}</span></div></li>)}</ul> : <p className="acc-muted">درخواستی ثبت نشده است.</p>}
     </section>
   </>;
-}
-
-function SizeTab() {
-  return <section className="acc-card"><header><h3><Ruler width={15} height={15} /> اندازه‌های من</h3></header>
-    <p className="acc-muted">ثبت و ویرایش مطمئن اندازه‌های شخصی هنوز در دسترس نیست. جدول هر محصول را در صفحه همان محصول ببینید یا از فروشگاه راهنمایی بگیرید.</p>
-  </section>;
 }
 
 function SecurityTab() {

@@ -20,6 +20,15 @@ const SCREENS = [
 const THEMES = ["light", "dark"] as const;
 
 async function openPanel(page: Page, path: string, theme: (typeof THEMES)[number]) {
+  // Hide the first-run wizard only in the intercepted test response; never
+  // write the store's real settings just to take a screenshot.
+  await page.route("**/api/bootstrap", async route => {
+    const response = await route.fetch();
+    if (!response.ok()) { await route.fulfill({response}); return; }
+    const body = await response.json();
+    if (body.ops && typeof body.ops === "object") body.ops.setup = {done:true,step:0};
+    await route.fulfill({response,json:body});
+  });
   await page.addInitScript((value) => {
     try {
       localStorage.setItem("kv_admin_theme", value);

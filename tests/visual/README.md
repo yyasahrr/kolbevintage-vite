@@ -15,9 +15,16 @@ reports, and the product-editor modal — in light and dark, at 390 / 768 / 1280
 **Why the list is short:** a golden nobody looks at is a slow test. These are the screens
 where the panel review found real defects, so a diff here is the expensive kind.
 
-**Baselines are environment-owned.** Font rendering differs between operating systems, so
-generate them on the machine (or CI image) that will run the comparison, and commit that
-set. A baseline generated on Linux will not match a macOS runner pixel for pixel.
+**Baselines are environment-owned.** Font rendering differs between operating systems. The
+checked-in images were captured on Linux using the sandbox Chromium and a fresh isolated,
+seeded non-production database; a different browser, OS, font set or changed data can cause
+legitimate diffs. The test modifies the bootstrap response to close the legacy setup wizard,
+without writing store settings. Do not run this on production or with private customer data.
+These images document the current legacy panel, including its known visual shortcomings;
+they do not certify its accessibility, the current Next panel, or production readiness.
+
+After reviewing a deliberate design change, update the baseline on the same reference image
+and explain it in the commit. Never treat arbitrary newly generated screenshots as approval.
 
 **When a diff is real:** open the two images, fix the layout, regenerate the golden in the
 same commit, and say in the message *what* changed. A golden updated without a layout

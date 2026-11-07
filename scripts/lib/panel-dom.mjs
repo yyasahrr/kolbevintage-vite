@@ -18,6 +18,8 @@ function installGlobals(window) {
   Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
   globalThis.location = window.location;
   globalThis.history = window.history;
+  globalThis.localStorage = window.localStorage;
+  globalThis.sessionStorage = window.sessionStorage;
   globalThis.HTMLElement = window.HTMLElement;
   // React's legacy input-value watcher probes these IE-era methods after
   // programmatic focus; jsdom does not provide them (real browsers never need them).

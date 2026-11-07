@@ -1,3 +1,4 @@
+import { measurementRoutes } from "./routes/measurements";
 import { supportRoutes } from "./routes/support";
 import { customerLabelRoutes } from "./routes/customer-labels";
 import { journalRoutes } from "./routes/journal";
@@ -124,6 +125,7 @@ export async function buildServer() {
   await seedRbac();
   await app.register(stateRoutes);
   await app.register(authRoutes);
+  await app.register(measurementRoutes);
   await app.register(catalogRoutes);
   await app.register(categoryRoutes);
   await app.register(sizeSetRoutes);

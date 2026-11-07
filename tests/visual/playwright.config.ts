@@ -19,6 +19,7 @@ const CHROMIUM = process.env.PLAYWRIGHT_CHROMIUM_PATH;
 
 export default defineConfig({
   testDir: ".",
+  snapshotPathTemplate: "{testDir}/__screenshots__/{arg}{ext}",
   fullyParallel: false,
   workers: 1,
   retries: 0,

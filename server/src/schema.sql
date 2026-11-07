@@ -88,6 +88,8 @@ create table if not exists customers (
 -- Nullable for compatibility with logical backups made before CRM labels existed.
 -- NULL means no manually assigned labels; automatic labels are computed live.
 alter table customers add column if not exists manual_labels jsonb;
+-- Private, explicitly entered body measurements; legacy `size` is not migrated.
+alter table customers add column if not exists personal_measurements jsonb;
 
 create table if not exists sessions (
   token text primary key,

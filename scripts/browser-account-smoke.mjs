@@ -58,7 +58,7 @@ try {
   await page.getByLabel('کالا',{exact:true}).selectOption(await again.getAttribute('value'));
   await page.getByRole('button',{name:'ثبت درخواست'}).click();
   await page.getByRole('alert').filter({hasText:'قابل مرجوع'}).waitFor();
-  for (const tab of ['نمای کلی','سفارش‌ها','مرجوعی','کیف پول و کش‌بک','تیکت‌ها','پرو آنلاین']) {
+  for (const tab of ['نمای کلی','سفارش‌ها','مرجوعی','کیف پول و کش‌بک','تیکت‌ها','اندازه‌های من','پرو آنلاین']) {
     await page.locator('.acc-nav').getByRole('button',{name:tab,exact:true}).click();
     await page.waitForTimeout(500);
     for(const width of [320,390,768,1440]) {
@@ -103,6 +103,40 @@ try {
     assert.ok(await admin.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`admin support overflow at ${width}`);
   }
   await admin.close();
+  await page.locator('.acc-nav').getByRole('button',{name:'اندازه‌های من',exact:true}).click();
+  await page.getByLabel('قد به سانتی‌متر').waitFor();
+  assert.equal(await page.getByLabel('قد به سانتی‌متر').inputValue(),'','legacy sample must not appear as a real measurement');
+  await page.getByLabel('قد به سانتی‌متر').fill('۱۷۳٫۵');
+  await page.getByLabel('دور سینه به سانتی‌متر').fill('۹۴');
+  await page.getByRole('button',{name:'ذخیره اندازه‌ها'}).click();
+  await page.getByRole('status').filter({hasText:'در حساب ذخیره شدند'}).waitFor();
+  assert.equal(await page.getByLabel('قد به سانتی‌متر').inputValue(),'173.5');
+  await page.reload({waitUntil:'networkidle'});
+  await page.locator('.acc-nav').getByRole('button',{name:'اندازه‌های من',exact:true}).click();
+  await page.getByLabel('قد به سانتی‌متر').waitFor();
+  assert.equal(await page.getByLabel('قد به سانتی‌متر').inputValue(),'173.5');
+  await page.evaluate(async()=>{
+    const csrf=await (await fetch('/api/csrf')).json();
+    const before=await (await fetch('/api/auth/measurements')).json();
+    const response=await fetch('/api/auth/measurements',{method:'PUT',headers:{'content-type':'application/json','x-csrf-token':csrf.token},body:JSON.stringify({expected:before.measurements,measurements:{...before.measurements,height:180}})});
+    if(!response.ok)throw new Error('competing measurement update failed');
+  });
+  await page.getByLabel('دور سینه به سانتی‌متر').fill('95');
+  await page.getByRole('button',{name:'ذخیره اندازه‌ها'}).click();
+  await page.getByRole('alert').filter({hasText:'در جای دیگری تغییر کرده‌اند'}).waitFor();
+  assert.equal(await page.getByLabel('دور سینه به سانتی‌متر').inputValue(),'95','conflict must not erase unsaved draft');
+  await page.getByRole('button',{name:'دریافت دوباره اندازه‌ها'}).click();
+  await page.waitForFunction(()=>document.querySelector('input[aria-label="قد به سانتی‌متر"]')?.value==='180');
+  await page.getByRole('button',{name:'حذف اندازه‌های ذخیره‌شده'}).click();
+  await page.getByRole('button',{name:'بله، حذف شود'}).click();
+  await page.getByRole('status').filter({hasText:'اندازه‌ها حذف شدند'}).waitFor();
+  assert.equal(await page.getByLabel('قد به سانتی‌متر').inputValue(),'');
+  await page.route('**/api/auth/measurements',route=>route.abort());
+  await page.locator('.acc-nav').getByRole('button',{name:'نمای کلی',exact:true}).click();
+  await page.locator('.acc-nav').getByRole('button',{name:'اندازه‌های من',exact:true}).click();
+  await page.getByRole('alert').filter({hasText:'دریافت اندازه‌ها ناموفق بود'}).waitFor();
+  assert.equal(await page.getByLabel('قد به سانتی‌متر').count(),0,'network failures must not show local guesses');
+  await page.unroute('**/api/auth/measurements');
   await page.locator('.acc-nav').getByRole('button',{name:'پرو آنلاین',exact:true}).click();
   await page.getByText('خرید و ثبت درخواست پرو تا اتصال سرویس و پرداخت معتبر غیرفعال است. درخواست یا اعتباری در این بخش ثبت نمی‌شود.').waitFor();
   assert.equal(await page.locator('.acc-main form').count(),0);
@@ -114,7 +148,7 @@ try {
   assert.equal(await page.getByText('هنوز تراکنش کش‌بکی ثبت نشده است.').count(),0);
   await page.unroute('**/api/commerce/cashback');
   assert.deepEqual(errors,[],'browser exceptions');
-  console.log('Account smoke: real mock order, errors/retry, return submission, history after reload, quantity protection, support customer/admin round-trip, 4 widths, axe and wallet failure passed.');
+  console.log('Account smoke: real mock order, errors/retry, return submission, history after reload, quantity protection, support customer/admin round-trip, private measurements persistence/conflict/deletion, 4 widths, axe and wallet failure passed.');
 } catch (err) {
   console.error('Account page text:', await page.locator('.acc-main').innerText().catch(()=>''));
   await page.screenshot({path:'/tmp/kv-account-smoke-failure.png',fullPage:true}).catch(()=>{});
