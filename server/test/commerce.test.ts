@@ -2797,7 +2797,7 @@ test('early purchase uses all overlapping restrictions, is closed before the ear
   } finally {if(productId)await query('update products set category=$2 where id=$1',[productId,previousCategory]);await fx.cleanup()}
 });
 
-test('initiated early payment remains payable after eligibility changes, while exchange targets are protected', async () => {
+test('initiated early payment remains payable after eligibility changes while exchanges are disabled', async () => {
   const fx=await audienceFixture();
   try {
     const variant=await setStock(SKU,6),target=await setStock(SKU2,6),ava=await customerClient();
