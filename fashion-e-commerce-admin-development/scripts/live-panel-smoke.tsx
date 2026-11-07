@@ -19,6 +19,7 @@ const fixtures: Record<string, unknown> = {
   "/api/commerce/orders/VL-1/invoice": printFixture,
   "/api/admin/me": { authenticated: true, subject: "admin", permissions, openAccess: false },
   "/api/admin/categories": [{id:"outerwear",name:"پالتو",slug:"outerwear",thumbnail:"stock:hero",active:true,order:1,sizeSetId:"set-1"}],
+  "/api/admin/color-library": [{id:"lib-1",name:"آبی کتابخانه",hex:"#1144bb",family:"سرد",active:true,order:1,version:0}],
   "/api/admin/size-sets": [{id:"set-1",name:"سایز پوشاک",sizes:["M","L"]}],
   "/api/products?all=1": [productFixture],
   "/api/admin/products/p-1/variant-sales": [{id:"v-1",sku:"SKU-1",colorName:"مشکی",sizeLabel:"M",saleEnabled:true,version:0,variantActive:true,productActive:true}],
@@ -56,6 +57,9 @@ globalThis.fetch = async (request, init) => {
   if (method === "PATCH" && path === "/api/admin/journal-settings") { (fixtures["/api/admin/journal"] as any).enabled=body.enabled; return new Response(JSON.stringify({enabled:body.enabled})); }
   if (method === "POST" && path === "/api/admin/journal") { const article={id:"article-test",...body,status:"draft",coverUrl:"",publishedAt:null,version:1,updatedAt:new Date().toISOString()};(fixtures["/api/admin/journal"] as any).items=[article];return new Response(JSON.stringify(article),{status:201}); }
   if (method === "PATCH" && path === "/api/admin/journal/article-test") {const current=(fixtures["/api/admin/journal"] as any).items[0];const article={...current,...body,version:current.version+1,publishedAt:body.publishedAt || new Date().toISOString()};(fixtures["/api/admin/journal"] as any).items=[article];return new Response(JSON.stringify(article)); }
+  if (method === "POST" && path === "/api/admin/color-library") {const color={id:"lib-2",...body,version:0};(fixtures[path] as any[]).push(color);return new Response(JSON.stringify({color}),{status:201})}
+  if (method === "PATCH" && path === "/api/admin/color-library/lib-2") {const list=fixtures["/api/admin/color-library"] as any[];const i=list.findIndex(c=>c.id==="lib-2");const color={...list[i],...body,version:list[i].version+1};delete color.expectedVersion;list[i]=color;return new Response(JSON.stringify({color}))}
+  if (method === "POST" && path === "/api/admin/color-library/lib-2/delete") {const list=fixtures["/api/admin/color-library"] as any[];list.splice(list.findIndex(c=>c.id==="lib-2"),1);return new Response(JSON.stringify({ok:true}))}
   if (method === "POST" && path === "/api/admin/size-sets") {const sizeSet={id:"set-2",...body};(fixtures["/api/admin/size-sets"] as any[]).push(sizeSet);return new Response(JSON.stringify({sizeSet}),{status:201})}
   if (method === "PATCH" && path === "/api/admin/size-sets/set-2") {const items=fixtures["/api/admin/size-sets"] as any[];const sizeSet={id:"set-2",name:body.name,sizes:body.sizes};items[items.findIndex(s=>s.id==="set-2")]=sizeSet;return new Response(JSON.stringify({sizeSet}))}
   if (method === "PATCH" && path === "/api/admin/size-sets/set-2/measurements") {const items=fixtures["/api/admin/size-sets"] as any[];const i=items.findIndex(s=>s.id==="set-2");items[i]={...items[i],measurements:body.measurements,measurementBasis:body.basis};return new Response(JSON.stringify({sizeSet:items[i]}))}
@@ -120,6 +124,10 @@ assert.ok(document.querySelector('iframe[title="پیش‌نمایش گلس‌م�
 assert.equal(requests.filter(r=>r.path==="/api/admin/style-packs" && r.method==="PATCH").length,beforeThemeWrites,"preview must not publish");
 await click("انتشار");assert.ok(requests.some(r=>r.path==="/api/admin/style-packs" && r.body?.theme==="glassmorphism" && r.body?.expectedTheme==="soft"));
 await click("بازگشت به سافت UI");assert.ok(requests.some(r=>r.path==="/api/admin/style-packs" && r.body?.theme==="soft" && r.body?.expectedTheme==="glassmorphism"));
+await click("کتابخانه رنگ‌ها");assert.match(document.body.textContent||"",/آبی کتابخانه/);await click("رنگ جدید");
+const colorForm=document.querySelector<HTMLFormElement>('form[aria-label="افزودن رنگ کتابخانه"]')!;const nameInput=colorForm.querySelector<HTMLInputElement>('input')!;await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,"value")!.set!.call(nameInput,"رنگ آزمون");nameInput.dispatchEvent(new dom.window.Event("input",{bubbles:true}))});await click("ذخیره رنگ");assert.ok(requests.some(r=>r.path==="/api/admin/color-library"&&r.method==="POST"&&r.body.name==="رنگ آزمون"));
+await act(async()=>document.querySelector<HTMLButtonElement>('button[aria-label="ویرایش رنگ آزمون"]')!.click());await settle();await click("ذخیره رنگ");assert.ok(requests.some(r=>r.path==="/api/admin/color-library/lib-2"&&r.body.expectedVersion===0));
+dom.window.confirm=()=>true;await act(async()=>document.querySelector<HTMLButtonElement>('button[aria-label="حذف رنگ آزمون"]')!.click());await settle();assert.ok(requests.some(r=>r.path==="/api/admin/color-library/lib-2/delete"&&r.body.expectedVersion===1));
 await click("الگوهای سایز و اندازه‌گیری");
 assert.match(document.body.textContent||"",/سایز پوشاک/);await click("الگوی جدید");
 const sizeForm=document.querySelector<HTMLFormElement>('form[aria-label="افزودن الگوی سایز"]');assert.ok(sizeForm);

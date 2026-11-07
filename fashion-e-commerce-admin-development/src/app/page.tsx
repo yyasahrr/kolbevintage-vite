@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
+import { LiveColors, type LibraryColor } from "@/components/admin/LiveColors";
 import { SupportTickets } from "@/components/admin/SupportTickets";
 import { LivePrintCenter } from "@/components/admin/LivePrintCenter";
 import { LiveJournal } from "@/components/admin/LiveJournal";
@@ -19,7 +20,7 @@ import { ProductCreate } from "@/components/admin/ProductCreate";
 import { ReturnsModule } from "@/components/admin/ReturnsModule";
 import { GalleryModule, CustomersModule, ManualOrder, Fulfillment, StaffModule, AuditModule, ProductEditor, type Product, type Order, type Stock } from "@/components/admin/LiveModules";
 
-type Section = "support" | "sizeSets" | "print" | "journal" | "dashboard" | "categories" | "products" | "inventory" | "inventoryLabels" | "inventoryActivity" | "orders" | "manual" | "fulfillment" | "gallery" | "customers" | "staff" | "audit" | "returns" | "marketing" | "brand" | "stylePacks" | "settings" | "finance" | "analytics";
+type Section = "colors" | "support" | "sizeSets" | "print" | "journal" | "dashboard" | "categories" | "products" | "inventory" | "inventoryLabels" | "inventoryActivity" | "orders" | "manual" | "fulfillment" | "gallery" | "customers" | "staff" | "audit" | "returns" | "marketing" | "brand" | "stylePacks" | "settings" | "finance" | "analytics";
 type Identity = { authenticated: boolean; subject: string | null; staff?: { name: string; roleName: string } | null; permissions: string[]; openAccess: boolean };
 type InventoryStock = Stock & { stockVersion:string; productId:string; reserved: number; quarantined: number; lowStock: boolean; outOfStock: boolean };
 
@@ -55,6 +56,7 @@ async function put<T>(path: string, body: object): Promise<T> {
 }
 const liveApi = { get: json, post, patch, put };
 const getCategories = () => json<{name:string;active:boolean;sizeSetId?:string}[]>("/api/admin/categories");
+const getColors = () => json<LibraryColor[]>("/api/admin/color-library");
 const getSizeSets = () => json<SizeSet[]>("/api/admin/size-sets");
 
 export default function DashboardPage() {
@@ -97,6 +99,10 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!me?.authenticated || appliedDirectLink.current) return;
     appliedDirectLink.current = true;
+    if (new URLSearchParams(window.location.search).get("view") === "color-library") {
+      if (me.permissions.includes("catalog:view")) setSection("colors");
+      else setNotice("برای مشاهده کتابخانه رنگ مجوز مشاهده کاتالوگ لازم است.");
+    }
     if (new URLSearchParams(window.location.search).get("view") === "stock-labels") {
       if (me.permissions.includes("inventory:view")) setSection("inventoryLabels");
       else setNotice("برای چاپ لیبل مجوز مشاهده انبار لازم است.");
@@ -139,6 +145,7 @@ export default function DashboardPage() {
         {notice && <div className="rounded-xl bg-indigo-50 p-4 text-sm text-indigo-800">{notice}<button onClick={() => setNotice("")} className="mr-3 underline">بستن</button></div>}
         {error && <div role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</div>}
         {section === "dashboard" && <LiveDashboard api={liveApi} orders={orders} stock={stock} productsCount={products?.length ?? null} can={can} navigate={navigate} create={() => setCreating(true)}/>}
+        {section === "colors" && <LiveColors api={liveApi} can={can}/>}
         {section === "sizeSets" && <LiveSizeSets api={liveApi} can={can}/>}
         {section === "categories" && <LiveCategories api={liveApi} can={can}/>}
         {section === "products" && <LiveProducts products={products} stock={stock} can={can} create={() => setCreating(true)} edit={setEditing}/>}
@@ -162,7 +169,7 @@ export default function DashboardPage() {
         {section === "gallery" && <GalleryModule api={liveApi} can={can}/>}
         {section === "staff" && <StaffModule api={liveApi} can={can}/>}
         {section === "audit" && <AuditModule api={liveApi} can={can}/>}
-        {creating && <ProductCreate getCategories={getCategories} getSizeSets={getSizeSets} create={body => post("/api/admin/products",body)} onClose={() => setCreating(false)} onChange={load}/>}
+        {creating && <ProductCreate getCategories={getCategories} getSizeSets={getSizeSets} getColors={getColors} create={body => post("/api/admin/products",body)} onClose={() => setCreating(false)} onChange={load}/>}
         {editing && <ProductEditor api={liveApi} can={can} product={editing} onClose={() => setEditing(null)} onChange={load}/>}
         {adjusting && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><form onSubmit={adjust} className={`${card} w-full max-w-md space-y-4`}><h2 className="font-bold">درخواست تغییر موجودی</h2><p className="text-sm">{adjusting.name} · {adjusting.sku}</p><label className="block text-sm">تعداد تغییر (برای کاهش، منفی وارد کنید)<input className={`${input} mt-2`} type="number" value={delta} onChange={(e) => setDelta(e.target.value)} required /></label><label className="block text-sm">توضیح<input className={`${input} mt-2`} value={note} onChange={(e) => setNote(e.target.value)} required /></label>{error && <p role="alert" className="text-sm text-red-700">{error}</p>}<div className="flex gap-2"><button disabled={busy} className={button}>ثبت درخواست</button><button type="button" onClick={() => setAdjusting(null)} className="px-4 text-sm">انصراف</button></div></form></div>}
       </div>

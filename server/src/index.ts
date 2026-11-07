@@ -1,3 +1,4 @@
+import { colorLibraryRoutes } from "./routes/color-library";
 import { measurementRoutes } from "./routes/measurements";
 import { supportRoutes } from "./routes/support";
 import { customerLabelRoutes } from "./routes/customer-labels";
@@ -129,6 +130,7 @@ export async function buildServer() {
   await app.register(catalogRoutes);
   await app.register(categoryRoutes);
   await app.register(sizeSetRoutes);
+  await app.register(colorLibraryRoutes);
   await app.register(uploadRoutes);
   await app.register(commerceRoutes);
   await app.register(rbacRoutes);

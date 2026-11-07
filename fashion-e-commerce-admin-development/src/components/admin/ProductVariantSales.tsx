@@ -5,11 +5,11 @@ type Variant={id:string;sku:string;colorName:string;sizeLabel:string;saleEnabled
 type API={get<T>(path:string):Promise<T>;patch<T>(path:string,body:object):Promise<T>};
 const button="rounded-xl border border-slate-300 px-3 py-2 text-xs disabled:opacity-50";
 
-export function ProductVariantSales({api,productId,canEdit,onChange,onBusy}:{api:API;productId:string;canEdit:boolean;onChange:()=>Promise<void>;onBusy:(busy:boolean)=>void}){
+export function ProductVariantSales({api,productId,canEdit,onChange,onBusy,refreshKey}:{api:API;productId:string;canEdit:boolean;onChange:()=>Promise<void>;onBusy:(busy:boolean)=>void;refreshKey:number}){
   const [rows,setRows]=useState<Variant[]|null>(null);const [busy,setBusy]=useState(false);const [error,setError]=useState("");const [success,setSuccess]=useState("");
   const path=`/api/admin/products/${encodeURIComponent(productId)}/variant-sales`;const requestVersion=useRef(0);
   const load=useCallback(async()=>{const n=++requestVersion.current;setError("");try{const result=await api.get<Variant[]>(path);if(n!==requestVersion.current)return false;setRows(result);return true}catch(e){if(n===requestVersion.current){setRows(null);setError(e instanceof Error?e.message:"تنوع‌ها دریافت نشدند.")}return false}},[api,path]);
-  useEffect(()=>{void load();return()=>{requestVersion.current++}},[load]);
+  useEffect(()=>{void load();return()=>{requestVersion.current++}},[load,refreshKey]);
   async function toggle(row:Variant){
     setBusy(true);onBusy(true);setError("");setSuccess("");
     try{await api.patch(`${path}/${encodeURIComponent(row.id)}`,{saleEnabled:!row.saleEnabled,expectedEnabled:row.saleEnabled,expectedVersion:row.version});const loaded=await load();await onChange();setSuccess(loaded?"وضعیت فروش تنوع ثبت شد.":"وضعیت ثبت شد؛ برای دیدن اطلاعات تازه، دوباره تلاش کنید.")}

@@ -170,12 +170,12 @@ export async function stateRoutes(app: FastifyInstance) {
 
     if (key === "ops") {
       // Full legacy writes must not undo a targeted theme publication. Lock
-      // the same document row and preserve targeted theme, categories and size templates inside the lock.
+      // the same document row and preserve targeted theme, categories, size templates and color library inside the lock.
       await withTransaction(async client => {
         const row=await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");
         const current=row.rows[0]?.value ?? {};
         const next=body as Record<string,any>;
-        for (const field of ["siteTheme","previousSiteTheme","sizeSets","categories"]) {
+        for (const field of ["siteTheme","previousSiteTheme","sizeSets","categories","colorLibrary"]) {
           if (Object.prototype.hasOwnProperty.call(current,field)) next[field]=current[field];
           else delete next[field];
         }

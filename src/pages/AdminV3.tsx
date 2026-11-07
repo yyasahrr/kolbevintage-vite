@@ -10,7 +10,6 @@ import {
   Printer,
   RefreshCw,
   ScanBarcode,
-  Search,
   ShieldCheck,
   Trash2,
   Truck,
@@ -19,7 +18,6 @@ import {
 import { api } from "@/lib/api";
 import { cn } from "@/utils/cn";
 import { addOrder, type Order } from "@/state/admin";
-import { saveColorLibraryItem, useOps, type ColorLibraryItem } from "@/state/ops";
 import { formatPrice } from "@/data/looks";
 
 const fa = (value: number) => value.toLocaleString("fa-IR");
@@ -530,35 +528,10 @@ export function PrintCenterPanel() {
    Reusable colour library
    ===================================================================== */
 export function ColorLibraryPanel() {
-  const ops = useOps();
-  const [query, setQuery] = useState("");
-  const [name, setName] = useState("");
-  const [hex, setHex] = useState("#7b2632");
-  const [family, setFamily] = useState<ColorLibraryItem["family"]>("گرم");
-  const rows = ops.colorLibrary.filter((item) => !query.trim() || `${item.name} ${item.family} ${item.hex}`.toLowerCase().includes(query.trim().toLowerCase()));
-  const add = () => {
-    if (!name.trim()) return;
-    saveColorLibraryItem({ id: `color-${Date.now().toString(36)}`, name: name.trim(), hex, family, active: true, order: ops.colorLibrary.length + 1 });
-    setName("");
-  };
-  return (
-    <>
-      <Head title="کتابخانه رنگ‌های استاندارد" sub="رنگ یک بار تعریف و در همهٔ محصولات استفاده می‌شود؛ غیرفعال‌سازی فقط انتخاب آینده را محدود می‌کند و تاریخ سفارش را تغییر نمی‌دهد." />
-      <div className="ad-grid-2">
-        <Panel title="رنگ‌های کتابخانه">
-          <div className="ad-toolbar"><input className="ad-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="نام، خانواده یا کد رنگ…" aria-label="جست‌وجوی رنگ" /><Search width={15} height={15} /></div>
-          <div className="ad-cards">{rows.map((item) => <article className="ad-card-inline" key={item.id}><span className="ad-gallery-dot" style={{ background: item.hex, width: 32, height: 32 }} /><div className="ad-card-inline-main"><b>{item.name}</b><small>{item.family} · <bdi dir="ltr">{item.hex}</bdi></small></div><button type="button" className={cn("ad-chip", item.active && "is-on")} onClick={() => saveColorLibraryItem({ ...item, active: !item.active })}>{item.active ? "فعال" : "غیرفعال"}</button></article>)}</div>
-        </Panel>
-        <Panel title="افزودن رنگ جدید">
-          <label className="ad-field">نام فارسی<input className="ad-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="مثلاً بژ شنی" /></label>
-          <label className="ad-field">خانواده<select className="ad-select" value={family} onChange={(event) => setFamily(event.target.value as ColorLibraryItem["family"])}><option>خنثی</option><option>گرم</option><option>سرد</option><option>خاکی</option></select></label>
-          <label className="ad-field">کد رنگ<div className="ad-actions"><input type="color" value={hex} onChange={(event) => setHex(event.target.value)} aria-label="انتخاب رنگ" /><input className="ad-input" dir="ltr" value={hex} onChange={(event) => setHex(event.target.value)} /></div></label>
-          <button type="button" className="ad-btn is-primary" disabled={!name.trim() || !/^#[0-9a-f]{6}$/i.test(hex)} onClick={add}><Plus width={14} height={14} /> ذخیره در کتابخانه</button>
-          <p className="ad-hint">در ویرایشگر محصول، بخش «رنگ و سایز»، این رنگ از فهرست استاندارد قابل افزودن است.</p>
-        </Panel>
-      </div>
-    </>
-  );
+  return <>
+    <Head title="کتابخانه رنگ‌های استاندارد" sub="مدیریت رنگ‌ها به پنل متصل فروشگاه منتقل شده است." />
+    <Panel title="مدیریت رنگ‌ها"><p className="ad-hint">برای جلوگیری از ذخیرهٔ ظاهری و ناسازگاری داده‌ها، ویرایش کتابخانه در این پنل قدیمی غیرفعال است. رنگ‌های محصولات موجود با تغییر کتابخانه تغییر نمی‌کنند.</p><a className="ad-btn is-primary" href="/panel/catalog/colors">باز کردن کتابخانه رنگ در پنل متصل</a></Panel>
+  </>;
 }
 
 /* =====================================================================

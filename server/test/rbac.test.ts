@@ -1463,3 +1463,35 @@ test('partially missing sale fields in backup are refused before modifying the d
     const before=(await query('select count(*)::int n from products')).rows[0].n;await assert.rejects(()=>restoreBackup(file,{allowLegacyVariantSales:true}),/ناقص/);assert.equal((await query('select count(*)::int n from products')).rows[0].n,before);
   }finally{await fs.rm(dir,{recursive:true,force:true})}
 });
+
+test('color library is authenticated, audited, versioned and independent of product variants', async () => {
+  const {admin,client:viewer}=await staffWith(['catalog:view'],'color-viewer','color-viewer-user','color-viewer-pass');const guest=makeClient();
+  const original=(await query("select value from state_documents where key='ops'")).rows[0].value;
+  const productBefore=(await query('select id,colors from products order by id limit 1')).rows[0];
+  const variantsBefore=(await query('select id,sku,on_hand,active from product_variants where product_id=$1 order by id',[productBefore.id])).rows;
+  try{
+    assert.equal((await guest.get('/api/admin/color-library')).status,401);
+    assert.equal((await viewer.get('/api/admin/color-library')).status,200);
+    const data={name:'رنگ آزمون یکتا',hex:'#abcdef',family:'سرد',active:true,order:150};
+    assert.equal((await viewer.post('/api/admin/color-library',data)).status,403);
+    assert.equal((await admin.post('/api/admin/color-library',{...data,hex:'javascript:x'})).status,422);
+    assert.equal((await admin.post('/api/admin/color-library',{...data,order:-1})).status,422);
+    const created=await admin.post('/api/admin/color-library',data);assert.equal(created.status,201,JSON.stringify(created.body));const c=created.body.color;assert.equal(c.version,0);
+    assert.equal((await admin.post('/api/admin/color-library',{...data,name:'  رنگ آزمون یکتا  '})).status,409);
+    const path=`/api/admin/color-library/${c.id}`;assert.equal((await admin.patch(path,{...data,active:false})).status,422);
+    const edits=await Promise.all([admin.patch(path,{...data,active:false,expectedVersion:0}),admin.patch(path,{...data,family:'گرم',expectedVersion:0})]);assert.deepEqual(edits.map(r=>r.status).sort(),[200,409]);
+    let current=(await admin.get('/api/admin/color-library')).body.find((row:any)=>row.id===c.id);assert.equal(current.version,1);
+    let updated=await admin.patch(path,{...data,expectedVersion:current.version});assert.equal(updated.status,200);assert.equal(updated.body.color.version,2);
+    assert.equal((await admin.patch(path,{...data,active:false,expectedVersion:0})).status,409,'ABA must be rejected');
+    assert.equal((await admin.post(`${path}/delete`,{expectedVersion:1})).status,409);
+    const legacy=await admin.put('/api/state/ops',original);assert.equal(legacy.status,200);current=(await admin.get('/api/admin/color-library')).body.find((row:any)=>row.id===c.id);assert.equal(current.version,2);
+    const stored=(await query("select value from state_documents where key='ops'")).rows[0].value;assert.equal(stored.colorLibrary.find((v:any)=>v.id===c.id).name,data.name);
+    const {dumpAll,restoreBackup}=await import('../src/backup');const {withTransaction}=await import('../src/db');const {stringify}=await import('lossless-json');const fs=await import('node:fs/promises');const os=await import('node:os');const pathModule=await import('node:path');const temp=await fs.mkdtemp(pathModule.join(os.tmpdir(),'kv-colors-backup-'));const file=pathModule.join(temp,'backup.json');
+    try{await fs.writeFile(file,stringify(await dumpAll())!);await withTransaction(async tx=>{await tx.query("update state_documents set value=jsonb_set(value,'{colorLibrary}','[]'::jsonb) where key='ops'");await restoreBackup(file,{client:tx});const restored=(await tx.query("select value from state_documents where key='ops'")).rows[0].value.colorLibrary.find((v:any)=>v.id===c.id);assert.equal(restored.version,2);assert.equal(restored.name,data.name);throw new Error('rollback');}).catch((e:Error)=>assert.equal(e.message,'rollback'))}finally{await fs.rm(temp,{recursive:true,force:true})}
+    assert.equal((await admin.post(`${path}/delete`,{expectedVersion:2})).status,200);assert.ok(!(await admin.get('/api/admin/color-library')).body.some((v:any)=>v.id===c.id));
+    assert.deepEqual((await query('select id,colors from products where id=$1',[productBefore.id])).rows[0],productBefore);assert.deepEqual((await query('select id,sku,on_hand,active from product_variants where product_id=$1 order by id',[productBefore.id])).rows,variantsBefore);
+    const audits=await query('select action from audit_events where target_id=$1',[c.id]);for(const action of ['catalog.color_created','catalog.color_updated','catalog.color_deleted'])assert.ok(audits.rows.some(v=>v.action===action));
+    const noCsrf=await fetch(base+'/api/admin/color-library',{method:'POST',headers:{'content-type':'application/json',cookie:admin.cookie()},body:JSON.stringify(data)});assert.equal(noCsrf.status,403);
+    await query("update state_documents set value=jsonb_set(value,'{colorLibrary}','{\"invalid\":true}'::jsonb) where key='ops'");assert.equal((await admin.get('/api/admin/color-library')).status,409);assert.equal((await admin.post('/api/admin/color-library',data)).status,409);assert.deepEqual((await query("select value->'colorLibrary' c from state_documents where key='ops'")).rows[0].c,{invalid:true});
+  }finally{await query("update state_documents set value=$1 where key='ops'",[JSON.stringify(original)])}
+});
