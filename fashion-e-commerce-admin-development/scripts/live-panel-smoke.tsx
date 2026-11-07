@@ -36,6 +36,7 @@ const fixtures: Record<string, unknown> = {
   "/api/admin/store-brand": { name:"نام فروشگاه", logoText:"لوگو", tagline:"شعار", announcement:"اعلان", announcementActive:true, footerNote:"فوتر" },
   "/api/commerce/admin/settings": {shippingFlat:10,shippingExpress:20,freeShippingThreshold:100,reservationHoldMinutes:10,paymentWindowMinutes:10,quoteTtlMinutes:10,currency:"EUR"},
   "/api/admin/finance/summary": { groups: [], note:"مبالغ ثبت‌شده" },
+  "/api/commerce/admin/payments?status=exception": [],
   "/api/admin/analytics?days=14": {days:14,totals:{views:0,visits:0,orders:0},top:[],sampleTooSmall:true},
   "/api/csrf": { token: "csrf" },
 };

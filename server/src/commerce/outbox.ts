@@ -14,6 +14,7 @@ import { query, withTransaction } from "../db";
 export type OutboxType =
   | "order.paid"
   | "order.exception"
+  | "payment.exception"
   | "order.cancelled"
   | "refund.settled"
   | "cashback.earned";

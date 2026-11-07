@@ -37,7 +37,7 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   if (token) headers.set("x-session-token", token);
   const res = await fetch(path, { cache: "no-store", credentials: "same-origin", ...init, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.error || data.message || "خطا در ارتباط با فروشگاه"), { status: res.status });
+  if (!res.ok) throw Object.assign(new Error(data.error || data.message || "خطا در ارتباط با فروشگاه"), { status: res.status, code:data.code, details:data.details });
   return data as T;
 }
 async function post<T>(path: string, body: object): Promise<T> {

@@ -2449,3 +2449,149 @@ test("a frozen invoice with inconsistent attempted amount requires financial rev
   const result=await client.post(`/api/commerce/payments/${pay.body.attempt.id}/simulate`,{result:'success'});
   assert.equal(result.status,200,JSON.stringify(result.body));assert.equal(result.body.orderStatus,'exception');
 });
+
+test("two captured attempts for one checkout create one order and park the extra capture for review", async () => {
+  const variantId=await setStock(SKU,3),client=makeClient();
+  const started=await startCheckout(client,[{variantId,quantity:1}]);
+  const id=started.body.checkout.id;
+  const one=await client.post(`/api/commerce/checkout/${id}/pay`,{method:'online',idempotencyKey:'duplicate-capture-one'});
+  const two=await client.post(`/api/commerce/checkout/${id}/pay`,{method:'online',idempotencyKey:'duplicate-capture-two'});
+  assert.equal(one.status,200);assert.equal(two.status,200);
+  const results=await Promise.all([one,two].map(p=>signedCallback(client,p.body.attempt.id,{result:'success'})));
+  assert.deepEqual(results.map(r=>r.body.status).sort(),['exception','settled']);
+  const extra=results.find(r=>r.body.status==='exception')!;
+  assert.equal(extra.body.reason,'duplicate_checkout_capture');
+  const orders=await query('select id from orders where checkout_id=$1',[id]);assert.equal(orders.rows.length,1);
+  const attempts=await query('select id,status,last_error,order_id from payment_attempts where checkout_id=$1',[id]);
+  assert.equal(attempts.rows.length,2);assert.equal(attempts.rows.filter(a=>a.status==='settled').length,1);
+  const marked=attempts.rows.find(a=>a.status==='exception');assert.equal(marked.last_error,'duplicate_checkout_capture');assert.equal(marked.order_id,orders.rows[0].id);
+  const events=await query('select * from outbox_events where dedupe_key=$1',[`payment.exception:${marked.id}`]);assert.equal(events.rows.length,1);
+  const replay=await signedCallback(client,marked.id,{result:'success'});assert.equal(replay.body.status,'exception');assert.equal(replay.body.duplicate,true);
+  assert.equal((await stockOf(SKU)).onHand,2);
+  const admin=await adminClient(),adminPayments=await admin.get('/api/commerce/admin/payments?status=exception');
+  assert.ok(adminPayments.body.some((a:Json)=>a.id===marked.id && a.lastError==='duplicate_checkout_capture'));
+});
+
+test("a failed or timed-out callback cannot downgrade a settled payment", async () => {
+  const variantId=await setStock(SKU,3),client=makeClient();
+  const started=await startCheckout(client,[{variantId,quantity:1}]);
+  const pay=await client.post(`/api/commerce/checkout/${started.body.checkout.id}/pay`,{method:'online'});
+  const [success,timeout,fail]=await Promise.all(['success','timeout','fail'].map(result=>signedCallback(client,pay.body.attempt.id,{result})));
+  assert.equal(success.body.status,'settled',JSON.stringify(success.body));
+  const final=(await query('select status,order_id from payment_attempts where id=$1',[pay.body.attempt.id])).rows[0];
+  assert.equal(final.status,'settled');assert.ok(final.order_id);
+  assert.equal((await query('select id from orders where checkout_id=$1',[started.body.checkout.id])).rows.length,1);
+  assert.ok(timeout.status===200 && fail.status===200);
+});
+
+test('payment idempotency never re-initiates an existing or uncertain provider request', async () => {
+  const {mockProvider}=await import('../src/commerce/payments');
+  const original=mockProvider.initiate;let calls=0;
+  mockProvider.initiate=async attempt=>{calls++;return original(attempt)};
+  try {
+    const variantId=await setStock(SKU,2),client=makeClient();
+    const started=await startCheckout(client,[{variantId,quantity:1}]),id=started.body.checkout.id;
+    const body={method:'online',idempotencyKey:'same-provider-reference'};
+    const first=await client.post(`/api/commerce/checkout/${id}/pay`,body),again=await client.post(`/api/commerce/checkout/${id}/pay`,body);
+    assert.equal(first.status,200);assert.equal(again.status,200);assert.equal(calls,1);assert.equal(again.body.reused,true);
+    await query('update payment_attempts set provider_ref=null where id=$1',[first.body.attempt.id]);
+    const uncertain=await client.post(`/api/commerce/checkout/${id}/pay`,body);
+    assert.equal(uncertain.status,409);assert.equal(uncertain.body.code,'payment_initiation_unconfirmed');assert.equal(calls,1);
+  } finally { mockProvider.initiate=original; }
+});
+
+test('provider initiation timeout creates a review item and retry does not contact provider again', async () => {
+  const {mockProvider}=await import('../src/commerce/payments');const original=mockProvider.initiate;let calls=0;
+  mockProvider.initiate=async ()=>{calls++;throw new Error('timeout after remote creation')};
+  try {
+    const variantId=await setStock(SKU,2),client=makeClient();const started=await startCheckout(client,[{variantId,quantity:1}]);
+    const path=`/api/commerce/checkout/${started.body.checkout.id}/pay`,body={method:'online',idempotencyKey:'unknown-provider-init'};
+    const first=await client.post(path,body),retry=await client.post(path,body);
+    assert.equal(first.body.code,'payment_initiation_unconfirmed');assert.equal(retry.body.code,'payment_initiation_unconfirmed');assert.equal(calls,1);
+    const newKey=await client.post(path,{method:'online',idempotencyKey:'different-key-uncertain'});
+    assert.equal(newKey.body.code,'payment_initiation_unconfirmed');assert.equal(calls,1);
+    const attempt=(await query('select * from payment_attempts where idempotency_key=$1',[body.idempotencyKey])).rows[0];
+    assert.equal(attempt.status,'exception');assert.equal(attempt.last_error,'payment_initiation_unconfirmed');
+    assert.equal((await query('select id from outbox_events where dedupe_key=$1',[`payment.exception:${attempt.id}`])).rows.length,1);
+    assert.equal((await query('select count(*)::int n from orders where checkout_id=$1',[started.body.checkout.id])).rows[0].n,0);
+  } finally {mockProvider.initiate=original}
+});
+
+test('concurrent cancellation and successful payment never overwrite a completed checkout', async () => {
+  const variantId=await setStock(SKU,2),client=makeClient();const started=await startCheckout(client,[{variantId,quantity:1}]);
+  const checkoutId=started.body.checkout.id,pay=await client.post(`/api/commerce/checkout/${checkoutId}/pay`,{method:'online'});
+  const [cancel,payment]=await Promise.all([
+    client.post(`/api/commerce/checkout/${checkoutId}/cancel`,{}),
+    client.post(`/api/commerce/payments/${pay.body.attempt.id}/simulate`,{result:'success'}),
+  ]);
+  assert.equal(payment.body.status,'settled',JSON.stringify(payment.body));
+  assert.ok([200,409].includes(cancel.status));
+  const checkout=(await query('select status from checkout_sessions where id=$1',[checkoutId])).rows[0];
+  const order=(await query('select status from orders where checkout_id=$1',[checkoutId])).rows[0];
+  assert.ok(order);assert.equal(checkout.status,order.status==='exception'?'exception':'completed');
+});
+
+test('concurrent re-quotes cannot overwrite one another using stale checkout state', async () => {
+  const {getPool}=await import('../src/db');const variantId=await setStock(SKU,2),client=makeClient();
+  await query(`insert into coupons(code,kind,value,min_subtotal,active,used_count) values ('RACEQUOTE','amount',17,0,true,0)
+    on conflict(code) do update set kind='amount',value=17,min_subtotal=0,max_discount=null,active=true,usage_limit=null,used_count=0`);
+  const started=await startCheckout(client,[{variantId,quantity:1}]),id=started.body.checkout.id;
+  const blocker=await getPool().connect();await blocker.query('begin');await blocker.query('select id from checkout_sessions where id=$1 for update',[id]);
+  try {
+    const requests=[client.post(`/api/commerce/checkout/${id}/quote`,{shippingMethod:'express'}),client.post(`/api/commerce/checkout/${id}/quote`,{couponCode:'RACEQUOTE'})];
+    let waiting=0;
+    for(let i=0;i<100;i++){await blocker.query("select pg_stat_clear_snapshot()");const rows=await blocker.query("select count(*)::int n from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and query ilike '%update checkout_sessions set quote = %'");waiting=rows.rows[0].n;if(waiting>=2)break;await new Promise(r=>setTimeout(r,20));}
+    assert.ok(waiting>=2,'both re-quotes must wait on the held checkout row');
+    await blocker.query('commit');
+    const results=await Promise.all(requests);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+    assert.equal(results.find(r=>r.status===409)?.body.code,'checkout_changed');
+    const winner=results.find(r=>r.status===200)!.body;
+    const stored=(await query('select quote,shipping_method,coupon_code from checkout_sessions where id=$1',[id])).rows[0];
+    assert.equal(stored.quote.quoteVersion,winner.quote.quoteVersion);assert.equal(stored.shipping_method,winner.shippingMethod);
+  } finally {await blocker.query('rollback').catch(()=>{});blocker.release()}
+});
+
+test('payment creation and re-quote serialize against the checkout snapshot', async () => {
+  const {getPool}=await import('../src/db');const variantId=await setStock(SKU,2),client=makeClient();
+  const started=await startCheckout(client,[{variantId,quantity:1}]),id=started.body.checkout.id,original=started.body.checkout.quote;
+  const blocker=await getPool().connect();await blocker.query('begin');await blocker.query('select id from checkout_sessions where id=$1 for update',[id]);
+  try {
+    const requests=[client.post(`/api/commerce/checkout/${id}/pay`,{method:'online'}),client.post(`/api/commerce/checkout/${id}/quote`,{shippingMethod:'express'})];
+    let waiting=0;
+    for(let i=0;i<100;i++){await blocker.query("select pg_stat_clear_snapshot()");const rows=await blocker.query("select count(*)::int n from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and (query ilike '%update checkout_sessions set quote = %' or query ilike '%select * from checkout_sessions where id=%for update%')");waiting=rows.rows[0].n;if(waiting>=2)break;await new Promise(r=>setTimeout(r,20));}
+    assert.ok(waiting>=2,'both operations must wait on the checkout lock');await blocker.query('commit');
+    const [pay,requote]=await Promise.all(requests);assert.equal(requote.status,200,JSON.stringify(requote.body));
+    assert.ok([200,409].includes(pay.status),JSON.stringify(pay.body));
+    if(pay.status===200){const attempt=(await query('select quote_snapshot from payment_attempts where id=$1',[pay.body.attempt.id])).rows[0];assert.equal(attempt.quote_snapshot.quoteVersion,original.quoteVersion)}
+    else assert.equal(pay.body.code,'checkout_changed');
+  } finally {await blocker.query('rollback').catch(()=>{});blocker.release()}
+});
+
+test('manual orders reject stale prices and permit a safe anonymous retry', async () => {
+  const {startCheckout:reserve}=await import('../src/commerce/checkout');const variantId=await setStock(SKU,4),admin=await adminClient();
+  const body={items:[{variantId,quantity:1}],address:{receiver:'مشتری',phone:'09121234567',street:'نشانی'},paymentReference:'BANK-ANON',idempotencyKey:'manual-anon-fresh'};
+  const started=await reserve({items:body.items,address:body.address,idempotencyKey:`manual:${body.idempotencyKey}`,allowAnonymousReuse:true});
+  const productId=started.checkout.quote.lines[0].productId;
+  const old=Number((await query('select price from products where id=$1',[productId])).rows[0].price);
+  try {
+    await query('update products set price=$2 where id=$1',[productId,old+20]);
+    const stale=await admin.post('/api/commerce/admin/orders/manual',body);assert.equal(stale.status,409);assert.equal(stale.body.code,'quote_stale');
+    assert.equal((await query('select id from orders where checkout_id=$1',[started.checkout.id])).rows.length,0);
+    const unconfirmed=await admin.post('/api/commerce/admin/orders/manual',body);assert.equal(unconfirmed.body.code,'manual_quote_confirmation_required');
+    const wrong=await admin.post('/api/commerce/admin/orders/manual',{...body,confirmedQuoteVersion:'incorrect'});assert.equal(wrong.body.code,'manual_quote_confirmation_required');
+    const retry=await admin.post('/api/commerce/admin/orders/manual',{...body,confirmedQuoteVersion:stale.body.details.quote.quoteVersion});assert.equal(retry.status,201,JSON.stringify(retry.body));
+    assert.equal(retry.body.order.lines[0].unitPrice,old+20);
+    const replay=await admin.post('/api/commerce/admin/orders/manual',body);assert.equal(replay.status,200);assert.equal(replay.body.order.id,retry.body.order.id);
+    const different=await admin.post('/api/commerce/admin/orders/manual',{...body,paymentReference:'OTHER-REF'});assert.equal(different.status,409);assert.equal(different.body.code,'idempotency_conflict');
+    const differentItems=await admin.post('/api/commerce/admin/orders/manual',{...body,items:[{variantId,quantity:2}]});assert.equal(differentItems.status,409);assert.equal(differentItems.body.code,'idempotency_conflict');
+  } finally {await query('update products set price=$2 where id=$1',[productId,old])}
+});
+
+test('simultaneous manual requests with the same key consume stock only once', async () => {
+  const variantId=await setStock(SKU,5),admin=await adminClient();
+  const body={items:[{variantId,quantity:2}],address:{receiver:'مشتری',phone:'09121234567',street:'نشانی'},paymentReference:'BANK-CONCURRENT',idempotencyKey:'manual-concurrent'};
+  const responses=await Promise.all([admin.post('/api/commerce/admin/orders/manual',body),admin.post('/api/commerce/admin/orders/manual',body)]);
+  assert.ok(responses.every(r=>[200,201,409].includes(r.status)),JSON.stringify(responses));assert.ok(responses.some(r=>r.status===201),JSON.stringify(responses));
+  const orders=await query("select id from orders where checkout_id=(select id from checkout_sessions where idempotency_key='manual:manual-concurrent')");
+  assert.equal(orders.rows.length,1);assert.equal((await stockOf(SKU)).onHand,3);
+});

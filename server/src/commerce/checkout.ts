@@ -59,6 +59,7 @@ export interface CheckoutRow {
   coupon_code: string | null;
   quote: Quote;
   quote_version: string;
+  manual_quote_confirm_required: boolean | null;
   subtotal: string | number;
   discount_total: string | number;
   shipping_total: string | number;
@@ -149,6 +150,8 @@ export async function startCheckout(input: {
   shippingMethod?: "standard" | "express";
   couponCode?: string | null;
   idempotencyKey?: string | null;
+  /** Server-only manual orders may have no registered customer account. */
+  allowAnonymousReuse?: boolean;
 }) {
   const settings = await loadCommerceSettings();
   await expireReservations();
@@ -160,7 +163,7 @@ export async function startCheckout(input: {
       [idempotencyKey],
     );
     if (existing.rows[0]) {
-      if (!input.customerEmail || existing.rows[0].customer_email !== input.customerEmail) throw new CommerceError("کلید تکراری متعلق به حساب دیگری است.",409,"idempotency_conflict");
+      if ((!input.customerEmail && !input.allowAnonymousReuse) || existing.rows[0].customer_email !== (input.customerEmail ?? null)) throw new CommerceError("کلید تکراری متعلق به حساب دیگری است.",409,"idempotency_conflict");
       return { checkout: publicCheckout(existing.rows[0]), reused: true };
     }
   }
@@ -180,6 +183,7 @@ export async function startCheckout(input: {
   const checkoutId = `chk_${randomUUID()}`;
   const reservationExpiresAt = new Date(Date.now() + settings.reservationHoldMinutes * 60_000);
 
+  try {
   await withTransaction(async (client) => {
     await client.query(
       `insert into checkout_sessions (id, cart_id, customer_email, status, address, shipping_method, coupon_code,
@@ -211,6 +215,19 @@ export async function startCheckout(input: {
       idempotencyPrefix: `checkout:${checkoutId}`,
     });
   });
+  } catch (error) {
+    // Concurrent uses of one key can both pass the initial read. A unique-key
+    // loser reuses only the same owner's committed checkout; nothing was held
+    // because its transaction rolled back.
+    if (idempotencyKey && (error as {code?:string})?.code === "23505") {
+      const prior=(await query<CheckoutRow>("select * from checkout_sessions where idempotency_key=$1",[idempotencyKey])).rows[0];
+      if (prior) {
+        if ((!input.customerEmail && !input.allowAnonymousReuse) || prior.customer_email !== (input.customerEmail ?? null)) throw new CommerceError("کلید تکراری متعلق به حساب دیگری است.",409,"idempotency_conflict");
+        return {checkout:publicCheckout(prior),reused:true};
+      }
+    }
+    throw error;
+  }
 
   // availability moved, so refresh the "only N left" hints on the cart
   if (input.cartId) await refreshCartWarnings(input.cartId);
@@ -288,11 +305,13 @@ export async function requoteCheckout(
   const quote = await buildQuote({ lines, couponCode, shippingMethod, settings });
 
   // the hold quantity never changes here; only money does
-  await query(
+  const updated = await query(
     `update checkout_sessions set quote = $2, quote_version = $3, coupon_code = $4, shipping_method = $5,
             subtotal = $6, discount_total = $7, shipping_total = $8, grand_total = $9,
             quote_expires_at = $10, updated_at = now()
-      where id = $1`,
+      where id = $1 and status='reserved' and quote_version=$11
+        and shipping_method=$12 and coupon_code is not distinct from $13 and quote=$14::jsonb
+        and (reservation_expires_at is null or reservation_expires_at>now()) returning id`,
     [
       id,
       JSON.stringify(quote),
@@ -303,9 +322,10 @@ export async function requoteCheckout(
       quote.discountTotal,
       quote.shippingTotal,
       quote.grandTotal,
-      new Date(quote.expiresAt),
+      new Date(quote.expiresAt), checkout.quote_version, checkout.shipping_method, checkout.coupon_code, JSON.stringify(checkout.quote),
     ],
   );
+  if (!updated.rowCount) throw new CommerceError("تسویه هم‌زمان تغییر کرد؛ دوباره بررسی کنید.",409,"checkout_changed");
   return publicCheckout(await getCheckout(id));
 }
 
@@ -315,6 +335,13 @@ export async function cancelCheckout(id: string) {
     throw new CommerceError("این تسویه به سفارش تبدیل شده و قابل لغو نیست.", 409, "checkout_completed");
   }
   const released = await withTransaction(async (client) => {
+    // Match settlement's lock order (checkout, then reservations), and recheck
+    // after acquiring the lock so cancellation cannot overwrite a paid order.
+    const locked=(await client.query<CheckoutRow>("select * from checkout_sessions where id=$1 for update",[id])).rows[0];
+    if (!locked) throw notFound("فرآیند تسویه پیدا نشد.");
+    if (locked.status === "completed" || locked.status === "exception") {
+      throw new CommerceError("این تسویه به سفارش تبدیل شده و قابل لغو نیست.",409,"checkout_completed");
+    }
     const res = await client.query(
       `update stock_reservations set status = 'released', updated_at = now()
         where checkout_id = $1 and status = 'active'

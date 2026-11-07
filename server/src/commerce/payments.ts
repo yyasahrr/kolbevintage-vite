@@ -225,7 +225,7 @@ async function currentUnitPrices(variantIds: string[]) {
   return new Map(res.rows.map((row) => [row.id, Number(row.price)]));
 }
 
-async function assertQuoteFresh(checkout: CheckoutRow, settings: CommerceSettings) {
+export async function assertQuoteFresh(checkout: CheckoutRow, settings: CommerceSettings, manualConfirmation = false) {
   // the catalogue price may have moved since the quote was frozen: re-read it
   // instead of trusting the line prices stored in the quote
   const prices = await currentUnitPrices(checkout.quote.lines.map((line) => line.variantId));
@@ -242,10 +242,12 @@ async function assertQuoteFresh(checkout: CheckoutRow, settings: CommerceSetting
   });
   if (priceDrifted || fresh.quoteVersion !== checkout.quote_version) {
     // keep the stored quote in sync so the shopper sees the new numbers
-    await query(
+    const updated = await query(
       `update checkout_sessions set quote = $2, quote_version = $3, subtotal = $4, discount_total = $5,
-              shipping_total = $6, grand_total = $7, quote_expires_at = $8, updated_at = now()
-        where id = $1`,
+              shipping_total = $6, grand_total = $7, quote_expires_at = $8, updated_at = now(),
+              manual_quote_confirm_required = case when $13 then true else manual_quote_confirm_required end
+        where id = $1 and quote_version=$9 and status='reserved'
+          and shipping_method=$10 and coupon_code is not distinct from $11 and quote=$12::jsonb returning id`,
       [
         checkout.id,
         JSON.stringify(fresh),
@@ -254,9 +256,10 @@ async function assertQuoteFresh(checkout: CheckoutRow, settings: CommerceSetting
         fresh.discountTotal,
         fresh.shippingTotal,
         fresh.grandTotal,
-        new Date(fresh.expiresAt),
+        new Date(fresh.expiresAt), checkout.quote_version, checkout.shipping_method, checkout.coupon_code, JSON.stringify(checkout.quote), manualConfirmation,
       ],
     );
+    if (!updated.rowCount) throw new CommerceError("تسویه هم‌زمان تغییر کرد؛ دوباره بررسی کنید.",409,"checkout_changed");
     throw new CommerceError(
       "قیمت یا شرایط سبد تغییر کرده است. مبلغ به‌روز شد؛ یک بار دیگر تأیید کن.",
       409,
@@ -329,15 +332,21 @@ export async function startPayment(input: {
     );
     if (existing.rows[0]) {
       if (existing.rows[0].checkout_id !== checkout.id) throw new CommerceError("کلید پرداخت متعلق به تسویه دیگری است.",409,"idempotency_conflict");
-      const provider = providerFor(existing.rows[0].provider);
-      const initiated = await provider.initiate(existing.rows[0]);
-      await query(
-        `update payment_attempts set provider_ref = coalesce(provider_ref, $2), raw = $3, updated_at = now() where id = $1`,
-        [existing.rows[0].id, initiated.providerRef, JSON.stringify({ mock: true, instructions: initiated.instructions })],
-      );
+      const prior=existing.rows[0];
+      if (!prior.provider_ref || prior.last_error === "payment_initiation_unconfirmed") {
+        // A timeout after a provider call can mean it was captured remotely.
+        // Never issue another external initiate merely because the response was lost.
+        throw new CommerceError("نتیجه شروع پرداخت نامشخص است؛ تراکنش به بررسی نیاز دارد.",409,"payment_initiation_unconfirmed");
+      }
+      if (prior.status !== "initiated" && prior.status !== "pending_verification") {
+        throw new CommerceError("این درخواست پرداخت دیگر قابل شروع نیست؛ وضعیت تراکنش را بررسی کنید.",409,"payment_attempt_closed");
+      }
+      const stored=prior.raw ?? {};
       return {
-        attempt: publicAttempt({ ...existing.rows[0], provider_ref: existing.rows[0].provider_ref ?? initiated.providerRef }),
-        payment: { redirectUrl: initiated.redirectUrl, instructions: initiated.instructions },
+        attempt: publicAttempt(prior),
+        payment: { redirectUrl: typeof stored.redirectUrl === "string" ? stored.redirectUrl : null,
+          instructions: typeof stored.instructions === "string" ? stored.instructions : "وضعیت تراکنش قبلی را بررسی کنید.",
+          mock: prior.provider.startsWith("mock") && settings.allowMockControls && !config.isProd },
         reused: true,
       };
     }
@@ -388,21 +397,48 @@ export async function startPayment(input: {
   const attemptId = `pay_${randomUUID()}`;
   const expiresAt = new Date(Date.now() + settings.paymentWindowMinutes * 60_000);
   const chargeable = round2(Math.max(0, Number(checkout.quote.grandTotal) - walletApplied));
-  const res = await query<PaymentAttemptRow>(
-    `insert into payment_attempts (id, checkout_id, provider, method, amount, wallet_applied, wallet_email,
-                                   status, idempotency_key, expires_at, quote_snapshot)
-     values ($1, $2, $3, $4, $5, $6, $7, 'initiated', $8, $9, $10::jsonb) returning *`,
-    [attemptId, checkout.id, provider.id, method, chargeable, walletApplied, walletApplied > 0 ? walletEmail : null, idempotencyKey, expiresAt, JSON.stringify(checkout.quote)],
-  );
+  const res = await withTransaction(async client => {
+    const locked=(await client.query<CheckoutRow>("select * from checkout_sessions where id=$1 for update",[checkout.id])).rows[0];
+    if (!locked || locked.status!=="reserved" || (locked.reservation_expires_at && new Date(locked.reservation_expires_at)<=new Date()) ||
+        locked.quote_version!==checkout.quote_version || JSON.stringify(locked.quote)!==JSON.stringify(checkout.quote) ||
+        locked.shipping_method!==checkout.shipping_method || locked.coupon_code!==checkout.coupon_code) {
+      throw new CommerceError("تسویه هم‌زمان تغییر کرد؛ دوباره بررسی کنید.",409,"checkout_changed");
+    }
+    const uncertain=await client.query("select id from payment_attempts where checkout_id=$1 and status='exception' and last_error='payment_initiation_unconfirmed'",[locked.id]);
+    if (uncertain.rowCount) throw new CommerceError("نتیجه پرداخت قبلی نامشخص است؛ ابتدا بررسی مالی لازم است.",409,"payment_initiation_unconfirmed");
+    if (idempotencyKey) {
+      const existing=await client.query("select id from payment_attempts where idempotency_key=$1",[idempotencyKey]);
+      if (existing.rowCount) throw new CommerceError("درخواست پرداخت در حال پردازش است؛ دوباره امتحان کنید.",409,"idempotency_in_progress");
+    }
+    return client.query<PaymentAttemptRow>(
+      `insert into payment_attempts (id, checkout_id, provider, method, amount, wallet_applied, wallet_email,
+                                     status, idempotency_key, expires_at, quote_snapshot)
+       values ($1, $2, $3, $4, $5, $6, $7, 'initiated', $8, $9, $10::jsonb) returning *`,
+      [attemptId, locked.id, provider.id, method, chargeable, walletApplied, walletApplied > 0 ? walletEmail : null, idempotencyKey, expiresAt, JSON.stringify(locked.quote)],
+    );
+  });
 
-  const initiated = await provider.initiate(res.rows[0]);
+  let initiated: Awaited<ReturnType<PaymentProvider["initiate"]>>;
+  try {
+    initiated = await provider.initiate(res.rows[0]);
+  } catch {
+    // Even a timeout may have created a remote payment. Preserve the attempt
+    // and queue a financial review rather than automatically calling again.
+    await withTransaction(async client=>{
+      const changed=await client.query(`update payment_attempts set status='exception',last_error='payment_initiation_unconfirmed',updated_at=now()
+        where id=$1 and status='initiated' and provider_ref is null returning id`,[attemptId]);
+      if (changed.rowCount) await enqueue(client,"payment.exception",{attemptId,checkoutId:checkout.id,amount:chargeable,reason:"payment_initiation_unconfirmed"},`payment.exception:${attemptId}`);
+    });
+    throw new CommerceError("نتیجه شروع پرداخت نامشخص است؛ تراکنش به بررسی مالی نیاز دارد.",409,"payment_initiation_unconfirmed");
+  }
   await query(
-    `update payment_attempts set provider_ref = $2, raw = $3, updated_at = now() where id = $1`,
-    [attemptId, initiated.providerRef, JSON.stringify({ provider: provider.id, instructions: initiated.instructions })],
+    `update payment_attempts set provider_ref = $2, raw = $3, updated_at = now() where id = $1 and status='initiated'`,
+    [attemptId, initiated.providerRef, JSON.stringify({ provider: provider.id, instructions: initiated.instructions, redirectUrl:initiated.redirectUrl })],
   );
+  const latest=await loadAttempt(attemptId);
 
   return {
-    attempt: publicAttempt({ ...res.rows[0], provider_ref: initiated.providerRef }),
+    attempt: publicAttempt(latest),
     payment: {
       redirectUrl: initiated.redirectUrl,
       instructions: initiated.instructions,
@@ -452,6 +488,10 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
     const current = locked.rows[0];
     if (!current) throw notFound("تراکنش پیدا نشد.");
 
+    if (current.status === "exception" && current.last_error === "duplicate_checkout_capture") {
+      return {ok:false,status:"exception",attemptId:current.id,orderId:current.order_id,reason:current.last_error,duplicate:true};
+    }
+
     // duplicate callback / retry: return the very same order, do not settle twice
     if (current.status === "settled" && current.order_id) {
       const existing = await client.query<{ id: string; status: string; total: string }>(
@@ -475,8 +515,19 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
     const checkout = checkoutRes.rows[0];
     if (!checkout) throw notFound("فرآیند تسویه پیدا نشد.");
 
-    if (checkout.status === "completed") {
-      throw new CommerceError("این تسویه قبلاً نهایی شده است.", 409, "checkout_completed");
+    // Two distinct attempts can both be captured by a provider. The checkout
+    // lock serializes them; the second capture must remain visible for manual
+    // financial reconciliation, not disappear behind a 409 or become a second
+    // order. This also covers a first payment that produced an exception order.
+    const existingOrder = await client.query<{id:string}>("select id from orders where checkout_id=$1", [checkout.id]);
+    if (existingOrder.rows[0]) {
+      const reason = "duplicate_checkout_capture";
+      await client.query(`update payment_attempts set status='exception',order_id=$2,provider_ref=$3,
+          verify_attempts=verify_attempts+1,last_error=$4,raw=$5,updated_at=now() where id=$1`,
+        [current.id,existingOrder.rows[0].id,outcome.providerRef,reason,JSON.stringify(outcome.raw)]);
+      await enqueue(client,"payment.exception",{attemptId:current.id,checkoutId:checkout.id,orderId:existingOrder.rows[0].id,amount:Number(current.amount),reason},`payment.exception:${current.id}`);
+      return {ok:false,status:"exception",attemptId:current.id,orderId:existingOrder.rows[0].id,reason,
+        message:"پرداخت دیگری برای این سفارش تأیید شده است؛ مبلغ اضافی نیازمند بررسی مالی است."};
     }
 
     const consumed = await consumeReservations(client, checkout.id);
@@ -666,6 +717,11 @@ export async function attemptProviderId(attemptId: string): Promise<string> {
   return (await loadAttempt(attemptId)).provider;
 }
 
+function terminalCallbackResult(attempt: PaymentAttemptRow) {
+  return { ok: attempt.status === "settled", status: attempt.status, attemptId: attempt.id,
+    orderId: attempt.order_id, reason: attempt.last_error, duplicate: true };
+}
+
 /** provider callback (in a real gateway this payload is signed) */
 export async function handleCallback(attemptId: string, params: Record<string, unknown>) {
   const attempt = await loadAttempt(attemptId);
@@ -685,11 +741,12 @@ export async function handleCallback(attemptId: string, params: Record<string, u
   }
 
   if (outcome.outcome === "pending") {
-    await query(
+    const changed = await query(
       `update payment_attempts set status = 'pending_verification', verify_attempts = verify_attempts + 1,
-              last_error = $2, raw = $3, updated_at = now() where id = $1`,
+              last_error = $2, raw = $3, updated_at = now() where id = $1 and status not in ('settled','exception') returning id`,
       [attempt.id, outcome.reason ?? "pending", JSON.stringify(outcome.raw)],
     );
+    if (!changed.rowCount) return terminalCallbackResult(await loadAttempt(attempt.id));
     return {
       ok: true,
       status: "pending_verification",
@@ -699,19 +756,21 @@ export async function handleCallback(attemptId: string, params: Record<string, u
   }
 
   if (outcome.outcome === "exception") {
-    await query(
+    const changed = await query(
       `update payment_attempts set status = 'exception', verify_attempts = verify_attempts + 1,
-              last_error = $2, raw = $3, updated_at = now() where id = $1`,
+              last_error = $2, raw = $3, updated_at = now() where id = $1 and status not in ('settled','exception') returning id`,
       [attempt.id, outcome.reason ?? "exception", JSON.stringify(outcome.raw)],
     );
+    if (!changed.rowCount) return terminalCallbackResult(await loadAttempt(attempt.id));
     return { ok: false, status: "exception", attemptId: attempt.id, message: "تراکنش نیازمند رسیدگی است." };
   }
 
-  await query(
+  const changed = await query(
     `update payment_attempts set status = 'failed', verify_attempts = verify_attempts + 1,
-            last_error = $2, raw = $3, updated_at = now() where id = $1`,
+            last_error = $2, raw = $3, updated_at = now() where id = $1 and status not in ('settled','exception') returning id`,
     [attempt.id, outcome.reason ?? "failed", JSON.stringify(outcome.raw)],
   );
+  if (!changed.rowCount) return terminalCallbackResult(await loadAttempt(attempt.id));
   return {
     ok: false,
     status: "failed",

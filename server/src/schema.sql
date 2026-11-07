@@ -269,6 +269,8 @@ create table if not exists checkout_sessions (
   updated_at timestamptz not null default now()
 );
 create index if not exists checkout_sessions_status_idx on checkout_sessions (status, reservation_expires_at);
+-- NULL in pre-migration backups means no manual quote confirmation is pending.
+alter table checkout_sessions add column if not exists manual_quote_confirm_required boolean default false;
 
 create table if not exists payment_attempts (
   id text primary key,

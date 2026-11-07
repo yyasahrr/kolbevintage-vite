@@ -986,7 +986,7 @@ test("older journal-free backups require explicit opt-in and restore only in an 
   const precision=`restore-precision-${randomUUID()}`;
   try {
     await query("insert into state_documents(key,value) values($1,$2::jsonb)",[precision,'{"amount":900719925474099312345,"fraction":123456789012345.678901}']);
-    const payload=await dumpAll();for (const row of payload.data.customers) delete (row as Record<string,unknown>).manual_labels;for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;for (const row of payload.data.payment_attempts) delete (row as Record<string,unknown>).quote_snapshot;payload.tables=payload.tables.filter(t=>t!=="journal_articles");delete payload.data.journal_articles;
+    const payload=await dumpAll();for (const row of payload.data.customers) delete (row as Record<string,unknown>).manual_labels;for (const row of payload.data.price_rules) delete (row as Record<string,unknown>).free_shipping;for (const row of payload.data.payment_attempts) delete (row as Record<string,unknown>).quote_snapshot;for (const row of payload.data.checkout_sessions) delete (row as Record<string,unknown>).manual_quote_confirm_required;payload.tables=payload.tables.filter(t=>t!=="journal_articles");delete payload.data.journal_articles;
     const file=path.join(dir,"before-journal.json");await fs.writeFile(file,stringify(payload)!);
     const badFile=path.join(dir,"missing-two.json");const other={...payload,tables:payload.tables.filter(t=>t!=="products"),data:{...payload.data}};delete other.data.products;await fs.writeFile(badFile,stringify(other)!);
     await admin.query(`create database "${name}"`);created=true;conn=new pg.Client({connectionString:target.toString()});await conn.connect();await conn.query(await fs.readFile("server/src/schema.sql","utf8"));
@@ -1000,6 +1000,7 @@ test("older journal-free backups require explicit opt-in and restore only in an 
     assert.equal((await conn.query("select count(*)::int n from journal_articles")).rows[0].n,0);assert.equal((await conn.query("select count(*)::int n from products")).rows[0].n,payload.data.products.length);
     assert.equal((await conn.query("select count(*)::int n from customers where manual_labels is not null")).rows[0].n,0,"old backup customers restore without labels");
     assert.equal((await conn.query("select count(*)::int n from price_rules where free_shipping")).rows[0].n,0,"old campaigns restore without the new shipping benefit");
+    assert.equal((await conn.query("select count(*)::int n from checkout_sessions where manual_quote_confirm_required is not null")).rows[0].n,0,"old checkouts remain compatible without confirmation column");
     const restored=(await conn.query("select (value->'amount')::text amount,(value->'fraction')::text fraction from state_documents where key=$1",[precision])).rows[0];assert.equal(restored.amount,"900719925474099312345");assert.equal(restored.fraction,"123456789012345.678901");
   }finally {await query("delete from state_documents where key=$1",[precision]);await conn?.end();if(created)await admin.query(`drop database "${name}"`);await admin.end();await fs.rm(dir,{recursive:true,force:true});}
 });
@@ -1217,4 +1218,13 @@ test('label deletion serializes with customer assignment', async () => {
     if(before===undefined)await query("delete from commerce_settings where key='customer_labels_v1'");
     else await query("update commerce_settings set value=$1::jsonb where key='customer_labels_v1'",[JSON.stringify(before)]);
   }
+});
+
+test('payment review list is restricted to staff with finance view permission', async () => {
+  const {client:viewer}=await staffWith(['finance:view'],'payment-review-view','payment-review-viewer','payment-review-pass');
+  const {client:nonfinance}=await staffWith(['orders:view'],'payment-review-orders','payment-review-orders-user','payment-review-orders-pass');
+  const guest=makeClient();
+  assert.equal((await guest.get('/api/commerce/admin/payments?status=exception')).status,401);
+  assert.equal((await nonfinance.get('/api/commerce/admin/payments?status=exception')).status,403);
+  const list=await viewer.get('/api/commerce/admin/payments?status=exception');assert.equal(list.status,200);assert.ok(Array.isArray(list.body));
 });

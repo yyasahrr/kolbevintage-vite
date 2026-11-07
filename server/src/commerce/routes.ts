@@ -807,7 +807,7 @@ export async function commerceRoutes(app: FastifyInstance) {
       `select * from payment_attempts where ($1 = 'all' or status = $1) order by created_at desc limit 200`,
       [req.query.status ?? "all"],
     );
-    return rows.rows.map(publicAttempt);
+    return rows.rows.map(row=>({...publicAttempt(row),lastError:row.last_error}));
   });
 
   app.get("/api/commerce/admin/outbox", async (req) => {
