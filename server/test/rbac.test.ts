@@ -1318,3 +1318,64 @@ test('public journal pages expose only currently published articles and respect 
     assert.equal((await guest.get(`/api/public/journal/${fixtures[0].slug}`)).status,404);
   } finally {await query("delete from journal_articles where slug like 'public-page-%'");await query("update state_documents set value=$1::jsonb where key='ops'",[JSON.stringify(original)]);}
 });
+
+test("product details are authorized, conflict-safe and survive projection without stock changes", async () => {
+  const {admin,client:viewer}=await staffWith(["catalog:view"],"product-details-viewer","product-details-user","product-details-pass");
+  const created=await admin.post('/api/admin/products',{name:'مشخصات آزمون',category:'پالتو و کاپشن',garment:'coat',price:100,colorName:'مشکی',colorHex:'#111111',sizes:['M','L'],imageUrl:'https://example.com/photo.jpg'});
+  assert.equal(created.status,201,JSON.stringify(created.body));const id=created.body.id;
+  const snapshot=(p:any)=>({name:p.name,category:p.category,description:p.description,price:p.price,compareAt:p.compareAt,material:p.material,care:p.care,fit:p.fit,origin:p.origin,active:p.active});
+  try {
+    const original=(await admin.get(`/api/products/${id}`)).body;
+    const expected=snapshot(original);
+    assert.equal(original.origin,null);
+    const freshDocs=await query("select key,value from state_documents where key in ('admin','ops')");const fresh=Object.fromEntries(freshDocs.rows.map(row=>[row.key,row.value]));
+    await (await import('../src/projection')).syncProjection(fresh.admin,fresh.ops);
+    assert.equal((await admin.get(`/api/products/${id}`)).body.origin,null,'new product origin remains empty after projection');
+    const vars=await query('select id,sku,on_hand,quarantined,active from product_variants where product_id=$1 order by id',[id]);
+    const payload={expected,price:120,compareAt:180,material:'پشم',care:'خشکشویی',fit:'آزاد',origin:'ایران'};
+    assert.equal((await viewer.patch(`/api/admin/products/${id}`,payload)).status,403);
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{...payload,compareAt:100})).status,422);
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{...payload,price:120.001})).status,422);
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{...payload,compareAt:180.001})).status,422);
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{...payload,material:'x'.repeat(2001)})).status,422);
+    const [one,two]=await Promise.all([admin.patch(`/api/admin/products/${id}`,payload),admin.patch(`/api/admin/products/${id}`,payload)]);
+    assert.deepEqual([one.status,two.status].sort(),[200,409]);
+    assert.equal((one.status===409?one:two).body.code,'product_stale');
+    let saved=(await admin.get(`/api/products/${id}`)).body;
+    assert.equal(saved.price,120);assert.equal(saved.compareAt,180);assert.equal(saved.material,'پشم');assert.equal(saved.care,'خشکشویی');assert.equal(saved.fit,'آزاد');assert.equal(saved.origin,'ایران');
+    assert.deepEqual((await query('select id,sku,on_hand,quarantined,active from product_variants where product_id=$1 order by id',[id])).rows,vars.rows);
+    const {syncProjection}=await import('../src/projection');
+    const docs=await query("select key,value from state_documents where key in ('admin','ops')");const map=Object.fromEntries(docs.rows.map(row=>[row.key,row.value]));
+    await syncProjection(map.admin,map.ops);
+    saved=(await admin.get(`/api/products/${id}`)).body;
+    assert.equal(saved.compareAt,180);assert.equal(saved.material,'پشم');assert.equal(saved.care,'خشکشویی');assert.equal(saved.fit,'آزاد');assert.equal(saved.origin,'ایران');
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{expected:snapshot(saved),compareAt:null,material:null,origin:null})).status,200);
+    const cleared=(await admin.get(`/api/products/${id}`)).body;assert.equal(cleared.compareAt,null);assert.equal(cleared.material,null);assert.equal(cleared.origin,null);
+    const updated=await query("select key,value from state_documents where key in ('admin','ops')");const doc=Object.fromEntries(updated.rows.map(row=>[row.key,row.value]));await syncProjection(doc.admin,doc.ops);
+    const rebuilt=(await admin.get(`/api/products/${id}`)).body;assert.equal(rebuilt.compareAt,null);assert.equal(rebuilt.material,null);assert.equal(rebuilt.origin,null);
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{active:true})).status,200);
+    const publicProduct=(await makeClient().get(`/api/products/${id}`)).body;assert.equal(publicProduct.care,'خشکشویی');assert.equal(publicProduct.fit,'آزاد');
+    assert.ok((await query("select 1 from audit_events where target_id=$1 and action='catalog.product_updated'",[id])).rowCount);
+    assert.ok((await query("select 1 from price_history where product_id=$1 and new_price=120",[id])).rowCount);
+  } finally {
+    const doc=(await query("select value from state_documents where key='admin'")).rows[0].value;doc.customProducts=doc.customProducts.filter((p:any)=>p.id!==id);doc.hidden=(doc.hidden??[]).filter((p:string)=>p!==id);
+    const ops=(await query("select value from state_documents where key='ops'")).rows[0].value;delete ops.productImages[id];
+    await query("update state_documents set value=$2 where key=$1",['admin',JSON.stringify(doc)]);await query("update state_documents set value=$2 where key=$1",['ops',JSON.stringify(ops)]);await query('delete from products where id=$1',[id]);
+  }
+});
+
+test('base product details and explicit removals survive catalog projection', async () => {
+  const admin=owner();await admin.login(OWNER_PASSCODE);
+  const id=(await query('select id from products where is_base=true order by id limit 1')).rows[0].id;
+  const initial=(await query("select value from state_documents where key='admin'")).rows[0].value;
+  const ops=(await query("select value from state_documents where key='ops'")).rows[0].value;
+  const {syncProjection}=await import('../src/projection');
+  try {
+    const changed=await admin.patch(`/api/admin/products/${id}`,{material:'پارچه آزمون',care:'نگهداری آزمون',fit:'فرم آزمون',origin:'ایران',compareAt:null});assert.equal(changed.status,200,JSON.stringify(changed.body));
+    let doc=(await query("select value from state_documents where key='admin'")).rows[0].value;await syncProjection(doc,ops);
+    let result=(await admin.get(`/api/products/${id}`)).body;assert.equal(result.material,'پارچه آزمون');assert.equal(result.care,'نگهداری آزمون');assert.equal(result.fit,'فرم آزمون');assert.equal(result.origin,'ایران');assert.equal(result.compareAt,null);
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{material:null,care:null,origin:null})).status,200);
+    doc=(await query("select value from state_documents where key='admin'")).rows[0].value;await syncProjection(doc,ops);
+    result=(await admin.get(`/api/products/${id}`)).body;assert.equal(result.material,null);assert.equal(result.care,null);assert.equal(result.origin,null);
+  } finally {await query("update state_documents set value=$1::jsonb where key='admin'",[JSON.stringify(initial)]);await syncProjection(initial,ops);}
+});

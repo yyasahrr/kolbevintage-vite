@@ -24,7 +24,7 @@ separate seeded database and role selection that was not authentication. Other
 prototype screens are blocked until individually migrated to store endpoints.
 `PANEL_OPEN_ACCESS` is solely for preview and is ignored when `NODE_ENV=production`. In preview it grants all permissions, including refund decisions; the live-refund switch and provider capability checks still apply and are not bypassed.
 
-Current gaps: category deletion and migration of in-use category names, full product/variant and video editing, exchange policy, journal and other storefront content, advanced campaign rules, reconciliation and comprehensive finance reports, and other prototype modules are not yet wired into this new shell. The grouped order-value summary is not a bank settlement report. The manual-order
+Current gaps: category deletion and migration of in-use category names, full product/variant and video editing, exchange policy, video and other storefront content, advanced campaign rules, reconciliation and comprehensive finance reports, and other prototype modules are not yet wired into this new shell. The grouped order-value summary is not a bank settlement report. The manual-order
 flow attests an external payment; it does not verify it with a bank. Refund
 approval requires the protected superadmin and settlement remains fail-closed
 until the financial settings and a verified provider adapter allow it. Real
@@ -80,3 +80,8 @@ Exchange requests, old difference-payment links and settlement of legacy exchang
 
 ### Private customer measurements
 A customer can save and clear optional body measurements via an authenticated, CSRF-protected API with row locking and expected-value conflict detection. The independent nullable column is not populated from legacy sample `size`, exposed in bootstrap, or used for an automatic size recommendation. Measurement values are excluded from audit events but are present in logical backups; older backups omit the column and restore it as NULL. Privacy, backup retention, security and real-world fit validation remain open.
+
+### Product details and concurrent edits
+The live product editor can save material, care, fit, origin and an optional comparison price, in addition to the basic fields. The comparison price is display-only, must be greater than the current selling price and does not itself change checkout discounts; both prices allow at most two decimal places. Details are reflected in the public catalogue and survive a projection rebuild. Newly created products no longer gain a fabricated origin on projection rebuild; legacy products retain their previous default until edited. Creation still starts with a draft, one color, zero stock and a basic form; edit the draft afterwards for the additional details.
+
+The editor sends an expected snapshot and the server rejects conflicting simultaneous edits; older API clients omitting the snapshot do not receive that protection. Inventory and SKU identifiers are unchanged by detail edits. Image and option actions save separately and immediately, even if the editor is later cancelled. A network failure can leave a write outcome unknown; refresh and check before retrying. There is still no option deletion, individual variant disabling, per-variant pricing, video, bulk import or complete page-builder integration. The new browser smoke uses a disposable database and exercises concurrent edits, four widths and axe, not production infrastructure.

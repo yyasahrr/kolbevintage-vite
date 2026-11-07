@@ -139,7 +139,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     const sizeRows = sizes.map((value, index) => ({ id: `size-${index + 1}`, label: value }));
     const crop = { cx: 0.5, cy: 0.5, zoom: 1 };
     const image = { id: `img-${randomUUID()}`, url: imageUrl, colorId: "*", role: "main" };
-    const product = { id, name, category, garment: body.garment!, price: body.price, description, colors, sizes: sizeRows, stock: {}, active: false, featured: false, lookId: "look-01", crop, createdAt: Date.now() };
+    const product = { id, name, category, garment: body.garment!, price: body.price, description, origin: null, colors, sizes: sizeRows, stock: {}, active: false, featured: false, lookId: "look-01", crop, createdAt: Date.now() };
     try { await withTransaction(async client => {
       await client.query("select pg_advisory_xact_lock(hashtext('kv-commerce-catalog-sync'))");
       const docs = await client.query<{ key: string; value: Record<string, any> }>("select key, value from state_documents where key in ('admin','ops') order by key for update");
@@ -251,11 +251,11 @@ export async function catalogRoutes(app: FastifyInstance) {
 
   /** Targeted catalogue edit: the storefront document and relational price
    * change atomically. Never accept stock, variants or unrelated document keys. */
-  app.patch<{ Params: { id: string }; Body: { name?: string; category?: string; description?: string; price?: number; active?: boolean } }>("/api/admin/products/:id", async (req) => {
+  app.patch<{ Params: { id: string }; Body: { name?: string; category?: string; description?: string; price?: number; compareAt?: number|null; material?: string|null; care?: string|null; fit?: string|null; origin?: string|null; active?: boolean; expected?: Record<string,unknown> } }>("/api/admin/products/:id", async (req) => {
     const session = await requirePermission(req, "catalog:edit");
     const body = req.body ?? {};
     const keys = Object.keys(body);
-    if (!keys.length || keys.some((key) => !["name", "category", "description", "price", "active"].includes(key))) {
+    if (!keys.length || keys.some((key) => !["name", "category", "description", "price", "compareAt", "material", "care", "fit", "origin", "active", "expected"].includes(key))) {
       throw validation("فیلدهای ویرایش محصول معتبر نیستند.");
     }
     for (const key of ["name", "category", "description"] as const) {
@@ -263,7 +263,14 @@ export async function catalogRoutes(app: FastifyInstance) {
         throw validation("نام، دسته یا توضیح محصول معتبر نیست.");
       }
     }
-    if (body.price !== undefined && (typeof body.price !== "number" || !Number.isFinite(body.price) || body.price < 0 || body.price > 99999999)) throw validation("قیمت محصول معتبر نیست.");
+    if (body.price !== undefined && (typeof body.price !== "number" || !Number.isFinite(body.price) || body.price < 0 || body.price > 99999999 || Number(body.price.toFixed(2)) !== body.price)) throw validation("قیمت محصول معتبر نیست (حداکثر دو رقم اعشار).");
+    for (const key of ["material", "care", "fit", "origin"] as const) {
+      if (body[key] !== undefined && body[key] !== null && (typeof body[key] !== "string" || body[key]!.length > 2000)) throw validation("مشخصات محصول معتبر نیست.");
+    }
+    if (body.compareAt !== undefined && body.compareAt !== null && (typeof body.compareAt !== "number" || !Number.isFinite(body.compareAt) || body.compareAt < 0 || body.compareAt > 99999999 || Number(body.compareAt.toFixed(2)) !== body.compareAt)) throw validation("قیمت مقایسه‌ای معتبر نیست (حداکثر دو رقم اعشار).");
+    const expectedKeys=["name","category","description","price","compareAt","material","care","fit","origin","active"];
+    if (body.expected !== undefined && (!body.expected || typeof body.expected !== "object" || Array.isArray(body.expected) || Object.keys(body.expected).length!==expectedKeys.length || expectedKeys.some(key=>!Object.hasOwn(body.expected!,key)))) throw validation("نسخه محصول معتبر نیست.");
+    if (keys.every(key=>key==="expected")) throw validation("تغییری برای ذخیره وجود ندارد.");
     if (body.active !== undefined && typeof body.active !== "boolean") throw validation("وضعیت محصول معتبر نیست.");
     if (body.active !== undefined) await requirePermission(req, "catalog:publish");
     const id = req.params.id;
@@ -274,15 +281,17 @@ export async function catalogRoutes(app: FastifyInstance) {
       const docs = await client.query<{ value: Record<string, any> }>("select value from state_documents where key = 'admin' for update");
       const doc = docs.rows[0]?.value;
       if (!doc) throw notFound("سند کاتالوگ پیدا نشد.");
-      const found = await client.query<{ name: string; category: string; description: string | null; price: string; active: boolean; is_base: boolean }>("select name, category, description, price, active, is_base from products where id = $1 for update", [id]);
+      const found = await client.query<ProductRow>("select * from products where id = $1 for update", [id]);
       const previous = found.rows[0];
       if (!previous) throw notFound("محصول پیدا نشد.");
+      const before={name:previous.name,category:previous.category,description:previous.description,price:Number(previous.price),compareAt:previous.compare_at===null?null:Number(previous.compare_at),material:previous.material,care:previous.care,fit:previous.fit,origin:previous.origin,active:previous.active};
+      if(body.expected && expectedKeys.some(key=>body.expected![key]!==before[key as keyof typeof before])) throw conflict("محصول هم‌زمان تغییر کرده است؛ فرم را ببندید، فهرست را تازه کنید و دوباره بررسی کنید.","product_stale");
       if (body.category !== undefined && body.category.trim() !== previous.category) {
         const ops = await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");
         if (!Array.isArray(ops.rows[0]?.value?.categories) || !ops.rows[0].value.categories.some((c:any)=>c.name===body.category!.trim() && c.active===true)) throw validation("دسته فعال انتخاب‌شده پیدا نشد.");
       }
       const update: Record<string, unknown> = {};
-      for (const key of ["name", "category", "description", "price"] as const) {
+      for (const key of ["name", "category", "description", "price", "compareAt", "material", "care", "fit", "origin"] as const) {
         if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
       }
       if (previous.is_base) {
@@ -301,13 +310,19 @@ export async function catalogRoutes(app: FastifyInstance) {
         category: update.category ?? previous.category,
         description: update.description ?? previous.description,
         price: update.price ?? Number(previous.price),
+        compareAt: Object.hasOwn(update,"compareAt") ? update.compareAt : before.compareAt,
+        material: Object.hasOwn(update,"material") ? update.material : previous.material,
+        care: Object.hasOwn(update,"care") ? update.care : previous.care,
+        fit: Object.hasOwn(update,"fit") ? update.fit : previous.fit,
+        origin: Object.hasOwn(update,"origin") ? update.origin : previous.origin,
         active: body.active ?? previous.active,
       };
+      if(next.compareAt !== null && Number(next.compareAt) <= Number(next.price) && (body.compareAt !== undefined || body.price !== undefined)) throw validation("قیمت مقایسه‌ای باید بیشتر از قیمت فروش باشد؛ در غیر این صورت آن را خالی کنید.");
       await client.query("update state_documents set value = $2::jsonb, updated_at = now() where key = $1", ["admin", JSON.stringify(doc)]);
-      await client.query("update products set name=$2, category=$3, description=$4, price=$5, active=$6, updated_at=now() where id=$1", [id, next.name, next.category, next.description, next.price, next.active]);
+      await client.query("update products set name=$2, category=$3, description=$4, price=$5, active=$6, compare_at=$7, material=$8, care=$9, fit=$10, origin=$11, updated_at=now() where id=$1", [id, next.name, next.category, next.description, next.price, next.active, next.compareAt, next.material, next.care, next.fit, next.origin]);
       if (body.active !== undefined) await client.query("update product_variants set active=$2, updated_at=now() where product_id=$1", [id, body.active]);
       if (Number(previous.price) !== Number(next.price)) await client.query("insert into price_history(product_id,old_price,new_price,actor,source) values($1,$2,$3,$4,'admin_panel')", [id, previous.price, next.price, session.subject]);
-      await recordAudit({ actor: session.subject, action: "catalog.product_updated", targetType: "product", targetId: id, before: { name: previous.name, category: previous.category, description: previous.description, price: Number(previous.price), active: previous.active }, after: next, requestId: req.id }, client);
+      await recordAudit({ actor: session.subject, action: "catalog.product_updated", targetType: "product", targetId: id, before, after: next, requestId: req.id }, client);
     });
     return { ok: true, id };
   });
