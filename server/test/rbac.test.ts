@@ -1379,3 +1379,35 @@ test('base product details and explicit removals survive catalog projection', as
     result=(await admin.get(`/api/products/${id}`)).body;assert.equal(result.material,null);assert.equal(result.care,null);assert.equal(result.origin,null);
   } finally {await query("update state_documents set value=$1::jsonb where key='admin'",[JSON.stringify(initial)]);await syncProjection(initial,ops);}
 });
+
+test('product images edit and reorder with authorization, stale protection and durable projection', async () => {
+  const {admin,client:viewer}=await staffWith(['catalog:view'],'images-viewer','images-viewer-user','images-viewer-pass');
+  const created=await admin.post('/api/admin/products',{name:'تصاویر آزمون',category:'پالتو و کاپشن',garment:'coat',price:100,colorName:'مشکی',colorHex:'#111111',sizes:['M'],imageUrl:'https://example.com/one.jpg'});
+  assert.equal(created.status,201,JSON.stringify(created.body));const id=created.body.id;const url=`/api/admin/products/${id}/images`;
+  try {
+    const start=(await admin.get(`/api/products/${id}`)).body.images;
+    assert.equal(start.length,1);
+    const added=await admin.post(url,{action:'add',url:'https://example.com/two.jpg',role:'gallery',colorId:'*',expected:start});assert.equal(added.status,200,JSON.stringify(added.body));const two=added.body.images;
+    assert.equal((await viewer.post(url,{action:'update',imageId:two[1].id,role:'main',colorId:'c1',expected:two})).status,403);
+    assert.equal((await admin.post(url,{action:'update',imageId:two[1].id,role:'main',colorId:'bad',expected:two})).status,422);
+    assert.equal((await admin.post(url,{action:'update',imageId:two[1].id,role:'main',colorId:'c1'})).status,422);
+    assert.equal((await admin.post(url,{action:'remove',imageId:two[0].id,expected:start})).body.code,'product_images_stale');
+    const [a,b]=await Promise.all([admin.post(url,{action:'update',imageId:two[1].id,role:'main',colorId:'c1',expected:two}),admin.post(url,{action:'move',imageId:two[1].id,direction:'earlier',expected:two})]);
+    assert.deepEqual([a.status,b.status].sort(),[200,409]);assert.equal((a.status===409?a:b).body.code,'product_images_stale');
+    let current=(await admin.get(`/api/products/${id}`)).body.images;
+    const target=current.find((i:any)=>i.url==='https://example.com/two.jpg');
+    const update=await admin.post(url,{action:'update',imageId:target.id,role:'main',colorId:'c1',expected:current});assert.equal(update.status,200);current=update.body.images;
+    assert.equal(current.filter((i:any)=>i.role==='main').length,1);assert.equal(current.find((i:any)=>i.id===target.id).colorId,'c1');
+    if(current[0].id!==target.id){const moved=await admin.post(url,{action:'move',imageId:target.id,direction:'earlier',expected:current});assert.equal(moved.status,200);current=moved.body.images;}
+    assert.equal(current[0].id,target.id);assert.equal((await admin.post(url,{action:'move',imageId:target.id,direction:'earlier',expected:current})).status,422);
+    const docs=await query("select key,value from state_documents where key in ('admin','ops')");const map=Object.fromEntries(docs.rows.map(row=>[row.key,row.value]));await (await import('../src/projection')).syncProjection(map.admin,map.ops);
+    assert.deepEqual((await admin.get(`/api/products/${id}`)).body.images,current);
+    assert.equal((await admin.patch(`/api/admin/products/${id}`,{active:true})).status,200);
+    assert.deepEqual((await makeClient().get(`/api/products/${id}`)).body.images,current);
+    const audit=await query("select action from audit_events where target_id=$1",[id]);assert.ok(audit.rows.some(row=>row.action==='catalog.image_update'));assert.ok(audit.rows.some(row=>row.action==='catalog.image_move'));
+  } finally {
+    const doc=(await query("select value from state_documents where key='admin'")).rows[0].value;doc.customProducts=doc.customProducts.filter((p:any)=>p.id!==id);doc.hidden=(doc.hidden??[]).filter((p:string)=>p!==id);
+    const ops=(await query("select value from state_documents where key='ops'")).rows[0].value;delete ops.productImages[id];
+    await query("update state_documents set value=$2 where key=$1",['admin',JSON.stringify(doc)]);await query("update state_documents set value=$2 where key=$1",['ops',JSON.stringify(ops)]);await query('delete from products where id=$1',[id]);
+  }
+});

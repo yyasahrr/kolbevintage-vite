@@ -16,15 +16,17 @@ a relational catalogue.
 
 ```bash
 npm ci
+npm --prefix fashion-e-commerce-admin-development ci
 npm run dev
 ```
 
-`npm run dev` starts both processes:
+`npm run dev` starts three processes:
 
 | Process | URL | What it is |
 | --- | --- | --- |
 | `web` | http://localhost:5173 | Vite dev server (the preview) |
 | `api` | http://localhost:4000 | Fastify API + PostgreSQL |
+| `panel` | http://localhost:5173/panel | Next admin through the Vite proxy (Next listens privately on port 3000) |
 
 Vite proxies `/api` and `/uploads` to the API, so the browser only ever talks
 to one origin. The first run initialises PostgreSQL in `server/.pgdata`
@@ -50,7 +52,7 @@ without any proxy. Deployment/preview details live in `docs/serving-fa.md`.
 
 ### Admin panel
 
-Open `/#/admin` — demo passcode **1234**. Logging in also opens a real
+Open `/panel` on the storefront origin — the passcode on a newly seeded development database is **1234**. Existing databases keep their configured passcode. Logging in also opens a real
 server session (`POST /api/admin/login`); every product, image, complement,
 order, customer and settings change is written to PostgreSQL and survives a
 reload or a different browser.
@@ -102,9 +104,7 @@ dedicated commerce module (`server/src/commerce/`) — see
   whole order (owner decision replacing the old per-product eligibility rule).
 - **Refunds**: partial per order line, adjustment documents only, and live
   refunds are fail-closed until a protected Superadmin enables them.
-- **Outbox**: `order.paid`, `order.exception`, `order.cancelled`,
-  `refund.settled` and `cashback.earned` are delivered asynchronously with
-  retries, so a dead SMS provider cannot invalidate an order.
+- **Outbox**: events are queued, but SMS, accounting and webhook delivery providers are not connected; queued events are not proof of delivery.
 - **Cashback**: tiered by basket value (e.g. up to 1,000 → 5%, up to 3,000 →
   3%, above → 1%), credited to an append-only wallet ledger on payment, clawed
   back proportionally on partial refunds, and shown in the cart before paying.
@@ -128,7 +128,7 @@ installment option, out-of-stock warnings), and the admin panel gets a new
 | POST | `/api/uploads` | Multipart image upload (admin) |
 | POST | `/api/admin/login` · `/logout` · GET `/api/admin/session` | Admin auth |
 | POST | `/api/auth/register` · `/login` · `/logout` · GET `/api/auth/me` | Customer auth |
-| POST | `/api/auth/otp/request` · `/verify` | Demo OTP login (code returned) |
+| POST | `/api/auth/otp/request` · `/verify` | Disabled until a verified provider is connected |
 | PATCH | `/api/auth/profile` | Profile, addresses and sizes |
 
 ## Project layout
@@ -149,19 +149,14 @@ installment option, out-of-stock warnings), and the admin panel gets a new
 
 This remains a demo/prototype, not a production commerce backend:
 
-- The OTP code is returned in the API response (and shown in the UI) instead
-  of being sent by SMS/email; wire a real provider before launch.
-- The payment gateway is a mock adapter: the server-side verify/idempotency
-  contract is real, but no bank is contacted. Replace `mock`/`mock-bnpl4` with a
-  provider adapter before launch.
+- OTP and unverified registration are disabled until a real verification provider is implemented and verified.
+- Mock payments are non-production only; production checkout remains blocked until a provider-specific adapter and currency conversion are implemented and verified.
 - Live refunds stay disabled (fail-closed) until `SUPERADMIN_PASSCODE` is set
   and a Superadmin turns them on in the admin panel.
-- `REQUIRE_ADMIN_AUTH` is off in development so the demo works offline.
-  Always enable it (as `npm start` does) and change the default passcode.
+- Admin API permissions and sessions are enforced. Never enable `PANEL_OPEN_ACCESS` outside an isolated preview; production ignores it.
 - Uploaded files are stored locally; use object storage for multi-instance
   deployments. CORS is permissive in the prototype.
-- Before going live add: rate limiting, CSRF protection, image sanitising,
-  backups and audit logs (price and stock are already validated server-side).
+- Existing rate limits, CSRF, image processing, backups and audit logs are not a security or production certification. Media backups, independent recovery tests, verified external providers and other launch gates remain open; run `npm run production:check` and read `docs/production-readiness-fa.md`.
 
 ## Repository
 

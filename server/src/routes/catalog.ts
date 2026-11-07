@@ -328,14 +328,19 @@ export async function catalogRoutes(app: FastifyInstance) {
   });
 
   /** Manage images without overwriting other product or inventory fields. */
-  app.post<{ Params:{id:string}; Body:{action?:string;imageId?:string;url?:string;imageData?:string;role?:string;colorId?:string} }>("/api/admin/products/:id/images", async req => {
+  app.post<{ Params:{id:string}; Body:{action?:string;imageId?:string;url?:string;imageData?:string;role?:string;colorId?:string;direction?:string;expected?:unknown} }>("/api/admin/products/:id/images", async req => {
     const session = await requirePermission(req,"catalog:edit");
     const {action,imageId} = req.body ?? {}; const id = req.params.id;
-    if (!["add","remove"].includes(action ?? "")) throw validation("عملیات تصویر معتبر نیست.");
+    if (!["add","remove","update","move"].includes(action ?? "")) throw validation("عملیات تصویر معتبر نیست.");
     let url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
     const imageData = req.body?.imageData;
     const role = req.body?.role ?? "gallery", colorId = req.body?.colorId ?? "*";
     if (action === "add" && ((!imageData && (url.length > 2000 || !(/^https:\/\/[^\s]+$/i.test(url) || /^\/uploads\/[a-z0-9._-]+$/i.test(url)))) || (imageData !== undefined && !!url) || !["main","gallery","hover","detail"].includes(role))) throw validation("نشانی یا نقش تصویر معتبر نیست.");
+    if (action === "update" && (!req.body?.role || !["main","gallery","hover","detail"].includes(role) || typeof colorId !== "string" || !colorId)) throw validation("نقش یا رنگ تصویر معتبر نیست.");
+    if (action === "move" && !["earlier","later"].includes(req.body?.direction ?? "")) throw validation("جهت جابه‌جایی تصویر معتبر نیست.");
+    const expected=req.body?.expected;
+    if ((action === "update" || action === "move") && expected === undefined) throw validation("نسخه فهرست تصاویر لازم است.");
+    if (expected !== undefined && (!Array.isArray(expected) || expected.length>30 || !expected.every(i=>i && typeof i==="object" && !Array.isArray(i) && Object.keys(i).length===4 && ["id","url","role","colorId"].every(k=>typeof i[k]==="string")))) throw validation("نسخه فهرست تصاویر معتبر نیست.");
     const uploaded = action === "add" && imageData !== undefined ? await prepareProductImage(imageData) : null;
     if (uploaded) url = uploaded.url;
     try { return await withTransaction(async client => {
@@ -343,23 +348,36 @@ export async function catalogRoutes(app: FastifyInstance) {
       const doc = docResult.rows[0]?.value; if (!doc) throw notFound("سند تصاویر پیدا نشد.");
       const products = await client.query<{colors:{id:string}[]}>("select colors from products where id=$1 for update",[id]);
       const product = products.rows[0]; if (!product) throw notFound("محصول پیدا نشد.");
-      if (action === "add" && colorId !== "*" && !product.colors.some(c=>c.id===colorId)) throw validation("رنگ تصویر معتبر نیست.");
+      if ((action === "add" || action === "update") && colorId !== "*" && !product.colors.some(c=>c.id===colorId)) throw validation("رنگ تصویر معتبر نیست.");
       const found = await client.query<{id:string;url:string;color_id:string;role:string;position:number}>("select id,url,color_id,role,position from product_images where product_id=$1 order by position,id",[id]);
       let images = found.rows.map(i=>({id:i.id,url:i.url,colorId:i.color_id,role:i.role}));
+      const auditImages=(items:typeof images)=>items.map(({id,role,colorId})=>({id,role,colorId}));
+      const beforeImages=auditImages(images);
+      if (expected !== undefined && (expected.length!==images.length || expected.some((item:any,index:number)=>["id","url","role","colorId"].some(key=>item[key]!==images[index][key as keyof typeof images[number]])))) throw conflict("تصاویر هم‌زمان تغییر کرده‌اند؛ فرم را ببندید و فهرست را تازه کنید.","product_images_stale");
       if (action === "add") {
         if(images.length >= 30) throw validation("حداکثر ۳۰ تصویر مجاز است.");
         if (role === "main") images = images.map(i=>i.role === "main" ? {...i,role:"gallery"} : i);
         images.push({id:`img-${randomUUID()}`,url,colorId,role});
       } else {
-        if (!imageId || !images.some(i=>i.id===imageId)) throw notFound("تصویر پیدا نشد.");
-        if (images.length === 1) throw validation("دست‌کم یک تصویر باید باقی بماند.");
-        images = images.filter(i=>i.id!==imageId);
+        const index=images.findIndex(i=>i.id===imageId);
+        if (index<0) throw notFound("تصویر پیدا نشد.");
+        if(action === "remove") {
+          if (images.length === 1) throw validation("دست‌کم یک تصویر باید باقی بماند.");
+          images = images.filter(i=>i.id!==imageId);
+        } else if(action === "update") {
+          if(role === "main") images=images.map(i=>i.role==="main" && i.id!==imageId ? {...i,role:"gallery"} : i);
+          images[index]={...images[index],role,colorId};
+        } else {
+          const target=index+(req.body!.direction==="earlier" ? -1 : 1);
+          if(target<0 || target>=images.length) throw validation("تصویر در ابتدای یا انتهای فهرست است.");
+          [images[index],images[target]]=[images[target],images[index]];
+        }
       }
       await client.query("delete from product_images where product_id=$1",[id]);
       for (let position=0;position<images.length;position++) { const image=images[position]; await client.query("insert into product_images(id,product_id,url,color_id,role,position) values($1,$2,$3,$4,$5,$6)",[image.id,id,image.url,image.colorId,image.role,position]); }
       doc.productImages = {...(doc.productImages ?? {}),[id]:images};
       await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='ops'",[JSON.stringify(doc)]);
-      await recordAudit({actor:session.subject,action:`catalog.image_${action}`,targetType:"product",targetId:id,after:{action,imageId:action === "add" ? images[images.length-1].id : imageId},requestId:req.id},client);
+      await recordAudit({actor:session.subject,action:`catalog.image_${action}`,targetType:"product",targetId:id,before:{images:beforeImages},after:{action,imageId:action === "add" ? images[images.length-1].id : imageId,images:auditImages(images)},requestId:req.id},client);
       return {ok:true,images};
     }); } catch (error) { if (uploaded) await uploaded.discard(); throw error; }
   });

@@ -93,6 +93,9 @@ async function startEmbedded() {
     password: config.pgPassword,
     port,
     persistent: true,
+    // Recent npm releases can block the platform package's postinstall; the
+    // library verifies and restores its packaged symlinks when needed.
+    autoRehydrateSymlinks: true,
   });
 
   if (!fs.existsSync(path.join(config.dataDir, "PG_VERSION"))) {
