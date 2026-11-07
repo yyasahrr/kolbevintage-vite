@@ -34,6 +34,12 @@ function withLabels(row:CustomerRow, definitions:Label[]) {
   const automaticLabels=definitions.filter(d=>d.rule?.type === "delivered_orders" && Number(row.delivered_count)>=d.rule.minCount).map(d=>d.id);
   return {email:row.email,name:row.name,phone:row.phone,createdAt:row.created_at,deliveredOrders:Number(row.delivered_count),manualLabels,automaticLabels,labels:[...new Set([...manualLabels,...automaticLabels])]};
 }
+/** Reuse CRM's exact validation and loyalty rules for facts read together in
+ * one SQL snapshot, including checkout reservation transactions. */
+export function labelContextFromSnapshot(value:unknown, customer:CustomerRow|null) {
+  const all=parseLabels(value);
+  return {defined:all.map(label=>label.id),actual:customer ? withLabels(customer,all).labels : []};
+}
 async function customersWithLabels(definitions:Label[], email?:string, client?:PoolClient) {
   const run=client ? client.query.bind(client) : query;
   const rows=await run<CustomerRow>(`select c.email,c.name,c.phone,c.created_at,c.manual_labels,

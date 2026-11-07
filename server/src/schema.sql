@@ -249,6 +249,8 @@ alter table price_rules add column if not exists max_discount numeric(12, 2);
 alter table price_rules add column if not exists free_shipping boolean not null default false;
 -- NULL is an unrestricted promotion; malformed/nonexistent audiences must fail closed.
 alter table price_rules add column if not exists audience jsonb;
+-- Purchase-only early access; old backups restore NULL safely.
+alter table price_rules add column if not exists early_access jsonb;
 
 create table if not exists checkout_sessions (
   id text primary key,

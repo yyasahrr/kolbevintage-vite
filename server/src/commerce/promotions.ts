@@ -1,5 +1,6 @@
 import { withTransaction } from "../db";
 import { labelAudience } from "./audiences";
+import { purchaseEarlyAccess } from "./early-access";
 
 /* =====================================================================
    Promotions — the admin panel edits campaigns and discount rules in the
@@ -27,8 +28,14 @@ export function hasUnsupportedCampaignRestrictions(rule: Doc): boolean {
   if (rule.audience != null) {
     try { labelAudience(rule.audience); } catch { return true; }
   }
+  if (rule.earlyAccess != null) {
+    try {
+      labelAudience(rule.audience);
+      if (!purchaseEarlyAccess(rule.earlyAccess, dayStart(rule.start))) return true;
+    } catch { return true; }
+  }
   return ["audienceLabels", "audienceMode", "customerLabels", "targetLabels",
-    "access", "accessMode", "earlyAccess", "earlyAccessMode", "earlyStartAt"]
+    "access", "accessMode", "earlyAccessMode", "earlyStartAt"]
     .some(key => Object.prototype.hasOwnProperty.call(rule, key) && rule[key] != null);
 }
 
@@ -56,6 +63,7 @@ interface RuleRow {
   createdAt: Date;
   freeShipping: boolean;
   audience: unknown;
+  earlyAccess: unknown;
 }
 
 export async function syncPromotions(fallback: Doc) {
@@ -87,6 +95,7 @@ export async function syncPromotions(fallback: Doc) {
       createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(0),
       freeShipping: campaign.freeShipping === true,
       audience: campaign.audience ?? null,
+      earlyAccess: campaign.earlyAccess ?? null,
     });
   }
 
@@ -112,6 +121,7 @@ export async function syncPromotions(fallback: Doc) {
       createdAt: rule.createdAt ? new Date(rule.createdAt) : new Date(0),
       freeShipping: rule.freeShipping === true,
       audience: rule.audience ?? null,
+      earlyAccess: rule.earlyAccess ?? null,
     });
   }
 
@@ -126,17 +136,17 @@ export async function syncPromotions(fallback: Doc) {
     for (const rule of rules.values()) {
       await client.query(
         `insert into price_rules (id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable,
-                                  starts_at, ends_at, active, created_at, free_shipping, audience, updated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,coalesce($14, now()),$15,$16::jsonb, now())
+                                  starts_at, ends_at, active, created_at, free_shipping, audience, early_access, updated_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,coalesce($14, now()),$15,$16::jsonb,$17::jsonb, now())
          on conflict (id) do update set
            name = excluded.name, kind = excluded.kind, value = excluded.value, scope = excluded.scope,
            scope_id = excluded.scope_id, min_subtotal = excluded.min_subtotal,
            max_discount = excluded.max_discount, priority = excluded.priority,
            stackable = excluded.stackable, starts_at = excluded.starts_at, ends_at = excluded.ends_at,
-           active = excluded.active, free_shipping = excluded.free_shipping, audience = excluded.audience, updated_at = now()`,
+           active = excluded.active, free_shipping = excluded.free_shipping, audience = excluded.audience, early_access = excluded.early_access, updated_at = now()`,
         [
           rule.id, rule.name, rule.kind, rule.value, rule.scope, rule.scopeId, rule.minSubtotal,
-          rule.maxDiscount, rule.priority, rule.stackable, rule.startsAt, rule.endsAt, rule.active, rule.createdAt, rule.freeShipping, rule.audience === null ? null : JSON.stringify(rule.audience),
+          rule.maxDiscount, rule.priority, rule.stackable, rule.startsAt, rule.endsAt, rule.active, rule.createdAt, rule.freeShipping, rule.audience === null ? null : JSON.stringify(rule.audience), rule.earlyAccess === null ? null : JSON.stringify(rule.earlyAccess),
         ],
       );
     }

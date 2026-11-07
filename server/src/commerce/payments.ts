@@ -13,6 +13,7 @@ import { enqueue } from "./outbox";
 import { buildQuote, type Quote } from "./pricing";
 import { loadCommerceSettings, loadCommerceSettingsSnapshot, type CommerceSettings } from "./settings";
 import { gatewayConfigured, gatewayProvider } from "./gateway";
+import { requirePurchaseAccess } from "./early-access";
 
 /* =====================================================================
    Payments — a callback is never proof of payment.
@@ -276,6 +277,7 @@ export async function assertQuoteFresh(checkout: CheckoutRow, settings: Commerce
  * commitment. The caller holds the checkout row lock; changes are returned so
  * the transaction can commit the new quote before a 409 is reported. */
 export async function refreshQuoteUnderLock(client:PoolClient, checkout:CheckoutRow, manualConfirmation=false):Promise<Quote | null> {
+  await requirePurchaseAccess(client,checkout.quote.lines.map(line=>line.variantId),checkout.customer_email);
   const settings=await loadCommerceSettingsSnapshot(client);
   const prices=await client.query<{id:string;price:string;category:string;look_id:string|null}>(`select v.id,p.price,p.category,p.look_id from product_variants v
     join products p on p.id=v.product_id where v.id=any($1::text[])`,[checkout.quote.lines.map(line=>line.variantId)]);

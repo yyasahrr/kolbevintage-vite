@@ -2760,3 +2760,149 @@ test('manual order requires renewed confirmation when customer audience changes 
     const confirmed=await fx.admin.post('/api/commerce/admin/orders/manual',{...body,confirmedQuoteVersion:stale.body.details.quote.quoteVersion});assert.equal(confirmed.status,201,JSON.stringify(confirmed.body));assert.equal(confirmed.body.order.discountTotal,0);
   } finally {await fx.cleanup()}
 });
+
+async function purchaseEarlyCampaign(fx:Awaited<ReturnType<typeof audienceFixture>>, scope:'all'|'category'='all', scopeId='') {
+  const start=new Date(Date.now()+2*86400000).toISOString().slice(0,10);
+  const early=new Date(Date.now()-60000).toISOString();
+  const made=await fx.admin.post('/api/admin/marketing/campaigns',{name:`early-${randomUUID()}`,kind:'percent',scope,scopeId,value:30,minSpend:0,start,end:'',freeShipping:true,
+    audience:{mode:'any',labels:[fx.manual.id]},earlyAccess:{mode:'purchase',startsAt:early}});
+  assert.equal(made.status,201,JSON.stringify(made.body));
+  const enabled=await fx.admin.patch(`/api/admin/marketing/campaigns/${made.body.id}`,{active:true});assert.equal(enabled.status,200,JSON.stringify(enabled.body));
+  return made.body.id as string;
+}
+
+test('purchase early access gates reservations, payments and manual orders by server-side labels', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variantId=await setStock(SKU,8),id=await purchaseEarlyCampaign(fx);const ava=await customerClient();
+    const email=`early-${randomUUID()}@example.com`,other=makeClient(),{hashPassword}=await import('../src/security');
+    await query("insert into customers(email,name,password_hash) values($1,$2,$3)",[email,'مشتری دوم',hashPassword('demo1234')]);assert.equal((await other.post('/api/auth/login',{email,password:'demo1234'})).status,200);
+    const items=[{variantId,quantity:1}],avaQuote=await ava.post('/api/commerce/quote',{items}),otherQuote=await other.post('/api/commerce/quote',{items});
+    assert.equal(avaQuote.body.lines[0].campaignId,id);assert.equal(avaQuote.body.freeShippingBy,'campaign');assert.equal(otherQuote.body.campaignDiscount,0);
+    const denied=await startCheckout(other,items);assert.equal(denied.status,409,JSON.stringify(denied.body));assert.equal(denied.body.code,'early_purchase_restricted');
+    assert.equal(Number((await query("select count(*)::int n from stock_reservations where status='active'")).rows[0].n),0);
+    const manualBody={items,address:{receiver:'مشتری',phone:'09121234567',street:'نشانی'},paymentReference:'EARLY',idempotencyKey:'early-manual',customerEmail:email};
+    const manualDenied=await fx.admin.post('/api/commerce/admin/orders/manual',manualBody);assert.equal(manualDenied.status,409);assert.equal(manualDenied.body.code,'early_purchase_restricted');
+    const held=await startCheckout(ava,items);assert.equal(held.status,201,JSON.stringify(held.body));assert.equal(held.body.checkout.quote.lines[0].campaignId,id);
+    assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200);
+    let deniedPay=await ava.post(`/api/commerce/checkout/${held.body.checkout.id}/pay`,{method:'online'});
+    if(deniedPay.body.code==='quote_stale')deniedPay=await ava.post(`/api/commerce/checkout/${held.body.checkout.id}/pay`,{method:'online'});
+    assert.equal(deniedPay.status,409,JSON.stringify(deniedPay.body));assert.equal(deniedPay.body.code,'early_purchase_restricted');
+    assert.equal(Number((await query('select count(*)::int n from payment_attempts where checkout_id=$1',[held.body.checkout.id])).rows[0].n),0);
+    await query("update price_rules set starts_at=now()-interval '1 minute' where id=$1",[id]);
+    const afterPublic=await startCheckout(other,items);assert.equal(afterPublic.status,201,JSON.stringify(afterPublic.body));
+  } finally {await fx.cleanup()}
+});
+
+test('early purchase uses all overlapping restrictions, is closed before the early start and remains scoped', async () => {
+  const fx=await audienceFixture();let productId:string|undefined,previousCategory:string|undefined;
+  try {
+    const variant=await setStock(SKU,4),otherVariant=await setStock(SKU2,4);
+    const product=(await query('select p.id,p.category from products p join product_variants v on v.product_id=p.id where v.id=$1',[variant])).rows[0];productId=product.id;previousCategory=product.category;
+    const category=`early-category-${randomUUID()}`;await query('update products set category=$2 where id=$1',[productId,category]);
+    const id=await purchaseEarlyCampaign(fx,'category',category),ava=await customerClient();
+    const future=new Date(Date.now()+600000).toISOString();await query('update price_rules set early_access=$2::jsonb where id=$1',[id,JSON.stringify({mode:'purchase',startsAt:future})]);
+    const tooEarly=await startCheckout(ava,[{variantId:variant,quantity:1}]);assert.equal(tooEarly.status,409);assert.equal(tooEarly.body.code,'early_purchase_restricted');
+    // A different category is unaffected even though this campaign is active.
+    const otherProduct=(await query('select product_id from product_variants where id=$1',[otherVariant])).rows[0].product_id;
+    if(otherProduct!==productId)assert.equal((await startCheckout(ava,[{variantId:otherVariant,quantity:1}])).status,201);
+    await query('update price_rules set early_access=$2::jsonb where id=$1',[id,JSON.stringify({mode:'purchase',startsAt:new Date(Date.now()-60000).toISOString()})]);
+    const second=(await fx.admin.post('/api/admin/customer-labels',{name:`second-${randomUUID()}`})).body.label;
+    const until=new Date(Date.now()+2*86400000).toISOString().slice(0,10);
+    const made=await fx.admin.post('/api/admin/marketing/campaigns',{name:'overlap',kind:'percent',scope:'all',value:5,minSpend:0,start:until,end:'',audience:{mode:'any',labels:[second.id]},earlyAccess:{mode:'purchase',startsAt:new Date(Date.now()-60000).toISOString()}});
+    assert.equal(made.status,201);assert.equal((await fx.admin.patch(`/api/admin/marketing/campaigns/${made.body.id}`,{active:true})).status,200);
+    const overlap=await startCheckout(ava,[{variantId:variant,quantity:1}]);assert.equal(overlap.status,409);assert.equal(overlap.body.code,'early_purchase_restricted');
+    assert.equal((await fx.admin.put(fx.path,{labels:[...fx.previous,fx.manual.id,second.id],expected:[...fx.previous,fx.manual.id]})).status,200);
+    assert.equal((await startCheckout(ava,[{variantId:variant,quantity:1}])).status,201);
+  } finally {if(productId)await query('update products set category=$2 where id=$1',[productId,previousCategory]);await fx.cleanup()}
+});
+
+test('initiated early payment remains payable after eligibility changes, while exchange targets are protected', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variant=await setStock(SKU,6),target=await setStock(SKU2,6),ava=await customerClient();
+    const original=await payAndSettle(ava,[{variantId:variant,quantity:1}]);
+    const originalOrder=await ava.get(`/api/commerce/orders/${original.settled.orderId}`);
+    await purchaseEarlyCampaign(fx);
+    const started=await startCheckout(ava,[{variantId:variant,quantity:1}]);assert.equal(started.status,201);
+    const attempt=await ava.post(`/api/commerce/checkout/${started.body.checkout.id}/pay`,{method:'online'});assert.equal(attempt.status,200,JSON.stringify(attempt.body));
+    assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200);
+    const completed=await ava.post(`/api/commerce/payments/${attempt.body.attempt.id}/simulate`,{result:'success'});assert.equal(completed.body.orderStatus,'paid');
+    const exchange=await ava.post(`/api/commerce/orders/${original.settled.orderId}/returns`,{lineId:originalOrder.body.lines[0].id,quantity:1,kind:'exchange',targetVariantId:target});
+    assert.equal(exchange.status,409,JSON.stringify(exchange.body));assert.equal(exchange.body.code,'early_purchase_restricted');
+  } finally {await fx.cleanup()}
+});
+
+test('invalid early access and missing label definitions fail closed and old projection cannot reopen buying', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variant=await setStock(SKU,3),id=await purchaseEarlyCampaign(fx),ava=await customerClient();
+    const current=(await query("select value from state_documents where key='admin'")).rows[0].value;
+    const stale=structuredClone(current);stale.campaigns.find((r:any)=>r.id===id).earlyAccess=null;
+    const {syncPromotions}=await import('../src/commerce/promotions');await syncPromotions(stale);
+    const projected=(await query('select early_access from price_rules where id=$1',[id])).rows[0];assert.equal(projected.early_access.mode,'purchase');
+    for(const bad of [{mode:'purchase',startsAt:'bad'},{mode:'purchase',startsAt:new Date(Date.now()-60000).toISOString(),other:true},{mode:'view_purchase',startsAt:new Date(Date.now()-60000).toISOString()}]) {
+      await query('update price_rules set early_access=$2::jsonb where id=$1',[id,JSON.stringify(bad)]);
+      const denied=await startCheckout(ava,[{variantId:variant,quantity:1}]);assert.equal(denied.status,409);assert.equal(denied.body.code,'early_purchase_restricted');
+    }
+    await syncPromotions(stale);
+    await query('update price_rules set audience=$2::jsonb where id=$1',[id,JSON.stringify({mode:'any',labels:['lbl-00000000-0000-0000-0000-000000000000']})]);
+    const missing=await startCheckout(ava,[{variantId:variant,quantity:1}]);assert.equal(missing.status,409);assert.equal(missing.body.code,'early_purchase_restricted');
+  } finally {await fx.cleanup()}
+});
+
+test('automatic loyalty labels govern early purchase and a full refund removes eligibility', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variant=await setStock(SKU,8),ava=await customerClient();
+    const manual=await fx.admin.post('/api/commerce/admin/orders/manual',{items:[{variantId:variant,quantity:2}],customerEmail:'ava@example.com',address:{receiver:'مشتری',phone:'09121234567',street:'نشانی'},paymentReference:'EARLY-AUTO',idempotencyKey:'early-auto-source'});
+    assert.equal(manual.status,201,JSON.stringify(manual.body));await deliverOrder(manual.body.order.id,SKU);
+    const until=new Date(Date.now()+2*86400000).toISOString().slice(0,10);
+    const draft=await fx.admin.post('/api/admin/marketing/campaigns',{name:'early-auto',kind:'percent',scope:'all',value:20,minSpend:0,start:until,end:'',audience:{mode:'any',labels:[fx.automatic.id]},earlyAccess:{mode:'purchase',startsAt:new Date(Date.now()-60000).toISOString()}});
+    assert.equal(draft.status,201);assert.equal((await fx.admin.patch(`/api/admin/marketing/campaigns/${draft.body.id}`,{active:true})).status,200);
+    await query('update order_lines set refunded_quantity=1 where order_id=$1',[manual.body.order.id]);
+    assert.equal((await startCheckout(ava,[{variantId:variant,quantity:1}])).status,201);
+    await query('update order_lines set refunded_quantity=quantity where order_id=$1',[manual.body.order.id]);
+    const denied=await startCheckout(ava,[{variantId:variant,quantity:1}]);assert.equal(denied.status,409);assert.equal(denied.body.code,'early_purchase_restricted');
+  } finally {await fx.cleanup()}
+});
+
+test('early-purchase eligibility uses one snapshot during concurrent membership changes', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variant=await setStock(SKU,3);await purchaseEarlyCampaign(fx);
+    const {withTransaction}=await import('../src/db');const {requirePurchaseAccess}=await import('../src/commerce/early-access');
+    let ready!:()=>void,release!:()=>void;const locked=new Promise<void>(r=>ready=r),gate=new Promise<void>(r=>release=r);
+    const before=withTransaction(async client=>{
+      await client.query('set transaction isolation level repeatable read');
+      await client.query('select 1 from price_rules limit 1');ready();await gate;
+      await requirePurchaseAccess(client,[variant],'AVA@EXAMPLE.COM');
+    });
+    await locked;
+    try {assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200)} finally {release()}
+    await before;
+    await assert.rejects(withTransaction(client=>requirePurchaseAccess(client,[variant],'ava@example.com')),(err:any)=>err.code==='early_purchase_restricted');
+  } finally {await fx.cleanup()}
+});
+
+test('exchange payment and final settlement recheck revoked early-purchase eligibility', async () => {
+  const fx=await audienceFixture();
+  try {
+    const variant=await setStock(SKU,6),target=await setStock(SKU2,6),ava=await customerClient();
+    const original=await payAndSettle(ava,[{variantId:variant,quantity:1}]);const order=await ava.get(`/api/commerce/orders/${original.settled.orderId}`);
+    await purchaseEarlyCampaign(fx);
+    const exchange=await ava.post(`/api/commerce/orders/${original.settled.orderId}/returns`,{lineId:order.body.lines[0].id,quantity:1,kind:'exchange',targetVariantId:target});assert.equal(exchange.status,201,JSON.stringify(exchange.body));
+    const refundId=exchange.body.refund.id,token=`exc_test_${randomUUID()}`;
+    // The chosen seeded variants may have equal prices; supply an unpaid
+    // difference to exercise the payment endpoint independently of price.
+    await query("insert into exchange_payments(id,refund_id,amount,token,status,expires_at) values($1,$2,1,$3,'unpaid',now()+interval '1 day')",[`exp_${randomUUID()}`,refundId,token]);
+    assert.equal((await fx.admin.put(fx.path,{labels:fx.previous,expected:[...fx.previous,fx.manual.id]})).status,200);
+    const blocked=await ava.post(`/api/commerce/exchange/${token}/pay`,{});assert.equal(blocked.status,409,JSON.stringify(blocked.body));assert.equal(blocked.body.code,'early_purchase_restricted');
+    assert.equal((await query('select status from exchange_payments where token=$1',[token])).rows[0].status,'unpaid');
+    const superAdmin=await superAdminClient();await superAdmin.put('/api/commerce/admin/settings',{liveRefundsEnabled:true});
+    assert.equal((await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`,{decision:'approve'})).status,200);
+    assert.equal((await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/receive`,{})).status,200);
+    assert.equal((await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/qc`,{result:'saleable'})).status,200);
+    const settlement=await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`,{});assert.equal(settlement.status,409,JSON.stringify(settlement.body));assert.equal(settlement.body.code,'early_purchase_restricted');
+  } finally {await fx.cleanup()}
+});

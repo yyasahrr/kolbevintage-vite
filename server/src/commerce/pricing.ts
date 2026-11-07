@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import { withTransaction } from "../db";
 import { customerLabelContext } from "../routes/customer-labels";
 import { labelAudience, matchesLabelAudience } from "./audiences";
+import { purchaseEarlyAccess } from "./early-access";
 import { computeCashback, type CashbackResult } from "./cashback";
 import { CommerceError } from "./errors";
 import type { CommerceSettings } from "./settings";
@@ -83,6 +84,8 @@ interface RuleRow {
   active: boolean;
   free_shipping: boolean;
   audience: unknown;
+  early_access: unknown;
+  starts_at: Date | null;
   updated_at: Date;
 }
 
@@ -139,16 +142,18 @@ export async function buildQuote(params: {
   const now = params.now ?? new Date();
 
   const rulesRes = await run<RuleRow>(
-    `select id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable, active, free_shipping, audience, updated_at
+    `select id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable, active, free_shipping, audience, early_access, starts_at, updated_at
        from price_rules
       where active
-        and (starts_at is null or starts_at <= now())
         and (ends_at is null or ends_at >= now())
       order by priority desc, created_at asc, id asc`,
   );
   const targeted=rulesRes.rows.some(rule=>rule.audience !== null);
   const context=targeted ? await customerLabelContext(client,params.customerEmail) : {defined:[],actual:[]};
   const rules=rulesRes.rows.filter(rule=>{
+    const early=rule.early_access === null ? null : purchaseEarlyAccess(rule.early_access,rule.starts_at);
+    if(rule.early_access !== null && (!early || rule.audience === null)) return false;
+    if(rule.starts_at && new Date(rule.starts_at).getTime()>now.getTime() && (!early || new Date(early.startsAt).getTime()>now.getTime())) return false;
     if(rule.audience === null) return true;
     try { return matchesLabelAudience(labelAudience(rule.audience),context.actual,context.defined); }
     catch { return false; }

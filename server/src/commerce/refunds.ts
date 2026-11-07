@@ -1,3 +1,4 @@
+import { requirePurchaseAccess } from "./early-access";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { config } from "../config";
@@ -107,6 +108,7 @@ export async function requestRefund(input: {
   // quantity until rejected or settled; settled units are already reflected in
   // refunded_quantity and must not be counted twice.
   return withTransaction(async (client) => {
+    if (kind === "exchange" && input.targetVariantId) await requirePurchaseAccess(client,[input.targetVariantId],order.email);
     const locked = await client.query<{ quantity: number; refunded_quantity: number; line_total: string }>(
       "select quantity, refunded_quantity, line_total from order_lines where id = $1 for update", [line.id],
     );
@@ -332,6 +334,8 @@ export async function payExchangeDifference(input: { token: string; actor: strin
     const payment = res.rows[0];
     if (!payment) throw notFound("لینک پرداخت اختلاف پیدا نشد.");
     if (payment.status === "paid") return { ok: true, status: "paid", amount: Number(payment.amount) };
+    const target=(await client.query<{target_variant_id:string|null;email:string|null}>(`select r.target_variant_id,o.email from refunds r join orders o on o.id=r.order_id where r.id=$1`,[payment.refund_id])).rows[0];
+    if (target?.target_variant_id) await requirePurchaseAccess(client,[target.target_variant_id],target.email);
     if (payment.expires_at && new Date(payment.expires_at) <= new Date()) {
       throw new CommerceError("مهلت پرداخت اختلاف تمام شده است.", 409, "exchange_link_expired");
     }
@@ -383,6 +387,10 @@ export async function settleRefund(input: { refundId: string; actor: string; not
       throw new CommerceError("این درخواست برای تسویه آماده نیست.", 409, "refund_not_ready");
     }
     const needsGoods = refund.kind !== "refund";
+    if (refund.kind === "exchange" && refund.target_variant_id) {
+      const customer=(await client.query<{email:string|null}>("select email from orders where id=$1",[refund.order_id])).rows[0];
+      await requirePurchaseAccess(client,[refund.target_variant_id],customer?.email);
+    }
     if (needsGoods && !refund.qc_result) {
       throw new CommerceError(
         "تا وقتی کالا دریافت و QC نشده، پول یا موجودی جابه‌جا نمی‌شود.",

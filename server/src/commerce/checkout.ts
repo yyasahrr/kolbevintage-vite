@@ -6,6 +6,7 @@ import { expireReservations, reserveForCheckout } from "./inventory";
 import { buildQuote, type Quote, type QuoteInputLine } from "./pricing";
 import { loadCommerceSettings } from "./settings";
 import { variantIdFor } from "./variants";
+import { requirePurchaseAccess } from "./early-access";
 
 /* =====================================================================
    Checkout — where a bag becomes a commercial commitment.
@@ -186,6 +187,7 @@ export async function startCheckout(input: {
 
   try {
   await withTransaction(async (client) => {
+    await requirePurchaseAccess(client,lines.map(line=>line.variantId),input.customerEmail);
     await client.query(
       `insert into checkout_sessions (id, cart_id, customer_email, status, address, shipping_method, coupon_code,
                                       quote, quote_version, subtotal, discount_total, shipping_total, grand_total,
@@ -217,6 +219,7 @@ export async function startCheckout(input: {
     });
   });
   } catch (error) {
+    if ((error as {code?:string})?.code === "40001") throw new CommerceError("تسویه هم‌زمان تغییر کرد؛ دوباره بررسی کنید.",409,"checkout_changed");
     // Concurrent uses of one key can both pass the initial read. A unique-key
     // loser reuses only the same owner's committed checkout; nothing was held
     // because its transaction rolled back.
