@@ -52,16 +52,7 @@ export function ProductCard({ product, className }: Props) {
   return (
     <article className={cn("group relative flex flex-col", className)}>
       <div className="relative overflow-hidden rounded-xl bg-[#efe9e0] ring-1 ring-black/[0.05]">
-        <Link
-          to={`/product/${product.id}`}
-          aria-label={`${product.name} — ${formatPrice(product.price)}`}
-          className="block outline-offset-4"
-        >
-          <div className="overflow-hidden transition-transform duration-700 ease-[cubic-bezier(0.22,0.61,0.24,1)] group-hover:[&_img]:scale-[1.045] [&_img]:transition-transform [&_img]:duration-700">
-            <CardMedia product={product} />
-          </div>
-          <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink/10 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-        </Link>
+        <CardMedia product={product} interactive />
 
         {product.badge && (
           <span

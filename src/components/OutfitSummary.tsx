@@ -6,13 +6,13 @@ import { formatPrice, stockOf } from "@/data/looks";
 import { paletteScore, budgetCheck, stylistNote, hexToHsl, type Profile } from "@/lib/stylist";
 import { useLiveCatalog } from "@/state/live-catalog";
 import { useCart } from "@/state/cart";
-import { loadOutfit, patchItem, removeItem, removeOutfit, saveOutfit, useOutfit } from "@/state/outfit";
+import { clearBoard, loadOutfit, patchItem, removeItem, removeOutfit, saveOutfit, useOutfit } from "@/state/outfit";
 import { ProductThumb } from "./ProductThumb";
 
 export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; onEmpty?: () => void }) {
   const { items, saved } = useOutfit();
   const catalog = useLiveCatalog();
-  const { add, notify, toggleWish, isWished } = useCart();
+  const { add, notify, toggleWish, isWished, lines } = useCart();
   const [budget, setBudget] = useState(profile?.budget ?? 0);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
@@ -41,7 +41,11 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
   const hexes = rows.map((r) => r.color.hex);
   const harmonyResult = useMemo(() => paletteScore(hexes), [hexes.join("|")]);
   const total = rows.reduce((n, r) => n + r.product.price, 0);
-  const purchasable = rows.filter((r) => r.stock > 0);
+  // Count repeated board items and items already in the cart against the
+  // same live variant stock. The server still makes the final reservation.
+  const used = new Map<string, number>();
+  for (const line of lines) { const key = JSON.stringify([line.productId, line.colorId, line.sizeId]); used.set(key, (used.get(key) ?? 0) + line.qty); }
+  const purchasable = rows.filter((r) => { const key = JSON.stringify([r.product.id, r.color.id, r.size.id]); const count = used.get(key) ?? 0; if (r.stock <= count) return false; used.set(key, count + 1); return true; });
   const money = budgetCheck(rows.map((r) => ({ price: r.product.price })), budget);
   const note = rows.length ? stylistNote(profile ?? ({} as Profile), rows.map((r) => ({ color: r.color.hex })), harmonyResult.score) : "";
 
@@ -75,8 +79,8 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
             {rows.length ? `${rows.length.toLocaleString("fa-IR")} قطعه روی بوم` : "هنوز قطعه‌ای اضافه نکرده‌ای"}
           </p>
         </div>
-        {rows.length > 0 && (
-          <button type="button" className="sb-ghost" onClick={() => { rows.forEach((r) => removeItem(r.item.id)); onEmpty?.(); }}>
+        {items.length > 0 && (
+          <button type="button" className="sb-ghost" onClick={() => { if (!window.confirm("همهٔ قطعه‌ها از بوم پاک شوند؟")) return; clearBoard(); onEmpty?.(); }}>
             <Trash2 width={13} height={13} /> پاک کردن بوم
           </button>
         )}
@@ -115,7 +119,7 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
       <ul className="sb-items">
         {rows.map(({ item, product, color, size, stock }) => (
           <li key={item.id} className="sb-item-row">
-            <ProductThumb product={product} tint={color.hex} className="w-[58px]" />
+            <ProductThumb product={product} colorId={color.id} tint={color.hex} className="w-[58px]" />
             <div className="sb-item-main">
               <p className="sb-item-cat">{product.category}</p>
               <p className="sb-item-name">{product.name}</p>
@@ -220,7 +224,7 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
           </button>
           {purchasable.length < rows.length && rows.length > 0 && (
             <p className="sb-warn">
-              {(rows.length - purchasable.length).toLocaleString("fa-IR")} قطعه با این ترکیب ناموجود است و اضافه نمی‌شود.
+              {(rows.length - purchasable.length).toLocaleString("fa-IR")} قطعه ناموجود است یا از موجودی قابل افزودن بیشتر است و اضافه نمی‌شود.
             </p>
           )}
         </div>
@@ -228,6 +232,7 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
 
       {/* saved looks */}
       <div className="sb-saved">
+        <p className="sb-empty-note">بوم و ست‌های ذخیره‌شده فقط در همین مرورگر نگهداری می‌شوند.</p>
         <div className="sb-saved-head">
           <span>
             <BookmarkCheck width={13} height={13} /> استایل‌های ذخیره‌شده
@@ -240,7 +245,7 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
         </div>
         {saving && (
           <div className="sb-save-row">
-            <input value={name} autoFocus placeholder="نام ست (مثلاً مهمانی زمستانی)" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doSave()} />
+            <input value={name} autoFocus aria-label="نام ست" placeholder="نام ست (مثلاً مهمانی زمستانی)" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doSave()} />
             <button type="button" className="sb-ghost is-primary" onClick={doSave}>
               ذخیره
             </button>
@@ -250,7 +255,7 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
           </div>
         )}
         {saved.length === 0 ? (
-          <p className="sb-empty-note">ست‌های چیده‌شده را ذخیره کن تا بعداً برگردی.</p>
+          <p className="sb-empty-note">هنوز ستی ذخیره نکرده‌ای؛ با پاک‌کردن دادهٔ مرورگر ست‌های ذخیره‌شده هم حذف می‌شوند.</p>
         ) : (
           <ul className="sb-saved-list">
             {saved.map((o) => (

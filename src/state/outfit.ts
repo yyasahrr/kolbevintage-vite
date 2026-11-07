@@ -76,8 +76,8 @@ export function addItem(productId: string, colorId: string, sizeId: string, at?:
   const items = cache.items;
   const existing = items.find((i) => i.productId === productId);
   if (existing) {
-    // same product twice = just bring it forward and bump the colour/size
-    commit({ ...cache, items: items.map((i) => (i.id === existing.id ? { ...i, colorId, sizeId, z: nextZ(items) } : i)) });
+    // Re-selecting a product must not silently replace the shopper's variant.
+    commit({ ...cache, items: items.map((i) => (i.id === existing.id ? { ...i, ...(at ? { x: at.x, y: at.y } : {}), z: nextZ(items) } : i)) });
     return existing.id;
   }
   const id = uid();
@@ -85,8 +85,8 @@ export function addItem(productId: string, colorId: string, sizeId: string, at?:
   const item: CanvasItem = {
     id,
     productId,
-    x: at?.x ?? 18 + ((count * 13) % 56),
-    y: at?.y ?? 16 + ((count * 9) % 52),
+    x: at?.x ?? 28 + ((count * 17) % 45),
+    y: at?.y ?? 32 + ((count * 13) % 38),
     scale: 1,
     rotate: 0,
     flip: false,
@@ -118,11 +118,13 @@ export function sendToBack(id: string) {
 
 export function duplicateItem(id: string) {
   const src = cache.items.find((i) => i.id === id);
-  if (!src) return;
+  if (!src) return null;
+  const duplicateId = uid();
   commit({
     ...cache,
-    items: [...cache.items, { ...src, id: uid(), x: Math.min(88, src.x + 7), y: Math.min(84, src.y + 6), z: nextZ(cache.items) }],
+    items: [...cache.items, { ...src, id: duplicateId, x: Math.min(88, src.x + 7), y: Math.min(84, src.y + 6), z: nextZ(cache.items) }],
   });
+  return duplicateId;
 }
 
 export function clearBoard() {

@@ -59,8 +59,8 @@ export function StyleBuilderPage() {
     const built = picks.map((pick, i) => ({
       id: uid(),
       productId: pick.productId,
-      x: 10 + i * 15,
-      y: 22 + (i % 2) * 16,
+      x: 28 + (i % 3) * 22,
+      y: 28 + (Math.floor(i / 3) % 3) * 22,
       scale: 1,
       rotate: 0,
       flip: false,
@@ -89,7 +89,7 @@ export function StyleBuilderPage() {
         crumbs={[{ label: "استایل بیلدر" }]}
         eyebrow="ابزار شخصی ست‌چینی"
         title="استایل بیلدر"
-        description="قطعه‌ها را روی بوم بچین و ببین ست واقعاً کار می‌کند یا نه؛ یا بگذار دستیار استایل با چند پرسش، ست را بر اساس موقعیت، هوا، فرم بدن و رنگ‌های انتخابی‌ات بسازد."
+        description="عکس قطعه‌ها را روی بوم بچین و ترکیب آن‌ها را بررسی کن؛ یا بگذار دستیار استایل با چند پرسش، ست را بر اساس موقعیت، هوا، فرم بدن و رنگ‌های انتخابی‌ات بسازد."
       >
         <div className="sb-mode-switch" role="tablist" aria-label="حالت استایل بیلدر">
           <button type="button" role="tab" aria-selected={mode === "canvas"} className={cn("sb-mode", mode === "canvas" && "is-on")} onClick={() => setMode("canvas")}>
@@ -189,7 +189,7 @@ export function StyleBuilderPage() {
                     پروفایل دستیار فعال است: {sizeAdviceCount.toLocaleString("fa-IR")} از {items.length.toLocaleString("fa-IR")} قطعه دقیقاً با سایز
                     پیشنهادی مطابقت دارد.
                   </span>
-                  <button type="button" className="sb-ghost" onClick={() => { setProfile(null); clearBoard(); }}>
+                  <button type="button" className="sb-ghost" onClick={() => { if (!window.confirm("پروفایل و همهٔ قطعه‌های بوم پاک شوند؟")) return; setProfile(null); clearBoard(); setSelectedId(null); }}>
                     شروع دوباره
                   </button>
                 </div>
@@ -228,7 +228,7 @@ export function StyleBuilderPage() {
       <details className="sb-tips">
         <summary>راهنمای کوتاه بوم و دستیار</summary>
         <div>
-          <p><b>بوم:</b> محصول را از سینی بکش یا «افزودن» را بزن؛ با کلیدهای جهت‌دار جابه‌جا و با <b>+ / −</b> اندازه را عوض کن. <b>Delete</b> حذف می‌کند.</p>
+          <p><b>بوم:</b> محصول را از سینی بکش یا «افزودن» را بزن؛ قطعه را انتخاب کن و با کلیدهای جهت‌دار جابه‌جا و با <b>+ / −</b> اندازه را عوض کن. <b>Delete</b> حذف می‌کند.</p>
           <p><b>امتیاز هماهنگی:</b> رنگ‌ها با HSL سنجیده می‌شوند؛ خنثی‌ها با همه می‌خوانند و بیش از چهار رنگ، ست را شلوغ می‌کند.</p>
           <p><b>دستیار:</b> موقعیت، هوا، اندازه‌ها، سلیقه و بودجه را می‌پرسد و هر پیشنهاد را با انتخاب‌های قبلی هماهنگ می‌کند.</p>
         </div>

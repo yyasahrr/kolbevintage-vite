@@ -435,17 +435,14 @@ export function ProductPage() {
                 <p className="text-[11px] font-medium text-ink">با اینا می‌تونی ست کنی</p>
                 <span className="text-[9.5px] text-ink-45">انتخاب استایلیست</span>
               </div>
-              <ul className="mt-2.5 grid grid-cols-4 gap-2">
+              <ul className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {complements.slice(0, 4).map((p) => (
                   <li key={p.id}>
-                    <Link to={`/product/${p.id}`} className="group/item block outline-offset-4">
-                      {/* CardMedia renders a block element, so the frame is a div — no div inside span */}
-                      <div className="overflow-hidden rounded-lg bg-[#efe9e0] ring-1 ring-black/[0.05] transition-transform duration-500 group-hover/item:-translate-y-0.5">
-                        <CardMedia product={p} />
-                      </div>
-                      <div className="mt-1 truncate text-[9.5px] text-ink-70 group-hover/item:text-ink">{p.name}</div>
-                      <div className="text-[9.5px] text-ink-45">{formatPrice(p.price)}</div>
-                    </Link>
+                    <div className="overflow-hidden rounded-lg bg-[#efe9e0] ring-1 ring-black/[0.05]">
+                      <CardMedia product={p} interactive className="is-compact" />
+                    </div>
+                    <Link to={`/product/${p.id}`} className="mt-1 block truncate text-[9.5px] text-ink-70 hover:text-ink">{p.name}</Link>
+                    <div className="text-[9.5px] text-ink-45">{formatPrice(p.price)}</div>
                   </li>
                 ))}
               </ul>

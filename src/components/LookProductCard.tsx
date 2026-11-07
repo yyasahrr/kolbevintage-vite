@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { Plus, Check, Minus } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { formatPrice, stockOf } from "@/data/looks";
-import { ProductThumb } from "./ProductThumb";
+import { CardMedia } from "./CardMedia";
 import { VariantSelector } from "./VariantSelector";
 import type { Product, VariantSelection } from "@/types";
 
@@ -29,6 +29,7 @@ export function LookProductCard({ product, selection, index, accent, inCart, red
       initial={reduced ? false : { opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.42, delay: reduced ? 0 : 0.04 + index * 0.055, ease: [0.22, 0.61, 0.24, 1] }}
+      style={{ borderInlineStartColor: accent }}
       className={cn(
         "group relative rounded-xl border border-black/[0.07] bg-white/70 p-3 transition-colors duration-300",
         "hover:border-black/15 hover:bg-white",
@@ -36,7 +37,7 @@ export function LookProductCard({ product, selection, index, accent, inCart, red
       )}
     >
       <div className="flex gap-3">
-        <ProductThumb product={product} tint={accent} className="w-[74px] sm:w-[82px]" />
+        <CardMedia product={product} colorId={selection.colorId} interactive className="is-compact w-[108px] shrink-0 rounded-xl" />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">

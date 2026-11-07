@@ -13,18 +13,22 @@ interface Props {
   softLight?: boolean;
   /** the name is already text next to the tile: repeating it in alt is noise for a screen reader */
   decorative?: boolean;
+  /** Prefer photos belonging to the currently selected product colour. */
+  colorId?: string;
 }
 
 /**
  * Thumbnails are framed crops of the same transparent runway cut-out, so every
  * product image is genuinely the garment as worn on the runway.
  */
-export function ProductThumb({ product, tint = "#bba893", className, tileAspect = 0.78, softLight = true, decorative = false }: Props) {
+export function ProductThumb({ product, tint = "#bba893", className, tileAspect = 0.78, softLight = true, decorative = false, colorId }: Props) {
   const { crop, aspect, image, name } = product;
   const catalog = useLiveCatalog();
   const uploaded = catalog.products.find(item => item.id === product.id)?.images ?? [];
   // an uploaded photo always wins over the runway crop
-  const cover = (uploaded.find((i) => i.role === "main") ?? uploaded.find((i) => i.role !== "hover"))?.url;
+  const specific = colorId ? uploaded.filter(i => i.colorId === colorId && i.role !== "hover") : [];
+  const shared = uploaded.filter(i => i.colorId === "*" && i.role !== "hover");
+  const cover = (specific.find(i => i.role === "main") ?? specific[0] ?? shared.find(i => i.role === "main") ?? shared[0] ?? uploaded.find(i => i.role === "main") ?? uploaded.find(i => i.role !== "hover"))?.url;
   const hFrac = Math.min(1, (crop.zoom * aspect) / tileAspect);
   const cy = Math.min(Math.max(crop.cy, hFrac / 2), 1 - hFrac / 2);
 

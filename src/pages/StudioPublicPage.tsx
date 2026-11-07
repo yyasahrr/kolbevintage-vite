@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLiveCatalog } from "@/state/live-catalog";
+import { visibleProducts } from "@/data/catalog";
+import { ProductCard } from "@/components/ProductCard";
 import { useParams } from "react-router-dom";
 
 type Block = {
@@ -29,7 +31,7 @@ function safe(value: string | undefined, media = false) {
 }
 function StudioProducts({ block }: { block: Block }) {
   const catalog = useLiveCatalog();
-  const products = catalog.products.slice(0, 8);
+  const products = visibleProducts().slice(0, 8);
   return (
     <section
       style={{ maxWidth: "80rem", margin: "auto", padding: "3rem 1.25rem" }}
@@ -50,42 +52,7 @@ function StudioProducts({ block }: { block: Block }) {
           marginTop: "1.5rem",
         }}
       >
-        {products.map((p) => {
-          const image =
-            p.images.find((i) => i.role === "main") ??
-            p.images.find((i) => i.role !== "hover");
-          return (
-            <a
-              key={p.id}
-              href={`/#/product/${encodeURIComponent(p.id)}`}
-              style={{
-                border: "1px solid #e3e1e8",
-                borderRadius: ".75rem",
-                overflow: "hidden",
-                color: "#171429",
-              }}
-            >
-              {image && safe(image.url, true) && (
-                <img
-                  src={safe(image.url, true)}
-                  alt=""
-                  loading="lazy"
-                  style={{
-                    width: "100%",
-                    aspectRatio: "3/4",
-                    objectFit: "cover",
-                  }}
-                />
-              )}
-              <div style={{ padding: ".75rem" }}>
-                <h3 style={{ fontWeight: 700 }}>{p.name}</h3>
-                <p>
-                  قیمت پایه: {new Intl.NumberFormat("fa-IR").format(p.price)}
-                </p>
-              </div>
-            </a>
-          );
-        })}
+        {products.map((p) => <ProductCard key={p.id} product={p} />)}
       </div>
       <p style={{ marginTop: "1rem", fontSize: ".8rem" }}>
         قیمت نهایی و شرایط تخفیف در سبد خرید محاسبه می‌شود.

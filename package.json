@@ -46,7 +46,8 @@
     "test:store-boot": "node scripts/store-boot-smoke.mjs",
     "test:live-journal": "node scripts/live-journal-smoke.mjs",
     "test:size-guide": "tsx scripts/size-guide-smoke.tsx",
-    "test:browser-store": "node scripts/browser-store-smoke.mjs"
+    "test:browser-store": "node scripts/browser-store-smoke.mjs",
+    "test:browser-card-canvas": "node scripts/browser-card-canvas-smoke.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

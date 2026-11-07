@@ -1,81 +1,233 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { useLiveCatalog } from "@/state/live-catalog";
 import { useOps } from "@/state/ops";
 import { ProductThumb } from "./ProductThumb";
-import type { CatalogProduct } from "@/data/catalog";
+import { ProductImage } from "./ProductImage";
+import type { Product } from "@/types";
 
-/**
- * Product-card media:
- *  • default = the framed cut-out thumbnail
- *  • on hover / focus = the admin-configured hover image or a muted, looping,
- *    very short video. Falls back to the product's alternate framing.
- *  • respects prefers-reduced-motion (no video autoplay)
- */
-export function CardMedia({ product, className }: { product: CatalogProduct; className?: string }) {
+/** The first frame is the actual product cover. Navigation is separate from the
+ * product link, so mouse, touch and keyboard users can use it without navigating. */
+export function CardMedia({
+  product,
+  className,
+  interactive = false,
+  colorId,
+}: {
+  product: Product;
+  className?: string;
+  interactive?: boolean;
+  colorId?: string;
+}) {
   const ops = useOps();
-  const legacy = ops.hoverMedia[product.id];
   const catalog = useLiveCatalog();
-  const gallery = catalog.products.find(item => item.id === product.id)?.images ?? [];
-  const media = {
-    hoverImage: gallery.find((i) => i.role === "hover")?.url ?? legacy?.hoverImage,
-    hoverVideo: legacy?.hoverVideo,
-  };
+  const gallery =
+    catalog.products.find((item) => item.id === product.id)?.images ?? [];
+  const legacy = ops.hoverMedia[product.id];
+  const specific = colorId
+    ? gallery.filter((i) => i.colorId === colorId && i.role !== "hover")
+    : [];
+  const cover =
+    specific.find((i) => i.role === "main") ??
+    specific[0] ??
+    gallery.find((i) => i.role === "main") ??
+    gallery.find((i) => i.role !== "hover");
+  const images = useMemo(() => {
+    // null means ProductThumb's existing crop/fallback, not a fabricated image.
+    const urls: (string | null)[] = [cover?.url ?? null];
+    for (const image of gallery)
+      if (image.url && !urls.includes(image.url)) urls.push(image.url);
+    if (legacy?.hoverImage && !urls.includes(legacy.hoverImage))
+      urls.push(legacy.hoverImage);
+    return urls;
+  }, [cover?.url, gallery, legacy?.hoverImage]);
+  const hoverUrl =
+    gallery.find((i) => i.role === "hover" && i.url !== cover?.url)?.url ??
+    images[1] ??
+    null;
   const videoRef = useRef<HTMLVideoElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const startTouch = useRef<{ x: number; y: number } | null>(null);
+  const swiped = useRef(false);
+  const [index, setIndex] = useState(0);
+  const [manual, setManual] = useState(false);
   const [hover, setHover] = useState(false);
-  const [reduced, setReduced] = useState(false);
-
+  const [focusWithin, setFocusWithin] = useState(false);
+  // The hovered image can be replaced while the pointer is over it; native
+  // mouseleave still fires on the stable frame even if the old image unmounts.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const leave = () => setHover(false);
+    root.addEventListener("mouseleave", leave);
+    return () => root.removeEventListener("mouseleave", leave);
+  }, []);
+  const activeHover = hover || focusWithin;
+  const [reduced, setReduced] = useState(true);
+  useEffect(() => {
+    setIndex(0);
+    setManual(false);
+  }, [product.id, colorId]);
+  useEffect(() => {
+    if (index >= images.length) {
+      setIndex(0);
+      setManual(false);
+    }
+  }, [index, images.length]);
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const on = () => setReduced(mq.matches);
-    on();
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
+    const update = () => setReduced(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
   }, []);
-
+  const hoverVideo =
+    !manual && activeHover && !hoverUrl && !!legacy?.hoverVideo && !reduced;
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (hover && !reduced) {
-      v.play().catch(() => undefined);
-    } else {
-      v.pause();
+    const video = videoRef.current;
+    if (!video) return;
+    if (hoverVideo) void video.play().catch(() => undefined);
+    else {
+      video.pause();
       try {
-        v.currentTime = 0;
+        video.currentTime = 0;
       } catch {
-        /* not loaded yet */
+        /* metadata not ready */
       }
     }
-  }, [hover, reduced]);
-
-  const hasMedia = !!(media?.hoverVideo || media?.hoverImage);
-
-  return (
-    <div
-      className={cn("card-media relative overflow-hidden", className)}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
-    >
-      <ProductThumb
-        product={product}
-        tileAspect={0.8}
-        tint={product.lookOrder % 2 ? "#c2b09a" : "#b7a48c"}
-        className="w-full rounded-none ring-0"
-      />
-
-      {hasMedia && (
-        <div className={cn("card-media-layer", hover && "is-on")} aria-hidden>
-          {media?.hoverVideo ? (
-            <video ref={videoRef} src={media.hoverVideo} muted loop playsInline preload="metadata" poster={media.hoverImage} className="h-full w-full object-cover" />
-          ) : media?.hoverImage ? (
-            <img src={media.hoverImage} alt="" draggable={false} className="h-full w-full object-cover" />
-          ) : null}
+  }, [hoverVideo]);
+  const displayed = manual
+    ? images[index]
+    : activeHover && hoverUrl
+      ? hoverUrl
+      : images[0];
+  const shownIndex = manual
+    ? index
+    : activeHover && hoverUrl
+      ? Math.max(0, images.indexOf(hoverUrl))
+      : 0;
+  const step = (offset: number) => {
+    setIndex((shownIndex + offset + images.length) % images.length);
+    setManual(true);
+  };
+  const media = (
+    <>
+      {displayed ? (
+        <div
+          className="relative w-full bg-[#efe9e0]"
+          style={{ aspectRatio: 0.8 }}
+        >
+          <ProductImage
+            src={displayed}
+            alt=""
+            lazy
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        </div>
+      ) : (
+        <ProductThumb
+          product={product}
+          colorId={colorId}
+          decorative
+          tileAspect={0.8}
+          tint="#b7a48c"
+          className="w-full rounded-none ring-0"
+        />
+      )}
+      {legacy?.hoverVideo && !manual && !hoverUrl && !reduced && (
+        <div
+          className={cn("card-media-layer", hoverVideo && "is-on")}
+          aria-hidden
+        >
+          <video
+            ref={videoRef}
+            src={legacy.hoverVideo}
+            muted
+            loop
+            playsInline
+            preload="none"
+            className="h-full w-full object-cover"
+          />
         </div>
       )}
-
-      {hasMedia && <span className="card-media-hint" aria-hidden>▸ نمای دوم</span>}
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink/10 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+    </>
+  );
+  return (
+    <div
+      ref={rootRef}
+      className={cn("card-media relative overflow-hidden", className)}
+      onMouseEnter={() => setHover(true)}
+      onFocusCapture={() => setFocusWithin(true)}
+      onBlurCapture={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+          setFocusWithin(false);
+      }}
+      onTouchStart={(e) => {
+        const t = e.touches[0];
+        startTouch.current = t ? { x: t.clientX, y: t.clientY } : null;
+        swiped.current = false;
+      }}
+      onTouchEnd={(e) => {
+        const t = e.changedTouches[0],
+          start = startTouch.current;
+        startTouch.current = null;
+        if (!interactive || !t || !start || images.length < 2) return;
+        const dx = t.clientX - start.x,
+          dy = t.clientY - start.y;
+        if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+          swiped.current = true;
+          step(dx < 0 ? 1 : -1);
+        }
+      }}
+    >
+      {interactive ? (
+        <Link
+          to={`/product/${product.id}`}
+          aria-label={`مشاهده ${product.name}`}
+          className="block outline-offset-4"
+          onClick={(e) => {
+            if (swiped.current) {
+              e.preventDefault();
+              swiped.current = false;
+            }
+          }}
+        >
+          {media}
+        </Link>
+      ) : (
+        media
+      )}
+      {interactive && images.length > 1 && (
+        <>
+          <button
+            type="button"
+            className="card-gallery-arrow card-gallery-prev"
+            aria-label={`تصویر قبلی ${product.name}`}
+            onClick={() => step(-1)}
+          >
+            <ChevronRight size={18} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="card-gallery-arrow card-gallery-next"
+            aria-label={`تصویر بعدی ${product.name}`}
+            onClick={() => step(1)}
+          >
+            <ChevronLeft size={18} aria-hidden />
+          </button>
+          <span
+            className="card-gallery-count"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {(shownIndex + 1).toLocaleString("fa-IR")} /{" "}
+            {images.length.toLocaleString("fa-IR")}
+          </span>
+        </>
+      )}
     </div>
   );
 }
