@@ -287,6 +287,8 @@ export function LaunchChecklist() {
 /* ------------------------------------------------------------------ */
 
 interface PurgePreview {
+  enabled: boolean;
+  reason?: string;
   phrase: string;
   counts: Record<string, number>;
   rows: number;
@@ -340,6 +342,14 @@ export function PurgePanel() {
       setBusy(false);
     }
   };
+
+  if (preview && !preview.enabled) return <>
+    <LHead title="پاک‌سازی دادهٔ نمایشی" sub="این عملیات برای محافظت از اطلاعات فروشگاه غیرفعال است." />
+    <LCard title="عملیات غیرفعال" icon={<X width={14} height={14} />}>
+      <p className="ad-hint is-warn">{preview.reason || "این عملیات می‌تواند داده‌های واقعی را حذف کند و غیرفعال شده است."}</p>
+      <p className="ad-hint">برای فروشگاه تازه از پایگاه مستقل و دستور آماده‌سازی استفاده کنید. اطلاعات موجود را بدون برنامه مهاجرت تأییدشده حذف نکنید.</p>
+    </LCard>
+  </>;
 
   return (
     <>

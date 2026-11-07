@@ -48,6 +48,7 @@ export interface OrderRow {
   checkout_id: string | null;
   tracking_code: string | null;
   carrier_name: string | null;
+  payment_provider?: string | null;
 }
 
 export interface OrderLineRow {
@@ -66,6 +67,7 @@ export interface OrderLineRow {
   discount_amount: string | number;
   line_total: string | number;
   refunded_quantity: number;
+  picked_quantity?: number;
   position: number;
 }
 
@@ -75,6 +77,12 @@ export async function nextOrderId(client: PoolClient): Promise<string> {
 }
 
 export function publicOrder(order: OrderRow, lines: OrderLineRow[]) {
+  // Legacy picking events did not count individual units; only explicit scan
+  // and correction events are counted. Distribute counts over duplicate SKUs.
+  const remaining = new Map<string,number>();
+  for (const line of lines) if (line.sku && !remaining.has(line.sku.toUpperCase())) remaining.set(line.sku.toUpperCase(),Number(line.picked_quantity ?? 0));
+  const picked = new Map<string,number>();
+  for (const line of lines) { const key=(line.sku ?? "").toUpperCase(); const n=Math.max(0,Math.min(line.quantity,remaining.get(key) ?? 0)); picked.set(line.id,n); remaining.set(key,(remaining.get(key) ?? 0)-n); }
   return {
     id: order.id,
     createdAt: order.created_at,
@@ -99,6 +107,7 @@ export function publicOrder(order: OrderRow, lines: OrderLineRow[]) {
     tracking: order.tracking_code ?? (typeof order.data?.tracking === "string" ? order.data.tracking : ""),
     carrier: order.carrier_name ?? "",
     manual: order.data?.manual === true,
+    paymentKind: order.data?.manual === true ? "manual" : order.payment_provider?.startsWith("mock") ? "simulated" : order.payment_provider ? "provider" : "unknown",
     externalPaymentRef: typeof order.data?.externalPaymentRef === "string" ? order.data.externalPaymentRef : "",
     lines: lines.map((line) => ({
       id: line.id,
@@ -115,6 +124,7 @@ export function publicOrder(order: OrderRow, lines: OrderLineRow[]) {
       discountAmount: Number(line.discount_amount),
       lineTotal: Number(line.line_total),
       refundedQuantity: line.refunded_quantity,
+      pickedQuantity: picked.get(line.id) ?? 0,
     })),
   };
 }
@@ -167,7 +177,7 @@ export async function insertOrder(
     shippingCost: quote.shippingTotal,
     total: quote.grandTotal,
     status: ADMIN_STATUS[params.status],
-    coupon: quote.couponCode ?? undefined,
+    coupon: quote.couponDiscount > 0 ? quote.couponCode ?? undefined : undefined,
     campaign: quote.discounts.find((d) => d.source === "campaign")?.name,
     gateway: params.method === "bnpl4" ? "پرداخت چهارقسطی" : "پرداخت آنلاین",
     paymentStatus: params.paymentStatus,
@@ -196,7 +206,7 @@ export async function insertOrder(
       params.paymentStatus,
       "unfulfilled",
       params.exceptionReason ?? null,
-      quote.couponCode,
+      quote.couponDiscount > 0 ? quote.couponCode : null,
       checkout.id,
     ],
   );
@@ -231,10 +241,10 @@ export async function insertOrder(
 }
 
 export async function getOrder(id: string): Promise<{ order: OrderRow; lines: OrderLineRow[] }> {
-  const res = await query<OrderRow>("select * from orders where id = $1", [id]);
+  const res = await query<OrderRow>("select orders.*, (select provider from payment_attempts where id = orders.data->'commerce'->>'paymentAttemptId') as payment_provider from orders where id = $1", [id]);
   const order = res.rows[0];
   if (!order) throw notFound("سفارش پیدا نشد.");
-  const lines = await query<OrderLineRow>("select * from order_lines where order_id = $1 order by position", [id]);
+  const lines = await query<OrderLineRow>("select order_lines.*, coalesce((select sum(case when e.stage='picking_scan' then 1 else -1 end)::int from fulfillment_events e where e.order_id=order_lines.order_id and upper(e.sku)=upper(order_lines.sku) and e.accepted and e.stage in ('picking_scan','picking_undo')),0)::int as picked_quantity from order_lines where order_id = $1 order by position", [id]);
   return { order, lines: lines.rows };
 }
 
@@ -251,13 +261,13 @@ export async function listOrders(filter: { email?: string | null; status?: strin
   }
   params.push(Math.min(200, filter.limit ?? 100));
   const res = await query<OrderRow>(
-    `select * from orders ${where.length ? `where ${where.join(" and ")}` : ""}
+    `select orders.*, (select provider from payment_attempts where id = orders.data->'commerce'->>'paymentAttemptId') as payment_provider from orders ${where.length ? `where ${where.join(" and ")}` : ""}
       order by created_at desc limit $${params.length}`,
     params,
   );
   const ids = res.rows.map((r) => r.id);
   const lines = ids.length
-    ? await query<OrderLineRow>("select * from order_lines where order_id = any($1::text[]) order by position", [ids])
+    ? await query<OrderLineRow>("select order_lines.*, coalesce((select sum(case when e.stage='picking_scan' then 1 else -1 end)::int from fulfillment_events e where e.order_id=order_lines.order_id and upper(e.sku)=upper(order_lines.sku) and e.accepted and e.stage in ('picking_scan','picking_undo')),0)::int as picked_quantity from order_lines where order_id = any($1::text[]) order by position", [ids])
     : { rows: [] as OrderLineRow[] };
   const byOrder = new Map<string, OrderLineRow[]>();
   for (const line of lines.rows) byOrder.set(line.order_id, [...(byOrder.get(line.order_id) ?? []), line]);
@@ -278,57 +288,57 @@ const LIFECYCLE: Record<string, { from: string[]; to: OrderStatus; fulfillment: 
 export async function advanceOrder(
   orderId: string,
   action: "picking" | "packing" | "ship" | "deliver",
-  opts: { sku?: string; actor?: string; note?: string } = {},
+  opts: { sku?: string; actor?: string; note?: string; scanKey?: string; undo?: boolean } = {},
 ) {
-  const { order, lines } = await getOrder(orderId);
   const step = LIFECYCLE[action];
-
-  if (action !== "picking" && order.status === step.to) {
-    return { ok: true, order: publicOrder(order, lines), unchanged: true };
-  }
-  if (order.status === "exception" || order.status === "cancelled") {
-    throw new CommerceError("این سفارش در وضعیت استثنا یا لغوشده قابل پردازش انبار نیست.", 409, "order_blocked");
-  }
-  if (!step.from.includes(order.status)) {
-    throw new CommerceError(`این عملیات از وضعیت «${order.status}» ممکن نیست.`, 409, "invalid_transition");
-  }
-
-  if (action === "picking") {
-    const sku = (opts.sku ?? "").trim().toUpperCase();
-    if (!sku) throw new CommerceError("برای برداشت، اسکن SKU لازم است.", 400, "sku_required");
-    const match = lines.find((line) => (line.sku ?? "").toUpperCase() === sku);
-    if (!match) {
-      await query(
-        `insert into fulfillment_events (order_id, stage, sku, accepted, actor, note)
-         values ($1, 'picking', $2, false, $3, 'wrong sku')`,
-        [orderId, sku, opts.actor ?? null],
-      );
-      throw new CommerceError("این SKU به این سفارش تعلق ندارد؛ برداشت متوقف شد.", 409, "sku_mismatch");
+  const outcome = await withTransaction(async client => {
+    const locked = await client.query<OrderRow>("select * from orders where id=$1 for update", [orderId]);
+    const order = locked.rows[0];
+    if (!order) throw notFound("سفارش پیدا نشد.");
+    const lines = (await client.query<OrderLineRow>("select * from order_lines where order_id=$1 order by position",[orderId])).rows;
+    const sku = typeof opts.sku === "string" ? opts.sku.trim().toUpperCase() : "";
+    if (action === "picking") {
+      if (typeof opts.scanKey !== "string" || !/^[a-zA-Z0-9_-]{12,100}$/.test(opts.scanKey)) throw new CommerceError("شناسه یکتای اسکن لازم است.",400,"scan_key_required");
+      const prior = await client.query<{stage:string;sku:string;actor:string|null}>("select stage,sku,actor from fulfillment_events where order_id=$1 and note=$2 and stage in ('picking_scan','picking_undo')",[orderId,`scan:${opts.scanKey}`]);
+      if (prior.rows[0]) {
+        if (prior.rows[0].sku !== sku || prior.rows[0].stage !== (opts.undo ? "picking_undo" : "picking_scan") || prior.rows[0].actor !== (opts.actor ?? null)) throw new CommerceError("شناسه اسکن قبلاً برای عملیات دیگری استفاده شده است.",409,"scan_key_conflict");
+        return "unchanged" as const;
+      }
     }
-  }
-  if (action === "packing" && opts.note === "unconfirmed") {
-    throw new CommerceError("بسته‌بندی نیاز به تأیید دستی دارد.", 400, "packing_confirmation_required");
-  }
-
-  await withTransaction(async (client) => {
-    await client.query(
-      `insert into fulfillment_events (order_id, stage, sku, accepted, actor, note)
-       values ($1, $2, $3, true, $4, $5)`,
-      [orderId, action, opts.sku ?? null, opts.actor ?? null, opts.note ?? null],
-    );
-    await client.query(
-      "update orders set status = $2, fulfillment_status = $3 where id = $1",
-      [orderId, step.to, step.fulfillment],
-    );
-    await client.query(
-      `update orders set data = jsonb_set(jsonb_set(data, '{status}', to_jsonb($2::text)), '{fulfillmentStatus}', to_jsonb($3::text))
-        where id = $1`,
-      [orderId, ADMIN_STATUS[step.to], step.fulfillment],
-    );
+    if (action !== "picking" && order.status === step.to && order.fulfillment_status === step.fulfillment) return "unchanged" as const;
+    if (order.status === "exception" || order.status === "cancelled") throw new CommerceError("این سفارش در وضعیت استثنا یا لغوشده قابل پردازش انبار نیست.",409,"order_blocked");
+    if (!step.from.includes(order.status)) throw new CommerceError(`این عملیات از وضعیت «${order.status}» ممکن نیست.`,409,"invalid_transition");
+    if (action === "picking" && !["unfulfilled","picking"].includes(order.fulfillment_status ?? "")) throw new CommerceError("مرحله برداشت این سفارش پایان یافته است.",409,"invalid_transition");
+    if (action === "packing" && order.fulfillment_status !== "picking") throw new CommerceError("ابتدا برداشت سفارش را ثبت کن.",409,"picking_required");
+    if (action === "ship" && order.fulfillment_status !== "packed") throw new CommerceError("پیش از ارسال، بسته‌بندی را تأیید کن.",409,"packing_required");
+    if ((action === "picking" || action === "packing") && !lines.length) throw new CommerceError("سفارش قلمی برای برداشت ندارد.",409,"order_lines_missing");
+    if (sku.length > 200) throw new CommerceError("SKU بیش از حد طولانی است.",400,"invalid_sku");
+    const totals = await client.query<{sku:string;picked:number}>(`select upper(sku) as sku, sum(case when stage='picking_scan' then 1 else -1 end)::int as picked from fulfillment_events where order_id=$1 and accepted and stage in ('picking_scan','picking_undo') group by upper(sku)`,[orderId]);
+    const counts = new Map(totals.rows.map(r=>[r.sku,Number(r.picked)]));
+    const required = new Map<string,number>();
+    for (const line of lines) {const key=(line.sku ?? "").trim().toUpperCase(); if (!key && (action === "picking" || action === "packing")) throw new CommerceError("یک ردیف سفارش SKU ندارد و نیازمند بررسی است.",409,"sku_missing");required.set(key,(required.get(key) ?? 0)+line.quantity);}
+    if (action === "picking") {
+      if (!sku) throw new CommerceError("برای برداشت، اسکن SKU لازم است.",400,"sku_required");
+      if (!required.has(sku)) {
+        await client.query(`insert into fulfillment_events (order_id,stage,sku,accepted,actor,note) values ($1,'picking',$2,false,$3,'wrong sku')`,[orderId,sku,opts.actor ?? null]);
+        return "mismatch" as const;
+      }
+      const already=counts.get(sku) ?? 0;
+      if (opts.undo && already <= 0) throw new CommerceError("برداشت ثبت‌شده‌ای برای اصلاح این SKU نیست.",409,"nothing_to_undo");
+      if (!opts.undo && already >= (required.get(sku) ?? 0)) throw new CommerceError("تعداد این SKU کامل است؛ اسکن اضافه پذیرفته نمی‌شود.",409,"picking_excess");
+      await client.query(`insert into fulfillment_events (order_id,stage,sku,accepted,actor,note) values ($1,$2,$3,true,$4,$5)`,[orderId,opts.undo ? "picking_undo" : "picking_scan",sku,opts.actor ?? null,`scan:${opts.scanKey}`]);
+    } else {
+      if (action === "packing" && [...required].some(([sku,qty]) => (counts.get(sku) ?? 0) !== qty)) throw new CommerceError("ابتدا همه اقلام را به تعداد سفارش اسکن کنید.",409,"picking_incomplete");
+      if (action === "packing" && opts.note === "unconfirmed") throw new CommerceError("بسته‌بندی نیاز به تأیید دستی دارد.",400,"packing_confirmation_required");
+      await client.query(`insert into fulfillment_events (order_id,stage,sku,accepted,actor,note) values ($1,$2,$3,true,$4,$5)`,[orderId,action,opts.sku ?? null,opts.actor ?? null,opts.note ?? null]);
+    }
+    await client.query("update orders set status=$2, fulfillment_status=$3 where id=$1",[orderId,step.to,step.fulfillment]);
+    await client.query(`update orders set data=jsonb_set(jsonb_set(data,'{status}',to_jsonb($2::text)),'{fulfillmentStatus}',to_jsonb($3::text)) where id=$1`,[orderId,ADMIN_STATUS[step.to],step.fulfillment]);
+    return "changed" as const;
   });
-
+  if (outcome === "mismatch") throw new CommerceError("این SKU به این سفارش تعلق ندارد؛ برداشت متوقف شد.",409,"sku_mismatch");
   const updated = await getOrder(orderId);
-  return { ok: true, order: publicOrder(updated.order, updated.lines), unchanged: false };
+  return {ok:true,order:publicOrder(updated.order,updated.lines),unchanged:outcome === "unchanged"};
 }
 
 /** cancellation releases nothing (the units were already claimed) but returns them to stock */

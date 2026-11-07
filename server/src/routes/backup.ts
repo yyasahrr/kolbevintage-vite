@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { requirePermission } from "../http/rbac";
+import { requireOwnerRole, requirePermission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
 import { backupSchedule, createBackup, listBackups, readBackup } from "../backup";
 
@@ -34,9 +34,11 @@ export async function backupRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Params: { id: string } }>("/api/admin/backups/:id/download", async (req, reply) => {
-    await requirePermission(req, "settings:view");
+    const actor = await requirePermission(req, "settings:view");
+    await requireOwnerRole(actor);
     const found = await readBackup(req.params.id);
     if (!found) return reply.code(404).send({ error: "این پشتیبان پیدا نشد یا فایلش روی دیسک نیست." });
+    await recordAudit({actor:actor.subject,action:"backup.download",targetType:"backup",targetId:found.meta.id,requestId:req.id});
     reply
       .header("content-type", "application/gzip")
       .header("content-disposition", `attachment; filename="${found.meta.file.split("/").pop()}"`);

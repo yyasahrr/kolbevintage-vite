@@ -21,7 +21,7 @@ export const config = {
   distDir: path.join(ROOT, "dist"),
   isProd: process.env.NODE_ENV === "production",
   /** protect admin mutations with the session cookie (set to "1" in production) */
-  requireAdminAuth: process.env.REQUIRE_ADMIN_AUTH === "1",
+  requireAdminAuth: process.env.NODE_ENV === "production" || process.env.REQUIRE_ADMIN_AUTH === "1",
   /**
    * Separate passcode for the protected superadmin subject. Refund approval
    * is fail-closed: with no passcode configured nobody can elevate, so live
@@ -37,7 +37,7 @@ export const config = {
    */
   get panelOpenAccess() {
     // read on every access, so a test (or a restart-free toggle) sees the truth
-    return process.env.PANEL_OPEN_ACCESS === "1";
+    return !this.isProd && process.env.PANEL_OPEN_ACCESS === "1";
   },
   sessionDays: 30,
 };

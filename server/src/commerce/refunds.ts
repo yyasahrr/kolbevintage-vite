@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
+import { config } from "../config";
 import { query, withTransaction } from "../db";
 import { creditWalletForRefund, reverseCashbackForRefund, round2 } from "./cashback";
 import { providerCapabilities } from "./payments";
@@ -86,28 +87,10 @@ export async function requestRefund(input: {
   const line = lines.find((l) => l.id === input.orderLineId);
   if (!line) throw notFound("ردیف سفارش پیدا نشد.");
 
-  // pending requests reserve quantity too, otherwise the same unit could be
-  // requested twice before an approval happens
-  const pending = await query<{ n: number }>(
-    `select coalesce(sum(quantity),0)::int as n from refunds
-      where order_line_id = $1 and status in ('requested', 'settled')`,
-    [line.id],
-  );
-  const remaining = line.quantity - line.refunded_quantity - Number(pending.rows[0]?.n ?? 0);
-  if (quantity > remaining) {
-    throw new CommerceError(
-      `فقط ${remaining} عدد از این ردیف قابل مرجوع است.`,
-      409,
-      "refund_quantity_exceeded",
-    );
-  }
-
-  // the refund amount is derived from the frozen line snapshot, never from
-  // today's price
-  const unit = Number(line.line_total) / line.quantity;
-  const amount = Math.round(unit * quantity * 100) / 100;
+  // Use the immutable line snapshot; the amount is allocated under the line
+  // lock below so multiple partial requests cannot exceed the amount paid.
   const kind = input.kind ?? "refund";
-  let differenceAmount = 0;
+  let targetPrice = 0;
   if (kind === "exchange") {
     if (!input.targetVariantId) {
       throw new CommerceError("برای تعویض، واریانت مقصد لازم است.", 400, "exchange_target_required");
@@ -117,42 +100,53 @@ export async function requestRefund(input: {
       [input.targetVariantId],
     );
     if (!target.rows[0]) throw notFound("واریانت مقصد پیدا نشد.");
-    differenceAmount = Math.round((Number(target.rows[0].price ?? 0) * quantity - amount) * 100) / 100;
+    targetPrice = Number(target.rows[0].price ?? 0);
   }
   const id = `rfd_${randomUUID()}`;
-  await query(
-    `insert into refunds (id, order_id, order_line_id, quantity, amount, reason, status, requested_by, note,
-                          kind, target_variant_id, difference_amount)
-     values ($1,$2,$3,$4,$5,$6,'requested',$7,$8,$9,$10,$11)`,
-    [
-      id,
-      input.orderId,
-      line.id,
-      quantity,
-      amount,
-      input.reason ?? null,
-      input.actor,
-      input.reason ?? null,
-      kind,
-      input.targetVariantId ?? null,
-      differenceAmount,
-    ],
-  );
-  /* a dearer exchange needs the difference before anything is settled: a single
-     expiring link, so the customer is never charged twice by a refresh */
-  let exchangeToken: string | null = null;
-  if (kind === "exchange" && differenceAmount > 0) {
-    const token = `exc_${randomUUID()}`;
-    await query(
-      `insert into exchange_payments (id, refund_id, amount, token, status, expires_at)
-       values ($1, $2, $3, $4, 'unpaid', now() + interval '48 hours')`,
-      [`exp_${randomUUID()}`, id, differenceAmount, token],
+  // Serialize requests for the same order line. Every open request reserves
+  // quantity until rejected or settled; settled units are already reflected in
+  // refunded_quantity and must not be counted twice.
+  return withTransaction(async (client) => {
+    const locked = await client.query<{ quantity: number; refunded_quantity: number; line_total: string }>(
+      "select quantity, refunded_quantity, line_total from order_lines where id = $1 for update", [line.id],
     );
-    exchangeToken = token;
-  }
-
-  const res = await query<RefundRow>("select * from refunds where id = $1", [id]);
-  return { ...publicRefund(res.rows[0]), exchangeToken };
+    const current = locked.rows[0];
+    if (!current) throw notFound("ردیف سفارش پیدا نشد.");
+    const pending = await client.query<{ n: number; amount: string }>(
+      `select coalesce(sum(quantity) filter (where status <> 'settled'),0)::int as n,
+              coalesce(sum(amount),0)::text as amount from refunds
+        where order_line_id = $1 and status <> 'rejected'`, [line.id],
+    );
+    const remaining = current.quantity - current.refunded_quantity - Number(pending.rows[0]?.n ?? 0);
+    if (quantity > remaining) {
+      throw new CommerceError(`فقط ${Math.max(0, remaining)} عدد از این ردیف قابل مرجوع است.`, 409, "refund_quantity_exceeded");
+    }
+    const lineCents=Math.round(Number(current.line_total)*100);
+    const availableCents=Math.max(0,lineCents-Math.round(Number(pending.rows[0].amount)*100));
+    const amountCents=quantity===remaining ? availableCents : Math.min(availableCents,Math.round(lineCents*quantity/current.quantity));
+    const amount=amountCents/100;
+    const differenceAmount=kind === "exchange" ? Math.round((targetPrice*quantity-amount)*100)/100 : 0;
+    await client.query(
+      `insert into refunds (id, order_id, order_line_id, quantity, amount, reason, status, requested_by, note,
+                            kind, target_variant_id, difference_amount)
+       values ($1,$2,$3,$4,$5,$6,'requested',$7,$8,$9,$10,$11)`,
+      [id, input.orderId, line.id, quantity, amount, input.reason ?? null, input.actor,
+        input.reason ?? null, kind, input.targetVariantId ?? null, differenceAmount],
+    );
+    let exchangeToken: string | null = null;
+    if (kind === "exchange" && differenceAmount > 0) {
+      exchangeToken = `exc_${randomUUID()}`;
+      await client.query(
+        `insert into exchange_payments (id, refund_id, amount, token, status, expires_at)
+         values ($1, $2, $3, $4, 'unpaid', now() + interval '48 hours')`,
+        [`exp_${randomUUID()}`, id, differenceAmount, exchangeToken],
+      );
+    }
+    const result = await client.query<RefundRow>("select * from refunds where id = $1", [id]);
+    await recordAudit({ actor: input.actor, action: "refund.requested", targetType: "refund", targetId: id,
+      after: { orderId: input.orderId, orderLineId: line.id, quantity, kind, amount }, reason: input.reason }, client);
+    return { ...publicRefund(result.rows[0]), exchangeToken };
+  });
 }
 
 export async function listRefunds(filter: { orderId?: string; status?: string } = {}) {
@@ -204,7 +198,7 @@ export async function decideRefund(input: {
   note?: string;
 }) {
   const settings = await loadCommerceSettings();
-  if (!settings.superadmins.includes(input.actor)) {
+  if (!settings.superadmins.includes(input.actor) && !config.panelOpenAccess) {
     throw forbidden("تأیید بازپرداخت فقط توسط Superadmin محافظت‌شده ممکن است.");
   }
 
@@ -294,15 +288,15 @@ export async function qcReturn(input: {
         );
       } else {
         // a defective unit must never be sellable: it goes to quarantine instead
-        await client.query("update product_variants set quarantined = quarantined + $2, updated_at = now() where id = $1", [
+        await client.query("update product_variants set on_hand = on_hand + $2, quarantined = quarantined + $2, updated_at = now() where id = $1", [
           variantId,
           refund.quantity,
         ]);
         await client.query(
           `insert into inventory_movements (variant_id, delta, reason, ref_type, ref_id, actor, note, dedupe_key)
-           values ($1, 0, 'qc_rejected', 'refund', $2, $3, $4, $5)
+           values ($1, $6, 'qc_rejected', 'refund', $2, $3, $4, $5)
            on conflict (dedupe_key) do nothing`,
-          [variantId, refund.id, input.actor, input.note ?? null, `qc-defective:${refund.id}`],
+          [variantId, refund.id, input.actor, input.note ?? null, `qc-defective:${refund.id}`, refund.quantity],
         );
       }
     }
@@ -369,7 +363,7 @@ export async function payExchangeDifference(input: { token: string; actor: strin
  */
 export async function settleRefund(input: { refundId: string; actor: string; note?: string }) {
   const settings = await loadCommerceSettings();
-  if (!settings.superadmins.includes(input.actor)) {
+  if (!settings.superadmins.includes(input.actor) && !config.panelOpenAccess) {
     throw forbidden("تأیید بازپرداخت فقط توسط Superadmin محافظت‌شده ممکن است.");
   }
   if (!settings.liveRefundsEnabled) {
@@ -425,9 +419,12 @@ export async function settleRefund(input: { refundId: string; actor: string; not
       "select provider from payment_attempts where order_id = $1 and status = 'settled' order by created_at desc limit 1",
       [refund.order_id],
     );
-    const providerId = attempt.rows[0]?.provider ?? settings.paymentProvider;
-    const capabilities = providerCapabilities(providerId);
-    const canReverse = capabilities.refund && (refund.quantity === line.quantity || capabilities.partialRefund);
+    const providerId = attempt.rows[0]?.provider ?? "external";
+    // Only the simulated provider implements a reversal here, and only outside
+    // production. Real gateways and manually attested payments go to human
+    // review; never manufacture a successful provider refund reference.
+    const capabilities = providerId === "external" ? null : providerCapabilities(providerId);
+    const canReverse = providerId === "mock" && !config.isProd && !!capabilities?.refund && (refund.quantity === line.quantity || capabilities.partialRefund);
 
     const orderRes = await client.query<{ subtotal: string | null; discount_total: string | null; email: string | null }>(
       "select subtotal, discount_total, email from orders where id = $1",
@@ -555,6 +552,12 @@ export interface AdjustmentRow {
   note: string | null;
   created_at: Date;
   decided_at: Date | null;
+  baseline_on_hand: number | null;
+  counted_on_hand: number | null;
+  baseline_stock_version: string | null;
+  decision_note: string | null;
+  operation_key: string | null;
+  operation_fingerprint: string | null;
 }
 
 export function publicAdjustment(row: AdjustmentRow) {
@@ -569,35 +572,62 @@ export function publicAdjustment(row: AdjustmentRow) {
     note: row.note,
     createdAt: row.created_at,
     decidedAt: row.decided_at,
+    baselineOnHand: row.baseline_on_hand,
+    countedOnHand: row.counted_on_hand,
+    decisionNote: row.decision_note,
   };
 }
 
-export async function requestAdjustment(input: {
-  variantId: string;
-  delta: number;
-  reason: string;
-  actor: string;
-  note?: string;
-}) {
-  const delta = Math.trunc(input.delta);
-  if (!delta) throw new CommerceError("مقدار اصلاح نمی‌تواند صفر باشد.", 400, "invalid_delta");
-  const variant = await query("select id from product_variants where id = $1", [input.variantId]);
-  if (!variant.rows[0]) throw notFound("واریانت پیدا نشد.");
-  const id = `adj_${randomUUID()}`;
-  await query(
-    `insert into inventory_adjustments (id, variant_id, delta, reason, requested_by, note)
-     values ($1,$2,$3,$4,$5,$6)`,
-    [id, input.variantId, delta, input.reason, input.actor, input.note ?? null],
-  );
-  const res = await query<AdjustmentRow>("select * from inventory_adjustments where id = $1", [id]);
-  return publicAdjustment(res.rows[0]);
+
+type OperationIdentity = {operationKey?:string;fingerprint?:string;requestId?:string};
+async function existingOperation(client:PoolClient, input:OperationIdentity & {actor:string}) {
+  if (!input.operationKey) return null;
+  await client.query("select pg_advisory_xact_lock(hashtext($1))",[input.operationKey]);
+  const found=await client.query<AdjustmentRow>("select * from inventory_adjustments where operation_key=$1",[input.operationKey]);
+  const row=found.rows[0];
+  if (row && (row.requested_by !== input.actor || row.operation_fingerprint !== input.fingerprint)) throw new CommerceError("شناسه درخواست قبلاً برای عملیات دیگری استفاده شده است.",409,"operation_key_conflict");
+  return row ?? null;
+}
+export async function requestAdjustment(input: OperationIdentity & {variantId:string;delta:number;reason:string;actor:string;note?:string;expectedVersion?:string}) {
+  if (!Number.isSafeInteger(input.delta) || Math.abs(input.delta) > 1000000 || (!input.delta && input.reason !== "receiving")) throw new CommerceError("مقدار اصلاح معتبر نیست.",400,"invalid_delta");
+  return withTransaction(async client => {
+    const existing=await existingOperation(client,input);
+    if(existing) return publicAdjustment(existing);
+    const variant=await client.query<{id:string;version:string}>("select id,updated_at::text as version from product_variants where id=$1 for update",[input.variantId]);
+    if(!variant.rows[0]) throw notFound("واریانت پیدا نشد.");
+    if(input.expectedVersion !== undefined && (typeof input.expectedVersion !== "string" || !input.expectedVersion || input.expectedVersion !== variant.rows[0].version)) throw new CommerceError("اطلاعات تنوع یا موجودی تغییر کرده است؛ ابتدا فهرست را تازه کنید.",409,"stale_inventory");
+    const id=`adj_${randomUUID()}`;
+    const result=await client.query<AdjustmentRow>(`insert into inventory_adjustments (id,variant_id,delta,reason,requested_by,note,operation_key,operation_fingerprint)
+      values($1,$2,$3,$4,$5,$6,$7,$8) returning *`,[id,input.variantId,input.delta,input.reason,input.actor,input.note ?? null,input.operationKey ?? null,input.fingerprint ?? null]);
+    await recordAudit({actor:input.actor,action:"inventory.requested",targetType:"inventory_adjustment",targetId:id,after:{variantId:input.variantId,delta:input.delta,reason:input.reason,note:input.note},requestId:input.requestId},client);
+    return publicAdjustment(result.rows[0]);
+  });
+}
+/** A count is recorded against a locked physical baseline. */
+export async function requestStocktake(input: OperationIdentity & {variantId:string;counted:number;expectedOnHand:number;expectedVersion:string;actor:string;note:string}) {
+  if (!Number.isSafeInteger(input.counted) || input.counted < 0 || input.counted > 1000000 || !Number.isSafeInteger(input.expectedOnHand) || input.expectedOnHand < 0 || typeof input.expectedVersion !== "string" || !input.expectedVersion) throw new CommerceError("تعداد شمارش معتبر نیست.",400,"invalid_count");
+  return withTransaction(async client => {
+    const existing=await existingOperation(client,input);
+    if(existing) return publicAdjustment(existing);
+    const variant = await client.query<{on_hand:number; version:string}>("select on_hand, updated_at::text as version from product_variants where id=$1 for update",[input.variantId]);
+    if (!variant.rows[0]) throw notFound("واریانت پیدا نشد.");
+    const baseline = Number(variant.rows[0].on_hand);
+    if (baseline !== input.expectedOnHand || variant.rows[0].version !== input.expectedVersion) throw new CommerceError("موجودی از زمان نمایش تغییر کرده است؛ ابتدا اطلاعات را تازه کنید.",409,"stale_stocktake");
+    const id=`adj_${randomUUID()}`;
+    const result = await client.query<AdjustmentRow>(`insert into inventory_adjustments (id,variant_id,delta,reason,requested_by,note,baseline_on_hand,counted_on_hand,baseline_stock_version,operation_key,operation_fingerprint)
+      values($1,$2,$3,'stocktake',$4,$5,$6,$7,$8,$9,$10) returning *`,[id,input.variantId,input.counted-baseline,input.actor,input.note,baseline,input.counted,variant.rows[0].version,input.operationKey ?? null,input.fingerprint ?? null]);
+    await recordAudit({actor:input.actor,action:"inventory.stocktake_requested",targetType:"inventory_adjustment",targetId:id,after:{variantId:input.variantId,baseline,counted:input.counted,note:input.note},requestId:input.requestId},client);
+    return publicAdjustment(result.rows[0]);
+  });
 }
 
 export async function decideAdjustment(input: {
   id: string;
   decision: "approve" | "reject";
   actor: string;
+  canSelfApprove?: boolean;
   note?: string;
+  requestId?: string;
 }) {
   return withTransaction(async (client) => {
     const res = await client.query<AdjustmentRow>("select * from inventory_adjustments where id = $1 for update", [
@@ -608,7 +638,7 @@ export async function decideAdjustment(input: {
     if (adjustment.status !== "pending") {
       return { ok: true, adjustment: publicAdjustment(adjustment), unchanged: true };
     }
-    if (adjustment.requested_by === input.actor) {
+    if (adjustment.requested_by === input.actor && !input.canSelfApprove) {
       throw new CommerceError(
         "اصلاح دستی موجودی باید توسط شخص دیگری تأیید شود.",
         403,
@@ -618,18 +648,27 @@ export async function decideAdjustment(input: {
 
     if (input.decision === "reject") {
       const rejected = await client.query<AdjustmentRow>(
-        `update inventory_adjustments set status = 'rejected', approved_by = $2, note = $3, decided_at = now()
+        `update inventory_adjustments set status = 'rejected', approved_by = $2, decision_note = $3, decided_at = now()
           where id = $1 returning *`,
         [adjustment.id, input.actor, input.note ?? null],
       );
+      await recordAudit({actor:input.actor,action:"stock_adjustment.reject",targetType:"inventory_adjustment",targetId:adjustment.id,before:{status:adjustment.status,delta:adjustment.delta},after:{status:"rejected"},reason:input.note,requestId:input.requestId},client);
       return { ok: true, adjustment: publicAdjustment(rejected.rows[0]), unchanged: false };
     }
 
-    const variant = await client.query<{ on_hand: number }>(
-      "select on_hand from product_variants where id = $1 for update",
+    const variant = await client.query<{ on_hand: number; quarantined: number; version:string }>(
+      "select on_hand, quarantined, updated_at::text as version from product_variants where id = $1 for update",
       [adjustment.variant_id],
     );
-    const onHand = Number(variant.rows[0]?.on_hand ?? 0);
+    if (!variant.rows[0]) throw notFound("واریانت پیدا نشد.");
+    const onHand = Number(variant.rows[0].on_hand);
+    if (adjustment.baseline_on_hand !== null && (onHand !== Number(adjustment.baseline_on_hand) || adjustment.baseline_stock_version !== variant.rows[0].version)) {
+      throw new CommerceError("موجودی پس از شمارش تغییر کرده است؛ شمارش تازه لازم است.",409,"stale_stocktake");
+    }
+    const reserved = await client.query<{n:number}>("select coalesce(sum(quantity),0)::int as n from stock_reservations where variant_id=$1 and status='active' and expires_at>now()",[adjustment.variant_id]);
+    if (onHand + adjustment.delta < Number(variant.rows[0].quarantined) + Number(reserved.rows[0].n)) {
+      throw new CommerceError("اصلاح موجودی از مقدار رزروشده و قرنطینه کمتر می‌شود.",409,"stock_committed");
+    }
     if (onHand + adjustment.delta < 0) {
       throw new CommerceError("این اصلاح موجودی را منفی می‌کند.", 409, "negative_stock");
     }
@@ -644,10 +683,11 @@ export async function decideAdjustment(input: {
       [adjustment.variant_id, adjustment.delta, adjustment.id, input.actor, adjustment.note, `adjustment:${adjustment.id}`],
     );
     const approved = await client.query<AdjustmentRow>(
-      `update inventory_adjustments set status = 'approved', approved_by = $2, decided_at = now()
+      `update inventory_adjustments set status = 'approved', approved_by = $2, decision_note = $3, decided_at = now()
         where id = $1 returning *`,
-      [adjustment.id, input.actor],
+      [adjustment.id, input.actor, input.note ?? null],
     );
+    await recordAudit({actor:input.actor,action:"stock_adjustment.approve",targetType:"inventory_adjustment",targetId:adjustment.id,before:{status:adjustment.status,delta:adjustment.delta},after:{status:"approved"},reason:input.note,requestId:input.requestId},client);
     return { ok: true, adjustment: publicAdjustment(approved.rows[0]), unchanged: false };
   });
 }

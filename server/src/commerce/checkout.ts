@@ -160,6 +160,7 @@ export async function startCheckout(input: {
       [idempotencyKey],
     );
     if (existing.rows[0]) {
+      if (!input.customerEmail || existing.rows[0].customer_email !== input.customerEmail) throw new CommerceError("کلید تکراری متعلق به حساب دیگری است.",409,"idempotency_conflict");
       return { checkout: publicCheckout(existing.rows[0]), reused: true };
     }
   }

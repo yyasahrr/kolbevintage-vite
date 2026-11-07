@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 
 /** scrypt password hashing ("scrypt$salt$hash") */
 export function hashPassword(password: string): string {
@@ -22,5 +22,5 @@ export function newToken(): string {
 }
 
 export function newOtp(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(100000, 1000000));
 }

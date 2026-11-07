@@ -1,7 +1,10 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
-import { query } from "../db";
+import { isDeepStrictEqual } from "node:util";
+import { config } from "../config";
+import type { FastifyInstance } from "fastify";
+import { query, withTransaction } from "../db";
+import { recordAudit } from "../commerce/audit";
 import { getDocument } from "../seed";
-import { hashPassword, newOtp, verifyPassword } from "../security";
+import { hashPassword, verifyPassword } from "../security";
 import {
   createSession,
   destroySession,
@@ -21,7 +24,6 @@ interface CustomerRow {
   created_at: string;
 }
 
-const EMAIL_RE = /^\S+@\S+\.\S+$/;
 const DEMO_SIZE = { height: 172, weight: 68, age: 30, chest: 92, waist: 74, hip: 98, shoulder: 42, fit: "regular", shoe: 39 };
 
 export function publicCustomer(row: CustomerRow) {
@@ -49,18 +51,12 @@ async function findCustomer(email: string) {
  * cookie would otherwise "log in" and stay a stranger. The client keeps it in
  * memory and sends it as `x-session-token`; the cookie path is unchanged.
  */
-function sessionBody(token: string): { sessionToken: string } {
-  // Always handed back so the client can send it as `x-session-token`: in the
-  // framed preview the browser may keep no cookie at all, and a login that
-  // "succeeds" into an anonymous session is the worst kind of confusion.
-  return { sessionToken: token };
+function sessionBody(token: string): { sessionToken?: string } {
+  // The fallback token is for non-production framed previews only. In
+  // production the session remains exclusively in the HttpOnly cookie.
+  return config.isProd ? {} : { sessionToken: token };
 }
 
-async function startCustomerSession(reply: FastifyReply, email: string) {
-  const session = await createSession("customer", email);
-  setSessionCookie(reply, session.token, session.expires);
-  return sessionBody(session.token);
-}
 
 export async function authRoutes(app: FastifyInstance) {
   /** current sessions (admin + customer) */
@@ -72,104 +68,32 @@ export async function authRoutes(app: FastifyInstance) {
     return { customer: row ? publicCustomer(row) : null, admin: false };
   });
 
-  /** demo one-time code: the code is returned so the prototype can show it */
-  app.post<{ Body: { email?: string; phone?: string; channel?: "sms" | "email" } }>(
-    "/api/auth/otp/request",
-    async (req, reply) => {
-      const email = (req.body?.email ?? "").trim().toLowerCase();
-      const phone = (req.body?.phone ?? "").trim();
-      const channel = req.body?.channel === "email" ? "email" : "sms";
-      if (!EMAIL_RE.test(email)) return reply.code(400).send({ ok: false, message: "ایمیل معتبر نیست." });
-
-      const ops = (await getDocument<Record<string, any>>("ops")) ?? {};
-      const channels = ops.security?.otpChannels ?? { sms: true, email: true };
-      if (!channels[channel]) {
-        return reply.code(400).send({ ok: false, message: `ورود ${channel === "sms" ? "پیامکی" : "ایمیلی"} توسط مدیر بسته شده است.` });
-      }
-      if (channel === "sms" && !/^0?9\d{9}$/.test(phone)) {
-        return reply.code(400).send({ ok: false, message: "شمارهٔ موبایل معتبر نیست." });
-      }
-
-      const code = newOtp();
-      await query(
-        `insert into otp_codes (email, code, channel, expires_at) values ($1, $2, $3, now() + interval '2 minutes')
-         on conflict (email) do update set code = excluded.code, channel = excluded.channel, expires_at = excluded.expires_at`,
-        [email, code, channel],
-      );
-      return {
-        ok: true,
-        code,
-        message: `کد ${channel === "sms" ? "پیامکی" : "ایمیلی"} به ${channel === "sms" ? phone : email} ارسال شد (نمایشی).`,
-      };
-    },
-  );
-
-  app.post<{ Body: { email?: string; code?: string } }>("/api/auth/otp/verify", async (req, reply) => {
-    const email = (req.body?.email ?? "").trim().toLowerCase();
-    const code = (req.body?.code ?? "").trim();
-    if (!email || !code) return reply.code(400).send({ ok: false, message: "ایمیل و کد لازم است." });
-
-    const res = await query<{ code: string; expired: boolean }>(
-      "select code, expires_at < now() as expired from otp_codes where email = $1",
-      [email],
-    );
-    const row = res.rows[0];
-    if (!row) return reply.code(400).send({ ok: false, message: "اول درخواست کد بده." });
-    if (row.expired) return reply.code(400).send({ ok: false, message: "کد منقضی شده؛ کد تازه بگیر." });
-    if (row.code !== code) return reply.code(400).send({ ok: false, message: "کد درست نیست." });
-
-    await query("delete from otp_codes where email = $1", [email]);
-
-    let customer = await findCustomer(email);
-    if (!customer) {
-      const created = await query<CustomerRow>(
-        `insert into customers (email, name, size, addresses) values ($1, $2, $3, '[]'::jsonb) returning *`,
-        [email, email.split("@")[0], JSON.stringify(DEMO_SIZE)],
-      );
-      customer = created.rows[0];
-    }
-    const extra = await startCustomerSession(reply, email);
-    return { ok: true, message: "خوش آمدی!", customer: publicCustomer(customer), ...extra };
-  });
+  // The former prototype returned the OTP to the requester, allowing login to
+  // any account. Keep both routes fail-closed until a verified provider and a
+  // phone/email identity binding are implemented; never accept old demo codes.
+  app.post("/api/auth/otp/request", async (_req, reply) => reply.code(503).send({ ok:false, code:"otp_unavailable", message:"ورود با کد یک‌بارمصرف هنوز به سرویس امن متصل نشده است؛ از رمز عبور استفاده کنید." }));
+  app.post("/api/auth/otp/verify", async (_req, reply) => reply.code(503).send({ ok:false, code:"otp_unavailable", message:"ورود با کد یک‌بارمصرف هنوز به سرویس امن متصل نشده است." }));
 
   app.post<{ Body: { email?: string; password?: string } }>("/api/auth/login", async (req, reply) => {
-    const email = (req.body?.email ?? "").trim().toLowerCase();
-    const password = req.body?.password ?? "";
-    const customer = await findCustomer(email);
-    if (!customer || !verifyPassword(password, customer.password_hash)) {
-      return reply.code(401).send({ ok: false, message: "حسابی با این ایمیل و رمز پیدا نشد." });
-    }
-    const extra = await startCustomerSession(reply, email);
-    return { ok: true, message: "خوش آمدی!", customer: publicCustomer(customer), ...extra };
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+    if (email.length > 254 || password.length > 256) return reply.code(401).send({ok:false,message:"حسابی با این ایمیل و رمز پیدا نشد."});
+    // Serialize login with password changes so a login verified against an old
+    // hash cannot create another session after the old sessions are revoked.
+    const result = await withTransaction(async client => {
+      const row = (await client.query<CustomerRow>("select * from customers where email=$1 for update",[email])).rows[0];
+      if (!row || !verifyPassword(password,row.password_hash)) return null;
+      const session = await createSession("customer", email, undefined, client);
+      return {row,session};
+    });
+    if (!result) return reply.code(401).send({ ok: false, message: "حسابی با این ایمیل و رمز پیدا نشد." });
+    setSessionCookie(reply,result.session.token,result.session.expires);
+    return { ok: true, message: "خوش آمدی!", customer: publicCustomer(result.row), ...sessionBody(result.session.token) };
   });
 
-  app.post<{ Body: { name?: string; email?: string; phone?: string; password?: string } }>(
-    "/api/auth/register",
-    async (req, reply) => {
-      const email = (req.body?.email ?? "").trim().toLowerCase();
-      const password = req.body?.password ?? "";
-      const name = (req.body?.name ?? "").trim() || email.split("@")[0];
-      const phone = (req.body?.phone ?? "").trim();
-      if (!EMAIL_RE.test(email)) return reply.code(400).send({ ok: false, message: "ایمیل معتبر نیست." });
-      if (password.length < 8) return reply.code(400).send({ ok: false, message: "رمز باید حداقل ۸ کاراکتر باشد." });
-
-      const ops = (await getDocument<Record<string, any>>("ops")) ?? {};
-      if (ops.security && ops.security.allowCustomerSignup === false) {
-        return reply.code(403).send({ ok: false, message: "ثبت‌نام در حال حاضر بسته است." });
-      }
-      if (await findCustomer(email)) {
-        return reply.code(409).send({ ok: false, message: "این ایمیل قبلاً ثبت شده؛ وارد شو." });
-      }
-
-      const created = await query<CustomerRow>(
-        `insert into customers (email, name, phone, password_hash, size, addresses)
-         values ($1, $2, $3, $4, $5, '[]'::jsonb) returning *`,
-        [email, name, phone, hashPassword(password), JSON.stringify(DEMO_SIZE)],
-      );
-      const extra = await startCustomerSession(reply, email);
-      return { ok: true, message: "حساب ساخته شد.", customer: publicCustomer(created.rows[0]), ...extra };
-    },
-  );
+  // Never let a visitor claim an unverified email/phone. A real verification
+  // provider and identity binding are prerequisites for registration.
+  app.post("/api/auth/register", async (_req, reply) => reply.code(503).send({ok:false, code:"registration_unavailable", message:"ثبت‌نام تا اتصال سرویس احراز هویت در دسترس نیست."}));
 
   app.post("/api/auth/logout", async (req, reply) => {
     await destroySession(req, reply);
@@ -177,40 +101,71 @@ export async function authRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.patch<{
-    Body: {
-      name?: string;
-      phone?: string;
-      size?: Record<string, unknown>;
-      addresses?: unknown[];
-      twoFactor?: boolean;
-      password?: string;
-    };
-  }>("/api/auth/profile", async (req, reply) => {
+  // Legacy bulk writes bypassed confirmation and could set a password or a
+  // pretend second factor. Only bounded, explicitly confirmed profile fields
+  // remain here; addresses and credentials have their own guarded routes.
+  app.patch<{ Body: Record<string, unknown> }>("/api/auth/profile", async (req, reply) => {
     const session = await readSession(req);
-    if (session?.kind !== "customer") return reply.code(401).send({ ok: false, message: "اول وارد شو." });
+    if (session?.kind !== "customer") return reply.code(401).send({ok:false,message:"اول وارد شو."});
+    const b = req.body;
+    if (!b || typeof b !== "object" || Array.isArray(b) || Object.keys(b).some(k => !["phone", "expectedPhone"].includes(k)) || typeof b.phone !== "string" || b.phone.length > 30 || typeof b.expectedPhone !== "string" || b.expectedPhone.length > 30) return reply.code(400).send({ok:false,message:"اطلاعات حساب معتبر نیست."});
+    const result = await withTransaction(async client => {
+      const row=(await client.query<CustomerRow>("select * from customers where email=$1 for update",[session.subject])).rows[0];
+      if (!row || !(await client.query("select 1 from sessions where token=$1 and kind='customer' and subject=$2 and expires_at > now()",[session.token,session.subject])).rowCount) return null;
+      if ((row.phone ?? "") !== b.expectedPhone) return "conflict" as const;
+      const updated=(await client.query<CustomerRow>("update customers set phone=$2 where email=$1 returning *",[session.subject,(b.phone as string).trim()])).rows[0];
+      return publicCustomer(updated);
+    });
+    if (!result) return reply.code(401).send({ok:false,message:"حساب پیدا نشد."});
+    if (result === "conflict") return reply.code(409).send({ok:false,code:"profile_conflict",message:"اطلاعات حساب تغییر کرده است؛ دوباره دریافت و بررسی کنید."});
+    return {ok:true,customer:result};
+  });
 
-    const b = req.body ?? {};
-    const fields: string[] = [];
-    const values: unknown[] = [];
-    const push = (sql: string, value: unknown) => {
-      values.push(value);
-      fields.push(`${sql} = $${values.length}`);
-    };
-    if (typeof b.name === "string") push("name", b.name);
-    if (typeof b.phone === "string") push("phone", b.phone);
-    if (b.size && typeof b.size === "object") push("size", JSON.stringify(b.size));
-    if (Array.isArray(b.addresses)) push("addresses", JSON.stringify(b.addresses));
-    if (typeof b.twoFactor === "boolean") push("two_factor", b.twoFactor);
-    if (typeof b.password === "string" && b.password.length >= 8) push("password_hash", hashPassword(b.password));
-    if (!fields.length) return { ok: true };
+  app.put<{Body:{expected?:unknown;addresses?:unknown}}>("/api/auth/addresses", async (req,reply) => {
+    const session = await readSession(req);
+    if (session?.kind !== "customer") return reply.code(401).send({ok:false,message:"اول وارد شو."});
+    const {expected,addresses}=req.body ?? {};
+    if (!Array.isArray(expected) || !Array.isArray(addresses) || addresses.length > 50 || JSON.stringify(addresses).length > 32_000 || JSON.stringify(expected).length > 64_000) return reply.code(400).send({ok:false,message:"فهرست آدرس‌ها معتبر نیست."});
+    const ids = new Set<string>();
+    for (const item of addresses) {
+      if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.id !== "string" || !item.id || item.id.length > 100 || ids.has(item.id) || typeof item.default !== "boolean") return reply.code(400).send({ok:false,message:"شناسه یا وضعیت آدرس معتبر نیست."});
+      ids.add(item.id);
+      for (const [key,max] of Object.entries({label:80,receiver:120,phone:30,province:100,city:100,street:500,postal:30})) {
+        if (typeof item[key] !== "string" || item[key].length > max) return reply.code(400).send({ok:false,message:"اطلاعات آدرس معتبر نیست."});
+      }
+      if (!item.street.trim()) return reply.code(400).send({ok:false,message:"نشانی نمی‌تواند خالی باشد."});
+    }
+    if (addresses.length && addresses.filter(item=>item.default).length !== 1) return reply.code(400).send({ok:false,message:"یک آدرس پیش‌فرض انتخاب کنید."});
+    const result = await withTransaction(async client => {
+      const row=(await client.query<CustomerRow>("select * from customers where email=$1 for update",[session.subject])).rows[0];
+      if (!row || !(await client.query("select 1 from sessions where token=$1 and kind='customer' and subject=$2 and expires_at > now()",[session.token,session.subject])).rowCount) return null;
+      if (!isDeepStrictEqual(row.addresses,expected)) return "conflict" as const;
+      const updated=(await client.query<CustomerRow>("update customers set addresses=$2::jsonb where email=$1 returning *",[session.subject,JSON.stringify(addresses)])).rows[0];
+      return publicCustomer(updated);
+    });
+    if (!result) return reply.code(401).send({ok:false,message:"حساب پیدا نشد."});
+    if (result === "conflict") return reply.code(409).send({ok:false,code:"address_conflict",message:"آدرس‌ها در جای دیگری تغییر کرده‌اند؛ اطلاعات تازه را بررسی کنید."});
+    return {ok:true,customer:result};
+  });
 
-    values.push(session.subject);
-    const res = await query<CustomerRow>(
-      `update customers set ${fields.join(", ")} where email = $${values.length} returning *`,
-      values,
-    );
-    return { ok: true, customer: res.rows[0] ? publicCustomer(res.rows[0]) : null };
+  app.post<{Body:{currentPassword?:unknown;newPassword?:unknown}}>("/api/auth/password", async (req,reply) => {
+    const session = await readSession(req);
+    if (session?.kind !== "customer") return reply.code(401).send({ok:false,message:"اول وارد شو."});
+    const {currentPassword,newPassword}=req.body ?? {};
+    if (typeof currentPassword !== "string" || !currentPassword || currentPassword.length > 256 || typeof newPassword !== "string" || newPassword.length < 8 || newPassword.length > 256) return reply.code(400).send({ok:false,message:"رمز جدید باید بین ۸ تا ۲۵۶ نویسه باشد."});
+    const outcome=await withTransaction(async client=>{
+      const row=(await client.query<CustomerRow>("select * from customers where email=$1 for update",[session.subject])).rows[0];
+      const active=await client.query("select 1 from sessions where token=$1 and kind='customer' and subject=$2 and expires_at > now()",[session.token,session.subject]);
+      if (!row || !active.rowCount) return "session" as const;
+      if (!verifyPassword(currentPassword,row.password_hash)) return "incorrect" as const;
+      await client.query("update customers set password_hash=$2 where email=$1",[session.subject,hashPassword(newPassword)]);
+      await client.query("delete from sessions where kind='customer' and subject=$1 and token<>$2",[session.subject,session.token]);
+      await recordAudit({actor:session.subject,action:"customer.password_changed",targetType:"customer",targetId:session.subject,requestId:req.id},client);
+      return "ok" as const;
+    });
+    if(outcome === "session") return reply.code(401).send({ok:false,message:"نشست معتبر نیست؛ دوباره وارد شوید."});
+    if(outcome === "incorrect") return reply.code(403).send({ok:false,code:"password_incorrect",message:"رمز فعلی درست نیست."});
+    return {ok:true};
   });
 
   /**
@@ -220,10 +175,12 @@ export async function authRoutes(app: FastifyInstance) {
    * Both create an `admin` session; the role travels with the subject.
    */
   app.post<{ Body: { passcode?: string } }>("/api/admin/login", async (req, reply) => {
-    const passcode = (req.body?.passcode ?? "").trim();
+    const passcode = typeof req.body?.passcode === "string" ? req.body.passcode.trim() : "";
+    if (!passcode || passcode.length > 256) return reply.code(401).send({ok:false,message:"رمز مدیریت درست نیست."});
     const admin = (await getDocument<Record<string, any>>("admin")) ?? {};
     const ops = (await getDocument<Record<string, any>>("ops")) ?? {};
     const expected = String(admin.settings?.passcode ?? ops.security?.passcode ?? "");
+    const ownerHash = typeof admin.settings?.passcodeHash === "string" ? admin.settings.passcodeHash : "";
 
     const ip = req.ip;
     const userAgent = String(req.headers["user-agent"] ?? "").slice(0, 200);
@@ -237,8 +194,34 @@ export async function authRoutes(app: FastifyInstance) {
       ]);
 
     let subject = "admin";
-    if (expected && passcode === expected) {
+    const matchesOwner = (!config.isProd || passcode.length >= 12) && (ownerHash
+      ? verifyPassword(passcode, ownerHash)
+      : !!expected && (!config.isProd || expected.length >= 12) && passcode === expected);
+    if (matchesOwner) {
       subject = "admin";
+      if (config.isProd && !ownerHash) {
+        // Upgrade an existing strong legacy owner credential on first login.
+        // Lock both documents, revoke older owner sessions, and never audit the secret.
+        await withTransaction(async client => {
+          const docs=await client.query<{key:string;value:Record<string,any>}>("select key,value from state_documents where key in ('admin','ops') order by key for update");
+          const currentAdmin=docs.rows.find(row=>row.key==="admin")?.value;
+          const currentOps=docs.rows.find(row=>row.key==="ops")?.value;
+          const currentSecret=String(currentAdmin?.settings?.passcode ?? currentOps?.security?.passcode ?? "");
+          if (!currentAdmin || !currentOps) throw new Error("Owner credential unavailable.");
+          if (currentAdmin.settings?.passcodeHash) {
+            if (verifyPassword(passcode,currentAdmin.settings.passcodeHash)) return;
+            throw new Error("Owner credential changed concurrently; retry login.");
+          }
+          if (currentSecret !== passcode) throw new Error("Owner credential changed concurrently; retry login.");
+          currentAdmin.settings={...(currentAdmin.settings ?? {}),passcodeHash:hashPassword(passcode)};
+          delete currentAdmin.settings.passcode;
+          if(currentOps.security) delete currentOps.security.passcode;
+          await client.query("update state_documents set value=$2::jsonb,updated_at=now() where key=$1",["admin",JSON.stringify(currentAdmin)]);
+          await client.query("update state_documents set value=$2::jsonb,updated_at=now() where key=$1",["ops",JSON.stringify(currentOps)]);
+          await client.query("delete from sessions where kind='admin' and subject='admin'");
+          await recordAudit({actor:"admin",action:"security.owner_credential_migrated",targetType:"staff",targetId:"admin",requestId:req.id},client);
+        });
+      }
     } else {
       const staff = await query<{ subject: string; passcode_hash: string | null; expired: boolean }>(
         `select subject, passcode_hash, (expires_at is not null and expires_at <= now()) as expired

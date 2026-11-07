@@ -450,21 +450,7 @@ export function CommercePanel() {
           </Panel>
 
           <Panel title="تخفیف‌ها و بازپرداخت" action={<CreditCard width={15} height={15} />}>
-            <label className="ad-field">
-              ترکیب کد تخفیف با کمپین
-              <select
-                className="ad-select"
-                value={settings.discountStacking}
-                onChange={(e) => patch({ discountStacking: e.target.value as CommerceSettings["discountStacking"] })}
-              >
-                <option value="none">ممنوع (پیش‌فرض)</option>
-                <option value="explicit">فقط با اجازهٔ صریح هر دو طرف</option>
-              </select>
-            </label>
-            <p className="ad-hint">
-              انتخاب کمپین با بالاترین Priority است، نه بیشترین تخفیف؛ در تساوی، قدیمی‌تر و سپس شناسهٔ پایدار تعیین‌کننده است.
-              کوپن فقط در مرحلهٔ تسویه وارد می‌شود.
-            </p>
+            <p className="ad-hint">برای هر سفارش فقط بیشترین تخفیف مالی مجاز از میان کمپین‌ها و کد تخفیف انتخاب می‌شود؛ ارسال رایگان جداگانه بررسی می‌شود. در تساوی، اولویت و سپس قدمت و شناسه تعیین‌کننده‌اند.</p>
             <label className="ad-check">
               <input
                 type="checkbox"

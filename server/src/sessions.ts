@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { config } from "./config";
 import { query } from "./db";
@@ -14,10 +15,10 @@ export interface Session {
   token: string;
 }
 
-export async function createSession(kind: SessionKind, subject: string): Promise<{ token: string; expires: Date }> {
+export async function createSession(kind: SessionKind, subject: string, ttlMs = config.sessionDays * 86400000, client?: PoolClient): Promise<{ token: string; expires: Date }> {
   const token = newToken();
-  const expires = new Date(Date.now() + config.sessionDays * 86400000);
-  await query("insert into sessions (token, kind, subject, expires_at) values ($1, $2, $3, $4)", [
+  const expires = new Date(Date.now() + ttlMs);
+  await (client ? client.query.bind(client) : query)("insert into sessions (token, kind, subject, expires_at) values ($1, $2, $3, $4)", [
     token,
     kind,
     subject,
@@ -47,6 +48,7 @@ export function clearSessionCookie(reply: FastifyReply) {
 export function sessionToken(req: FastifyRequest): string | null {
   const fromCookie = req.cookies?.[COOKIE];
   if (fromCookie) return fromCookie;
+  if (config.isProd) return null; // production sessions stay in HttpOnly cookies
   const header = req.headers["x-session-token"];
   if (typeof header === "string" && header.trim()) return header.trim();
   const auth = req.headers.authorization;

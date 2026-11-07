@@ -93,7 +93,7 @@ export function ProductCard({ product, className }: Props) {
           <Heart className={cn("h-3.5 w-3.5", wished && "fill-ember")} />
         </button>
 
-        <div className="absolute inset-x-2 bottom-2 translate-y-3 opacity-0 transition-all duration-350 group-hover:translate-y-0 group-hover:opacity-100 focus-within:translate-y-0 focus-within:opacity-100 max-lg:translate-y-0 max-lg:opacity-100">
+        <div className="absolute inset-x-2 bottom-2 translate-y-3 opacity-0 transition-[transform,opacity] duration-200 group-hover:translate-y-0 group-hover:opacity-100 focus-within:translate-y-0 focus-within:opacity-100 max-lg:translate-y-0 max-lg:opacity-100">
           <button
             type="button"
             onClick={openQuickBuy}
@@ -117,7 +117,7 @@ export function ProductCard({ product, className }: Props) {
       <div className="mt-2.5 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[9.5px] text-ink-45">{product.category}</p>
-          <h3 className="mt-0.5 truncate text-[12.5px] leading-5 font-medium text-ink">
+          <h3 className="mt-0.5 text-[12.5px] leading-5 font-medium text-ink">
             <Link to={`/product/${product.id}`} className="hover:text-ink-70">
               {product.name}
             </Link>
@@ -141,7 +141,7 @@ export function ProductCard({ product, className }: Props) {
             style={{ backgroundColor: c.hex }}
           />
         ))}
-        <span className="ms-1 text-[9.5px] text-ink-45">{product.colors.length} رنگ</span>
+        <span className="ms-1 text-[9.5px] text-ink-45">{product.colors.length.toLocaleString("fa-IR")} رنگ</span>
       </div>
 
       {quickBuyOpen && createPortal(

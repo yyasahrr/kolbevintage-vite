@@ -5,7 +5,12 @@ export type ThemeId =
   | "neo-brutalism"
   | "glassmorphism"
   | "noir"
-  | "cyber";
+  | "cyber"
+  | "editorial"
+  | "liquid-glass"
+  | "bento"
+  | "neumorphism"
+  | "brutalism";
 
 export interface ThemeDef {
   id: ThemeId;
@@ -34,7 +39,7 @@ export const THEMES: ThemeDef[] = [
       "--color-paper": "#fffaf4",
       "--color-ink": "#2a2420",
       "--color-ink-70": "#5b5049",
-      "--color-ink-45": "#968b80",
+      "--color-ink-45": "#71665d",
       "--color-sand": "#ebe2d6",
       "--color-clay": "#c9b8a3",
       "--color-ember": "#9a5a3b",
@@ -67,7 +72,7 @@ export const THEMES: ThemeDef[] = [
       "--color-paper": "#ffffff",
       "--color-ink": "#0a0a0a",
       "--color-ink-70": "#3d3d3d",
-      "--color-ink-45": "#8c8c8c",
+      "--color-ink-45": "#656565",
       "--color-sand": "#f2f2f2",
       "--color-clay": "#cfcfcf",
       "--color-ember": "#a8382a",
@@ -100,7 +105,7 @@ export const THEMES: ThemeDef[] = [
       "--color-paper": "#f7f2fb",
       "--color-ink": "#2b2766",
       "--color-ink-70": "#4d4880",
-      "--color-ink-45": "#7b78a3",
+      "--color-ink-45": "#646092",
       "--color-sand": "#e8e1f5",
       "--color-clay": "#c9c3dc",
       "--color-ember": "#b3261e",
@@ -137,7 +142,7 @@ export const THEMES: ThemeDef[] = [
       "--color-ink-45": "#525252",
       "--color-sand": "#ffef9f",
       "--color-clay": "#0a0a0a",
-      "--color-ember": "#ff3838",
+      "--color-ember": "#b4232a",
       "--font-sans": SANS,
       "--font-display": SANS,
       "--font-latin": INTER,
@@ -168,10 +173,10 @@ export const THEMES: ThemeDef[] = [
       "--color-paper": "rgba(255, 255, 255, 0.9)",
       "--color-ink": "#1e1832",
       "--color-ink-70": "#493f6e",
-      "--color-ink-45": "#7d739f",
+      "--color-ink-45": "#635987",
       "--color-sand": "rgba(255, 255, 255, 0.5)",
       "--color-clay": "rgba(255, 255, 255, 0.85)",
-      "--color-ember": "#e04f7a",
+      "--color-ember": "#a52d53",
       "--font-sans": SANS,
       "--font-display": SANS,
       "--font-latin": SERIF,
@@ -236,7 +241,7 @@ export const THEMES: ThemeDef[] = [
       "--color-paper": "#121722",
       "--color-ink": "#00f0ff",
       "--color-ink-70": "#96e6ec",
-      "--color-ink-45": "#547e88",
+      "--color-ink-45": "#75b2ba",
       "--color-sand": "#18202d",
       "--color-clay": "#283447",
       "--color-ember": "#c084fc",
@@ -259,6 +264,19 @@ export const THEMES: ThemeDef[] = [
     },
   },
 ];
+
+// Additional original panel packs, expressed as actual storefront tokens.
+// They reuse the common token contract, not the prototype's unrelated database.
+const tokensOf = (id: ThemeId) => ({...THEMES.find(theme => theme.id === id)!.tokens});
+THEMES.push(
+  {id:"editorial",label:"ادیتوریال کلاسیک",tagline:"Editorial",description:"چیدمان مجله‌ای، رنگ‌های کاغذی و تیترهای برجسته",category:"روشن",tokens:{...tokensOf("minimal"),"--color-bone":"#f7f3ed","--color-paper":"#fffdfa","--color-ink":"#211b19","--color-ink-70":"#534a46","--color-ink-45":"#6b615d","--color-sand":"#ece3d9","--color-clay":"#c4ad9b","--color-ember":"#8c4a2f","--font-latin":SERIF,"--radius-thumb":"3px","--radius-hero":"4px","--line":"rgba(33,27,25,.2)","--surface-tint":"#f1e9df"}},
+  {id:"liquid-glass",label:"شیشه سیال لوکس",tagline:"Liquid Glass",description:"سطوح شفاف، نور سرد و لایه‌های شناور",category:"تجربی",tokens:{...tokensOf("glassmorphism"),"--color-bone":"#eaf2fb","--color-ink":"#122942","--color-ink-70":"#405a70","--color-ink-45":"#536c81","--color-ember":"#315fb8","--surface-tint":"rgba(234,246,255,.7)","--card-shadow":"0 22px 48px -18px rgba(44,91,156,.3), inset 0 1px 2px white"}},
+  {id:"bento",label:"شبکه بنتو",tagline:"Bento",description:"سطوح ماژولار با گوشه‌های گرد و شبکهٔ متنوع در صفحهٔ اصلی",category:"روشن",tokens:{...tokensOf("soft"),"--color-bone":"#f5f3fb","--color-paper":"#ffffff","--color-ink":"#292643","--color-ink-70":"#514e67","--color-ink-45":"#64607a","--color-sand":"#e8e5f4","--color-clay":"#c3badf","--color-ember":"#6154a6","--radius-xl":"20px","--radius-2xl":"24px","--radius-hero":"26px","--line":"rgba(67,54,103,.14)","--surface-tint":"#eeecf8"}},
+  {id:"neumorphism",label:"نئومورفیسم لمسی",tagline:"Neumorphism",description:"برجستگی‌های ملایم با سایه روشن و تیره",category:"تجربی",tokens:{...tokensOf("soft"),"--color-bone":"#e9ebf2","--color-paper":"#eff1f7","--color-ink":"#24283b","--color-ink-70":"#4d5268","--color-ink-45":"#5e6378","--color-sand":"#dde1eb","--color-clay":"#c2c9da","--color-ember":"#5046a0","--card-shadow":"8px 8px 20px #cbd0dc, -8px -8px 20px #fff","--btn-shadow":"5px 5px 12px #cbd0dc, -5px -5px 12px #fff","--line":"rgba(70,75,100,.22)","--surface-tint":"#e4e7ef"}},
+  {id:"brutalism",label:"بروتالیسم آرشیوی",tagline:"Brutalism",description:"حاشیه‌های صریح و گوشه‌های تیز بدون سایه",category:"تجربی",tokens:{...tokensOf("minimal"),"--color-bone":"#f0f0ed","--color-paper":"#ffffff","--color-ink":"#080808","--color-ink-70":"#333333","--color-ink-45":"#555555","--color-ember":"#ae3030","--radius-lg":"0px","--radius-xl":"0px","--radius-2xl":"0px","--radius-3xl":"0px","--line":"#111111","--surface-tint":"#e3e3df"}},
+);
+
+export const isThemeId = (value: unknown): value is ThemeId => typeof value === "string" && THEMES.some(theme => theme.id === value);
 
 export const DEFAULT_THEME: ThemeId = "soft";
 

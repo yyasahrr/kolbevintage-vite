@@ -21,7 +21,6 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
-  Tag,
   Trash2,
   Undo2,
   Upload,
@@ -49,14 +48,12 @@ import {
   removeCategory,
   removeLabel,
   removeMegaMenu,
-  removeSizeSet,
   removeSmsTemplate,
   removeTryonPackage,
   saveCategory,
   setCategorySort,
   saveLabel,
   saveMegaMenu,
-  saveSizeSet,
   saveSmsTemplate,
   saveTryonPackage,
   productImagesOf,
@@ -77,7 +74,6 @@ import {
   type Ticket,
   type CustomerLabel,
   type MegaMenuDef,
-  type SizeSet,
   type SmsTemplate,
   type TryOnPackage,
   type ReturnReq,
@@ -205,59 +201,12 @@ export function BrandPanel() {
    categories & size sets
    ===================================================================== */
 
-/**
- * A list typed as text. The raw string is kept locally, so a half-typed
- * "S, M" never collapses back on every keystroke — the old bug made it
- * impossible to enter a second size at all.
- */
-function CsvField({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string[];
-  onChange: (next: string[]) => void;
-  placeholder?: string;
-}) {
-  const [text, setText] = useState(value.join(", "));
-  const [focused, setFocused] = useState(false);
-  const key = value.join("|");
-
-  useEffect(() => {
-    if (!focused) setText(value.join(", "));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, focused]);
-
-  return (
-    <label className="ad-field">
-      {label}
-      <input
-        className="ad-input"
-        dir="ltr"
-        value={text}
-        placeholder={placeholder}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        onChange={(e) => {
-          const raw = e.target.value;
-          setText(raw);
-          onChange(raw.split(/[,،]/).map((x) => x.trim()).filter(Boolean));
-        }}
-      />
-    </label>
-  );
-}
-
 export function CategoriesPanel() {
   const ops = useOps();
   const [draft, setDraft] = useState<CategoryDef | null>(null);
-  const [sizeDraft, setSizeDraft] = useState<SizeSet | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const blank = (): CategoryDef => ({ id: `cat-${Date.now().toString(36)}`, name: "", slug: "", garments: [], thumbnail: "", sizeSetId: ops.sizeSets[0]?.id ?? "", active: true, order: ops.categories.length + 1 });
-  const blankSize = (): SizeSet => ({ id: `ss-${Date.now().toString(36)}`, name: "", sizes: [] });
 
   const upload = async (f: File | undefined) => {
     if (!f || !draft) return;
@@ -272,7 +221,7 @@ export function CategoriesPanel() {
         action={
           <>
             <button type="button" className="ad-btn is-sm is-primary" onClick={() => setDraft(blank())}><Plus width={13} height={13} /> دستهٔ جدید</button>
-            <button type="button" className="ad-btn is-sm" onClick={() => setSizeDraft(blankSize())}><Tag width={13} height={13} /> سایز جدید</button>
+            <a className="ad-btn is-sm" href="/panel">مدیریت سایز در پنل اصلی</a>
           </>
         }
       />
@@ -326,10 +275,7 @@ export function CategoriesPanel() {
                 <b>{ss.name}</b>
                 <small className="ad-reset">{ss.sizes.join(" · ")}</small>
               </div>
-              <div className="ad-product-actions">
-                <button type="button" className="ad-icon" aria-label="ویرایش" onClick={() => setSizeDraft(ss)}><Pencil width={14} height={14} /></button>
-                <button type="button" className="ad-icon is-danger" aria-label="حذف" onClick={() => removeSizeSet(ss.id)}><Trash2 width={14} height={14} /></button>
-              </div>
+
             </article>
           ))}
         </div>
@@ -388,28 +334,6 @@ export function CategoriesPanel() {
         </div>
       )}
 
-      {sizeDraft && (
-        <div className="ad-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && setSizeDraft(null)}>
-          <div className="ad-modal is-sm" role="dialog" aria-modal="true" aria-label="مجموعهٔ سایز">
-            <div className="ad-modal-head"><h3>مجموعهٔ سایز</h3><button type="button" className="ad-icon" aria-label="بستن" onClick={() => setSizeDraft(null)}><X width={16} height={16} /></button></div>
-            <div className="ad-modal-body">
-              <label className="ad-field">نام<input className="ad-input" value={sizeDraft.name} onChange={(e) => setSizeDraft({ ...sizeDraft, name: e.target.value })} placeholder="مثلاً کفش زنانه" /></label>
-              <CsvField
-                label="سایزها (با ویرگول جدا کن)"
-                value={sizeDraft.sizes}
-                onChange={(sizes) => setSizeDraft({ ...sizeDraft, sizes })}
-                placeholder="S, M, L, XL"
-              />
-              <p className="ad-hint">این سایزها هنگام افزودن کالا و در راهنمای سایز هوشمند استفاده می‌شوند.</p>
-            </div>
-            <footer className="ad-modal-foot">
-              <div className="ad-actions-spacer" />
-              <button type="button" className="ad-btn" onClick={() => setSizeDraft(null)}>انصراف</button>
-              <button type="button" className="ad-btn is-primary" disabled={!sizeDraft.name.trim() || !sizeDraft.sizes.length} onClick={() => { saveSizeSet(sizeDraft); setSizeDraft(null); }}><Save width={13} height={13} /> ذخیره</button>
-            </footer>
-          </div>
-        </div>
-      )}
     </>
   );
 }

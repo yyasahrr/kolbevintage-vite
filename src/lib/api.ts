@@ -1,5 +1,3 @@
-import { fileToDataUrl } from "@/builder/ControlsUI";
-
 /* =====================================================================
    Thin API client for the KolbeVintage backend.
    All URLs are relative so the same build works behind the Vite proxy
@@ -126,7 +124,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const issued = (data as { sessionToken?: unknown } | null)?.sessionToken;
   if (typeof issued === "string" && issued) setSessionToken(issued);
   // and a logout must not leave a usable header behind
-  if (path.endsWith("/logout")) setSessionToken(null);
+  if (path.endsWith("/logout") && res.ok) setSessionToken(null);
 
   if (!res.ok) {
     const payload = data as { error?: string; message?: string; code?: string; details?: unknown } | null;
@@ -182,14 +180,16 @@ export async function uploadImage(file: File): Promise<string> {
         ...(sessionToken ? { "x-session-token": sessionToken } : {}),
       },
     });
-    if (!res.ok) throw new Error(String(res.status));
+    if (!res.ok) {
+      const details = await res.json().catch(() => ({}));
+      throw new Error(details.error || "بارگذاری تصویر ناموفق بود.");
+    }
     const data = (await res.json()) as { url?: string };
     if (!data.url) throw new Error("no url");
     markApiOnline(true);
     return data.url;
-  } catch {
-    // offline / static build — keep the image inline as before
-    return fileToDataUrl(file, 1200);
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("بارگذاری فایل ناموفق بود.");
   }
 }
 

@@ -1,8 +1,12 @@
+import { randomUUID } from "node:crypto";
+import { skuFor, variantIdFor, sizeModeOf } from "../commerce/variants";
 import type { FastifyInstance } from "fastify";
-import { query } from "../db";
-import { requireAdmin } from "../sessions";
+import { query, withTransaction } from "../db";
+import { requirePermission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
-import { actorOf, requireAdminSession } from "../commerce/auth";
+import { actorOf } from "../commerce/auth";
+import { prepareProductImage } from "../image-upload";
+import { validation, notFound, conflict } from "../commerce/errors";
 
 interface ProductRow {
   id: string;
@@ -58,9 +62,23 @@ const toProduct = (row: ProductRow, images: unknown[], complements: string[]) =>
   complements,
 });
 
+/** Sellable stock is derived from the ledger, less quarantined and live holds.
+ * The old products.stock JSON is merely a stale catalogue projection. */
+async function sellableStocks(productIds: string[]) {
+  const stocks = new Map<string,Record<string,number>>();
+  if (!productIds.length) return stocks;
+  const result=await query<{product_id:string;color_id:string;size_id:string;active:boolean;available:number}>(
+    `select v.product_id,v.color_id,v.size_id,v.active,
+       greatest(0,v.on_hand-v.quarantined-coalesce((select sum(r.quantity) from stock_reservations r where r.variant_id=v.id and r.status='active' and r.expires_at>now()),0))::int as available
+       from product_variants v where v.product_id=any($1::text[])`,[productIds]);
+  for(const row of result.rows){const stock=stocks.get(row.product_id) ?? {};stock[`${row.color_id}:${row.size_id}`]=row.active ? row.available : 0;stocks.set(row.product_id,stock);}
+  return stocks;
+}
+
 export async function catalogRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { all?: string; q?: string; category?: string } }>("/api/products", async (req) => {
     const all = req.query.all === "1";
+    if (all) await requirePermission(req, "catalog:view");
     const params: unknown[] = [];
     const where: string[] = [];
     if (!all) where.push("active = true");
@@ -93,27 +111,264 @@ export async function catalogRoutes(app: FastifyInstance) {
       compBy.set(c.product_id, [...(compBy.get(c.product_id) ?? []), c.complement_id]);
     }
 
-    return rows.rows.map((row) => toProduct(row, imagesBy.get(row.id) ?? [], compBy.get(row.id) ?? []));
+    const stocks=await sellableStocks(rows.rows.map(row=>row.id));
+    return rows.rows.map((row) => toProduct({...row,stock:stocks.get(row.id) ?? {}}, imagesBy.get(row.id) ?? [], compBy.get(row.id) ?? []));
+  });
+
+  /** Create an unpublished product with zero opening stock. Stock must enter
+   * through the two-person inventory workflow, not a catalogue form. */
+  app.post<{ Body: { name?: string; category?: string; garment?: string; description?: string; price?: number; colorName?: string; colorHex?: string; sizes?: string[]; imageUrl?: string; imageData?: string } }>("/api/admin/products", async (req, reply) => {
+    const session = await requirePermission(req, "catalog:edit");
+    const body = req.body ?? {};
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const category = typeof body.category === "string" ? body.category.trim() : "";
+    const colorName = typeof body.colorName === "string" ? body.colorName.trim() : "";
+    const colorHex = typeof body.colorHex === "string" ? body.colorHex.trim() : "";
+    let imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim() : "";
+    const imageData = body.imageData;
+    const description = typeof body.description === "string" ? body.description.trim() : "";
+    const garments = ["coat", "jacket", "knit", "tee", "dress", "skirt", "trousers", "bag", "loafer", "heel", "boot", "sneaker", "accessory"];
+    const sizes = Array.isArray(body.sizes) ? body.sizes.map(s => typeof s === "string" ? s.trim() : "") : [];
+    if (!name || name.length > 160 || !category || category.length > 160 || !colorName || colorName.length > 80 || description.length > 5000 || !/^#[0-9a-f]{6}$/i.test(colorHex) || !garments.includes(body.garment ?? "") || typeof body.price !== "number" || !Number.isFinite(body.price) || body.price < 0 || body.price > 99999999 || !sizes.length || sizes.length > 30 || sizes.some(s => !s || s.length > 40) || new Set(sizes.map(s => s.toLowerCase())).size !== sizes.length || (imageData !== undefined && !!imageUrl) || (imageData === undefined && (!(/^https:\/\/[^\s]+$/i.test(imageUrl) || /^\/uploads\/[a-z0-9._-]+$/i.test(imageUrl)) || imageUrl.length > 2000))) {
+      throw validation("نام، دسته، نوع کالا، قیمت، رنگ، سایزهای یکتا و نشانی معتبر تصویر لازم است.");
+    }
+    const uploaded = imageData !== undefined ? await prepareProductImage(imageData) : null;
+    if (uploaded) imageUrl = uploaded.url;
+    const id = `cp-${randomUUID()}`;
+    const colors = [{ id: "c1", name: colorName, hex: colorHex }];
+    const sizeRows = sizes.map((value, index) => ({ id: `size-${index + 1}`, label: value }));
+    const crop = { cx: 0.5, cy: 0.5, zoom: 1 };
+    const image = { id: `img-${randomUUID()}`, url: imageUrl, colorId: "*", role: "main" };
+    const product = { id, name, category, garment: body.garment!, price: body.price, description, colors, sizes: sizeRows, stock: {}, active: false, featured: false, lookId: "look-01", crop, createdAt: Date.now() };
+    try { await withTransaction(async client => {
+      await client.query("select pg_advisory_xact_lock(hashtext('kv-commerce-catalog-sync'))");
+      const docs = await client.query<{ key: string; value: Record<string, any> }>("select key, value from state_documents where key in ('admin','ops') order by key for update");
+      const admin = docs.rows.find(row => row.key === "admin")?.value;
+      const ops = docs.rows.find(row => row.key === "ops")?.value;
+      if (!admin || !ops) throw notFound("سند فروشگاه پیدا نشد.");
+      if (!Array.isArray(ops.categories) || !ops.categories.some((c:any)=>c.name === category && c.active === true)) throw validation("دسته فعال انتخاب‌شده پیدا نشد.");
+      admin.customProducts = [...(Array.isArray(admin.customProducts) ? admin.customProducts : []), product];
+      ops.productImages = { ...(ops.productImages ?? {}), [id]: [image] };
+      await client.query("update state_documents set value=$2::jsonb, updated_at=now() where key=$1", ["admin", JSON.stringify(admin)]);
+      await client.query("update state_documents set value=$2::jsonb, updated_at=now() where key=$1", ["ops", JSON.stringify(ops)]);
+      await client.query(`insert into products (id,name,category,garment,price,description,colors,sizes,stock,active,featured,is_base,look_id,crop)
+        values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,'{}'::jsonb,false,false,false,'look-01',$9::jsonb)`,
+        [id,name,category,body.garment,body.price,description,JSON.stringify(colors),JSON.stringify(sizeRows),JSON.stringify(crop)]);
+      await client.query("insert into product_images (id,product_id,url,color_id,role,position) values ($1,$2,$3,'*','main',0)", [image.id,id,imageUrl]);
+      for (const size of sizeRows) {
+        await client.query(`insert into product_variants (id,product_id,color_id,size_id,sku,size_mode,on_hand,last_catalog_qty,active)
+          values ($1,$2,'c1',$3,$4,$5,0,0,false)`, [variantIdFor(id,"c1",size.id),id,size.id,skuFor(id,"c1",size.id),sizeModeOf(sizeRows)]);
+      }
+      await recordAudit({ actor: session.subject, action: "catalog.product_created", targetType: "product", targetId: id,
+        after: { name, category, price: body.price, active: false, variants: sizeRows.length }, requestId: req.id }, client);
+    }); } catch (error) { if (uploaded) await uploaded.discard(); throw error; }
+    return reply.code(201).send({ ok: true, id });
+  });
+
+  /** Add options or correct their labels without replacing variant IDs or stock.
+   * Removing options is intentionally unavailable: orders, reservations and
+   * warehouse records may already reference any combination. */
+  app.post<{Params:{id:string}; Body:{action?:string; id?:string; name?:string; hex?:string; label?:string; expected?:{name?:string;hex?:string;label?:string}}}>("/api/admin/products/:id/options", async req => {
+    const session=await requirePermission(req,"catalog:edit");
+    const body=req.body ?? {};
+    if (Object.keys(body).some(key=>!["action","id","name","hex","label","expected"].includes(key)) || !["add_color","update_color","add_size","update_size"].includes(body.action ?? "")) throw validation("عملیات تنوع معتبر نیست.");
+    const colorAction=body.action === "add_color" || body.action === "update_color";
+    const update=body.action === "update_color" || body.action === "update_size";
+    const allowed = colorAction ? ["action","name","hex",...(update ? ["id","expected"] : [])] : ["action","label",...(update ? ["id","expected"] : [])];
+    if (Object.keys(body).some(key=>!allowed.includes(key))) throw validation("فیلدهای تنوع معتبر نیستند.");
+    const name=typeof body.name === "string" ? body.name.trim() : "";
+    const hex=typeof body.hex === "string" ? body.hex.trim() : "";
+    const label=typeof body.label === "string" ? body.label.trim() : "";
+    if ((colorAction && (!name || name.length>80 || !/^#[0-9a-f]{6}$/i.test(hex))) || (!colorAction && (!label || label.length>40)) || (update && (typeof body.id !== "string" || !body.id || !body.expected || typeof body.expected !== "object"))) throw validation("نام رنگ، کد رنگ یا سایز معتبر نیست.");
+    const normalize=(value:string)=>value.normalize("NFKC").trim().toLocaleLowerCase("fa");
+    return withTransaction(async client=>{
+      await client.query("select pg_advisory_xact_lock(hashtext('kv-commerce-catalog-sync'))");
+      const docs=await client.query<{value:Record<string,any>}>("select value from state_documents where key='admin' for update");
+      const doc=docs.rows[0]?.value;if (!doc) throw notFound("سند کاتالوگ پیدا نشد.");
+      const result=await client.query<{id:string; colors:{id:string;name:string;hex:string}[];sizes:{id:string;label:string}[];active:boolean;is_base:boolean}>("select id,colors,sizes,active,is_base from products where id=$1 for update",[req.params.id]);
+      const product=result.rows[0];if (!product) throw notFound("محصول پیدا نشد.");
+      const colors=product.colors.map(c=>({...c})), sizes=product.sizes.map(size=>({...size}));
+      if (!colors.length || !sizes.length) throw conflict("تنوع محصول ناقص است؛ ابتدا ساختار محصول را بررسی کنید.");
+      const before={colors:structuredClone(colors),sizes:structuredClone(sizes)};
+      let optionId=update ? body.id! : "";
+      if (update) {
+        // A label change must never reinterpret an SKU that has been used for
+        // stock, a hold, an order or an inventory request. Lock variants in the
+        // same order as the inventory workflow before checking that history.
+        const affected=await client.query<{id:string;on_hand:number;quarantined:number}>(
+          `select id,on_hand,quarantined from product_variants where product_id=$1 and ${colorAction ? "color_id" : "size_id"}=$2 order by id for update`,[product.id,optionId]);
+        const ids=affected.rows.map(row=>row.id);
+        if (affected.rows.some(row=>row.on_hand>0 || row.quarantined>0)) throw conflict("این تنوع سابقه یا موجودی دارد؛ برای حفظ هویت کالا قابل تغییر نیست.","option_in_use");
+        if(ids.length) {
+          const used=await client.query<{used:boolean}>(`select
+            exists(select 1 from stock_reservations where variant_id=any($1::text[])) or
+            exists(select 1 from inventory_movements where variant_id=any($1::text[])) or
+            exists(select 1 from inventory_adjustments where variant_id=any($1::text[])) or
+            exists(select 1 from order_lines where variant_id=any($1::text[])) as used`,[ids]);
+          if(used.rows[0].used) throw conflict("این تنوع سابقه یا موجودی دارد؛ برای حفظ هویت کالا قابل تغییر نیست.","option_in_use");
+          await client.query("update product_variants set updated_at=now() where id=any($1::text[])",[ids]);
+        }
+      }
+      if (colorAction) {
+        if (colors.some(c=>c.id!==optionId && normalize(c.name)===normalize(name))) throw conflict("این نام رنگ قبلاً برای محصول ثبت شده است.","duplicate_option");
+        if (update) {
+          const current=colors.find(c=>c.id===optionId);if(!current) throw notFound("رنگ پیدا نشد.");
+          if (current.name!==body.expected?.name || current.hex!==body.expected?.hex) throw conflict("رنگ هم‌زمان تغییر کرده است؛ اطلاعات را تازه‌سازی کنید.","option_stale");
+          current.name=name; current.hex=hex;
+        } else {
+          if(colors.length>=30) throw validation("حداکثر ۳۰ رنگ مجاز است.");
+          optionId=`color-${randomUUID()}`;colors.push({id:optionId,name,hex});
+        }
+      } else {
+        if (sizes.some(size=>size.id!==optionId && normalize(size.label)===normalize(label))) throw conflict("این سایز قبلاً برای محصول ثبت شده است.","duplicate_option");
+        if (update) {
+          const current=sizes.find(size=>size.id===optionId);if(!current) throw notFound("سایز پیدا نشد.");
+          if(current.label!==body.expected?.label) throw conflict("سایز هم‌زمان تغییر کرده است؛ اطلاعات را تازه‌سازی کنید.","option_stale");
+          current.label=label;
+        } else {
+          if(sizes.length>=30) throw validation("حداکثر ۳۰ سایز مجاز است.");
+          optionId=`size-${randomUUID()}`;sizes.push({id:optionId,label});
+        }
+      }
+      if(product.is_base) {
+        doc.productEdits ??= {};doc.productEdits[product.id]={...(doc.productEdits[product.id] ?? {}),colors,sizes};
+      } else {
+        if(!Array.isArray(doc.customProducts) || !doc.customProducts.some((p:any)=>p.id===product.id)) throw notFound("محصول در سند کاتالوگ پیدا نشد.");
+        doc.customProducts=doc.customProducts.map((p:any)=>p.id===product.id ? {...p,colors,sizes}:p);
+      }
+      await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='admin'",[JSON.stringify(doc)]);
+      await client.query("update products set colors=$2::jsonb,sizes=$3::jsonb,updated_at=now() where id=$1",[product.id,JSON.stringify(colors),JSON.stringify(sizes)]);
+      if(!update) {
+        // Only the newly introduced combinations are inserted; existing rows,
+        // balances, reservations, SKUs and movement history are never changed.
+        const combinations=colorAction ? sizes.map(size=>({color:optionId,size:size.id})) : colors.map(color=>({color:color.id,size:optionId}));
+        for(const combination of combinations) await client.query(`insert into product_variants (id,product_id,color_id,size_id,sku,size_mode,on_hand,last_catalog_qty,active) values ($1,$2,$3,$4,$5,$6,0,0,$7)`,[variantIdFor(product.id,combination.color,combination.size),product.id,combination.color,combination.size,skuFor(product.id,combination.color,combination.size),sizeModeOf(sizes),product.active]);
+      }
+      await recordAudit({actor:session.subject,action:`catalog.option_${body.action}`,targetType:"product",targetId:product.id,before,after:{colors,sizes},requestId:req.id},client);
+      return {ok:true,colors,sizes};
+    });
+  });
+
+  /** Targeted catalogue edit: the storefront document and relational price
+   * change atomically. Never accept stock, variants or unrelated document keys. */
+  app.patch<{ Params: { id: string }; Body: { name?: string; category?: string; description?: string; price?: number; active?: boolean } }>("/api/admin/products/:id", async (req) => {
+    const session = await requirePermission(req, "catalog:edit");
+    const body = req.body ?? {};
+    const keys = Object.keys(body);
+    if (!keys.length || keys.some((key) => !["name", "category", "description", "price", "active"].includes(key))) {
+      throw validation("فیلدهای ویرایش محصول معتبر نیستند.");
+    }
+    for (const key of ["name", "category", "description"] as const) {
+      if (body[key] !== undefined && (typeof body[key] !== "string" || body[key]!.length > (key === "description" ? 5000 : 160) || (key !== "description" && !body[key]!.trim()))) {
+        throw validation("نام، دسته یا توضیح محصول معتبر نیست.");
+      }
+    }
+    if (body.price !== undefined && (typeof body.price !== "number" || !Number.isFinite(body.price) || body.price < 0 || body.price > 99999999)) throw validation("قیمت محصول معتبر نیست.");
+    if (body.active !== undefined && typeof body.active !== "boolean") throw validation("وضعیت محصول معتبر نیست.");
+    if (body.active !== undefined) await requirePermission(req, "catalog:publish");
+    const id = req.params.id;
+    await withTransaction(async (client) => {
+      await client.query("select pg_advisory_xact_lock(hashtext('kv-commerce-catalog-sync'))");
+      // This document is the storefront's source of catalogue overrides. A
+      // row lock prevents two targeted edits from clobbering one another.
+      const docs = await client.query<{ value: Record<string, any> }>("select value from state_documents where key = 'admin' for update");
+      const doc = docs.rows[0]?.value;
+      if (!doc) throw notFound("سند کاتالوگ پیدا نشد.");
+      const found = await client.query<{ name: string; category: string; description: string | null; price: string; active: boolean; is_base: boolean }>("select name, category, description, price, active, is_base from products where id = $1 for update", [id]);
+      const previous = found.rows[0];
+      if (!previous) throw notFound("محصول پیدا نشد.");
+      if (body.category !== undefined && body.category.trim() !== previous.category) {
+        const ops = await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");
+        if (!Array.isArray(ops.rows[0]?.value?.categories) || !ops.rows[0].value.categories.some((c:any)=>c.name===body.category!.trim() && c.active===true)) throw validation("دسته فعال انتخاب‌شده پیدا نشد.");
+      }
+      const update: Record<string, unknown> = {};
+      for (const key of ["name", "category", "description", "price"] as const) {
+        if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
+      }
+      if (previous.is_base) {
+        doc.productEdits ??= {};
+        doc.productEdits[id] = { ...(doc.productEdits[id] ?? {}), ...update };
+      } else {
+        if (!Array.isArray(doc.customProducts) || !doc.customProducts.some((item: any) => item.id === id)) throw notFound("محصول در سند کاتالوگ پیدا نشد.");
+        doc.customProducts = doc.customProducts.map((item: any) => item.id === id ? { ...item, ...update, ...(body.active === undefined ? {} : { active: body.active }) } : item);
+      }
+      if (body.active !== undefined) {
+        const hidden = Array.isArray(doc.hidden) ? doc.hidden.filter((item: unknown) => item !== id) : [];
+        doc.hidden = body.active ? hidden : [...hidden, id];
+      }
+      const next = {
+        name: update.name ?? previous.name,
+        category: update.category ?? previous.category,
+        description: update.description ?? previous.description,
+        price: update.price ?? Number(previous.price),
+        active: body.active ?? previous.active,
+      };
+      await client.query("update state_documents set value = $2::jsonb, updated_at = now() where key = $1", ["admin", JSON.stringify(doc)]);
+      await client.query("update products set name=$2, category=$3, description=$4, price=$5, active=$6, updated_at=now() where id=$1", [id, next.name, next.category, next.description, next.price, next.active]);
+      if (body.active !== undefined) await client.query("update product_variants set active=$2, updated_at=now() where product_id=$1", [id, body.active]);
+      if (Number(previous.price) !== Number(next.price)) await client.query("insert into price_history(product_id,old_price,new_price,actor,source) values($1,$2,$3,$4,'admin_panel')", [id, previous.price, next.price, session.subject]);
+      await recordAudit({ actor: session.subject, action: "catalog.product_updated", targetType: "product", targetId: id, before: { name: previous.name, category: previous.category, description: previous.description, price: Number(previous.price), active: previous.active }, after: next, requestId: req.id }, client);
+    });
+    return { ok: true, id };
+  });
+
+  /** Manage images without overwriting other product or inventory fields. */
+  app.post<{ Params:{id:string}; Body:{action?:string;imageId?:string;url?:string;imageData?:string;role?:string;colorId?:string} }>("/api/admin/products/:id/images", async req => {
+    const session = await requirePermission(req,"catalog:edit");
+    const {action,imageId} = req.body ?? {}; const id = req.params.id;
+    if (!["add","remove"].includes(action ?? "")) throw validation("عملیات تصویر معتبر نیست.");
+    let url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+    const imageData = req.body?.imageData;
+    const role = req.body?.role ?? "gallery", colorId = req.body?.colorId ?? "*";
+    if (action === "add" && ((!imageData && (url.length > 2000 || !(/^https:\/\/[^\s]+$/i.test(url) || /^\/uploads\/[a-z0-9._-]+$/i.test(url)))) || (imageData !== undefined && !!url) || !["main","gallery","hover","detail"].includes(role))) throw validation("نشانی یا نقش تصویر معتبر نیست.");
+    const uploaded = action === "add" && imageData !== undefined ? await prepareProductImage(imageData) : null;
+    if (uploaded) url = uploaded.url;
+    try { return await withTransaction(async client => {
+      const docResult = await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");
+      const doc = docResult.rows[0]?.value; if (!doc) throw notFound("سند تصاویر پیدا نشد.");
+      const products = await client.query<{colors:{id:string}[]}>("select colors from products where id=$1 for update",[id]);
+      const product = products.rows[0]; if (!product) throw notFound("محصول پیدا نشد.");
+      if (action === "add" && colorId !== "*" && !product.colors.some(c=>c.id===colorId)) throw validation("رنگ تصویر معتبر نیست.");
+      const found = await client.query<{id:string;url:string;color_id:string;role:string;position:number}>("select id,url,color_id,role,position from product_images where product_id=$1 order by position,id",[id]);
+      let images = found.rows.map(i=>({id:i.id,url:i.url,colorId:i.color_id,role:i.role}));
+      if (action === "add") {
+        if(images.length >= 30) throw validation("حداکثر ۳۰ تصویر مجاز است.");
+        if (role === "main") images = images.map(i=>i.role === "main" ? {...i,role:"gallery"} : i);
+        images.push({id:`img-${randomUUID()}`,url,colorId,role});
+      } else {
+        if (!imageId || !images.some(i=>i.id===imageId)) throw notFound("تصویر پیدا نشد.");
+        if (images.length === 1) throw validation("دست‌کم یک تصویر باید باقی بماند.");
+        images = images.filter(i=>i.id!==imageId);
+      }
+      await client.query("delete from product_images where product_id=$1",[id]);
+      for (let position=0;position<images.length;position++) { const image=images[position]; await client.query("insert into product_images(id,product_id,url,color_id,role,position) values($1,$2,$3,$4,$5,$6)",[image.id,id,image.url,image.colorId,image.role,position]); }
+      doc.productImages = {...(doc.productImages ?? {}),[id]:images};
+      await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='ops'",[JSON.stringify(doc)]);
+      await recordAudit({actor:session.subject,action:`catalog.image_${action}`,targetType:"product",targetId:id,after:{action,imageId:action === "add" ? images[images.length-1].id : imageId},requestId:req.id},client);
+      return {ok:true,images};
+    }); } catch (error) { if (uploaded) await uploaded.discard(); throw error; }
   });
 
   app.get<{ Params: { id: string } }>("/api/products/:id", async (req, reply) => {
     const row = await query<ProductRow>("select * from products where id = $1", [req.params.id]);
     if (!row.rows[0]) return reply.code(404).send({ error: "محصول پیدا نشد." });
+    if (!row.rows[0].active) await requirePermission(req, "catalog:view");
     const images = await query("select id, url, color_id, role, position from product_images where product_id = $1 order by position", [
       req.params.id,
     ]);
     const complements = await query("select complement_id from product_complements where product_id = $1 order by position", [
       req.params.id,
     ]);
+    const stocks = await sellableStocks([req.params.id]);
     return toProduct(
-      row.rows[0],
+      {...row.rows[0],stock:stocks.get(req.params.id) ?? {}},
       images.rows.map((i: any) => ({ id: i.id, url: i.url, colorId: i.color_id, role: i.role })),
       complements.rows.map((c: any) => c.complement_id),
     );
   });
 
   app.get("/api/orders", async (req) => {
-    await requireAdmin(req);
+    await requirePermission(req, "orders:view");
     const rows = await query<{ data: unknown }>("select data from orders order by created_at desc limit 200");
     return rows.rows.map((r) => r.data);
   });
@@ -138,7 +393,7 @@ export async function catalogRoutes(app: FastifyInstance) {
   }>("/api/orders", async (req, reply) => {
     // a real admin session, not the optional dev guard: this endpoint must never
     // be reachable by the storefront
-    const session = await requireAdminSession(req);
+    const session = await requirePermission(req, "orders:edit");
     const body = req.body ?? {};
     const lines = Array.isArray(body.lines) ? body.lines : [];
     if (lines.length === 0) return reply.code(400).send({ error: "سبد خرید خالی است." });
@@ -165,7 +420,7 @@ export async function catalogRoutes(app: FastifyInstance) {
   });
 
   app.patch<{ Params: { id: string }; Body: { status?: string } }>("/api/orders/:id", async (req, reply) => {
-    const session = await requireAdminSession(req);
+    const session = await requirePermission(req, "orders:edit");
     const status = String(req.body?.status ?? "").trim();
     if (!status) return reply.code(400).send({ error: "وضعیت لازم است." });
 
@@ -197,7 +452,7 @@ export async function catalogRoutes(app: FastifyInstance) {
   });
 
   app.get("/api/customers", async (req) => {
-    await requireAdmin(req);
+    await requirePermission(req, "customers:view");
     const rows = await query(
       "select email, name, phone, size, addresses, two_factor, created_at from customers order by created_at desc",
     );
@@ -205,16 +460,11 @@ export async function catalogRoutes(app: FastifyInstance) {
   });
 
   app.get("/api/health", async () => {
-    const counts = await query<{ products: number; orders: number; customers: number }>(
-      `select
-         (select count(*)::int from products) as products,
-         (select count(*)::int from orders) as orders,
-         (select count(*)::int from customers) as customers`,
-    );
+    // Public liveness must not disclose customer or order volumes.
+    await query("select 1");
     return {
       ok: true,
       db: "postgres",
-      ...counts.rows[0],
       // when the panel lives on its own host the browser is told where to go (decision 86)
       adminUrl: process.env.ADMIN_BASE_URL ?? null,
       time: new Date().toISOString(),

@@ -78,6 +78,7 @@ interface RuleRow {
   priority: number;
   stackable: boolean;
   active: boolean;
+  free_shipping: boolean;
   updated_at: Date;
 }
 
@@ -85,15 +86,17 @@ export const round2 = (value: number) => Math.round((Number(value) + Number.EPSI
 
 export function quoteVersionFor(input: {
   lines: { variantId: string; unitPrice: number; quantity: number }[];
-  rules: { id: string; updated_at: Date | string; value: string | number; priority: number }[];
+  rules: { id: string; updated_at: Date | string; value: string | number; priority: number; free_shipping?: boolean }[];
   coupon: { code: string; value: string | number; kind: string } | null;
   shippingMethod: string;
   settings: CommerceSettings;
+  outcome?: unknown;
 }) {
   const payload = {
     lines: input.lines.map((l) => [l.variantId, round2(l.unitPrice), l.quantity]),
-    rules: input.rules.map((r) => [r.id, String(r.updated_at), Number(r.value), r.priority]),
+    rules: input.rules.map((r) => [r.id, r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at), Number(r.value), r.priority, r.free_shipping ?? false]),
     coupon: input.coupon ? [input.coupon.code, Number(input.coupon.value), input.coupon.kind] : null,
+    outcome: input.outcome ?? null,
     shipping: [
       input.shippingMethod,
       input.settings.shippingFlat,
@@ -111,7 +114,7 @@ const scopeMatches = (rule: RuleRow, line: QuoteInputLine) => {
   if (rule.scope === "category") return rule.scope_id === line.category;
   if (rule.scope === "product") return rule.scope_id === line.productId;
   if (rule.scope === "look") return !!line.lookId && rule.scope_id === line.lookId;
-  return true;
+  return rule.scope === "all";
 };
 
 export async function buildQuote(params: {
@@ -126,7 +129,7 @@ export async function buildQuote(params: {
   const now = params.now ?? new Date();
 
   const rulesRes = await query<RuleRow>(
-    `select id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable, active, updated_at
+    `select id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable, active, free_shipping, updated_at
        from price_rules
       where active
         and (starts_at is null or starts_at <= now())
@@ -138,112 +141,62 @@ export async function buildQuote(params: {
   const subtotal = round2(lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0));
   const eligible = rules.filter((rule) => Number(rule.min_subtotal) <= subtotal);
 
-  // one campaign per line, chosen by priority → age → id (never by size of discount)
-  const discounts: QuoteDiscount[] = [];
-  const quoteLines: QuoteLine[] = lines.map((line) => {
-    const rule = eligible.find((candidate) => candidate.kind !== "freeship" && scopeMatches(candidate, line));
-    let amount = 0;
-    if (rule) {
-      const value = Number(rule.value);
-      if (rule.kind === "percent") amount = round2((line.unitPrice * line.quantity * value) / 100);
-      else if (rule.kind === "amount") amount = round2(Math.min(line.unitPrice * line.quantity, value));
-      // the campaign ceiling is a hard cap the panel sets (decision 33)
-      const cap = rule.max_discount === null ? null : Number(rule.max_discount);
-      if (cap !== null && cap > 0) amount = round2(Math.min(amount, cap));
-      amount = round2(Math.min(amount, line.unitPrice * line.quantity));
-    }
-    if (rule && amount > 0) {
-      discounts.push({
-        id: rule.id,
-        name: rule.name,
-        kind: rule.kind,
-        amount,
-        source: "campaign",
-      });
-    }
-    return {
-      ...line,
-      discountAmount: amount,
-      campaignId: rule && amount > 0 ? rule.id : null,
-      campaignName: rule && amount > 0 ? rule.name : null,
-      lineTotal: round2(line.unitPrice * line.quantity - amount),
-    };
-  });
-
-  const campaignDiscount = round2(discounts.reduce((sum, d) => sum + d.amount, 0));
-
-  /* ---------- coupon: checkout only, never stacked implicitly ---------- */
+  // One monetary promotion per order: compare each whole-basket campaign
+  // against the coupon. Campaign caps apply once, not once per line.
+  // Ties keep the earlier campaign in SQL's stable priority/age/id order;
+  // an equal coupon does not consume capacity unnecessarily.
+  const monetary = eligible.filter(rule => ["percent","amount"].includes(rule.kind));
+  let best: {rule:RuleRow;amount:number;indices:number[]} | null = null;
+  for (const rule of monetary) {
+    const indices=lines.map((line,index)=>scopeMatches(rule,line)?index:-1).filter(index=>index>=0);
+    const base=round2(indices.reduce((sum,index)=>sum+lines[index].unitPrice*lines[index].quantity,0));
+    let amount=rule.kind === "percent" ? round2(base*Math.min(100,Math.max(0,Number(rule.value)))/100) : round2(Math.min(base,Math.max(0,Number(rule.value))));
+    if (rule.max_discount !== null && Number(rule.max_discount)>0) amount=Math.min(amount,Number(rule.max_discount));
+    amount=round2(Math.min(base,Math.max(0,amount)));
+    if (amount>0 && (!best || amount>best.amount)) best={rule,amount,indices};
+  }
   const code = (params.couponCode ?? "").trim().toUpperCase();
-  let couponDiscount = 0;
+  let couponCandidate = 0;
   let couponRow: { code: string; kind: string; value: string | number; combinable: boolean } | null = null;
   if (code) {
     const res = await query<{
-      code: string;
-      kind: string;
-      value: string;
-      min_subtotal: string;
-      combinable: boolean;
-      usage_limit: number | null;
-      used_count: number;
-      max_discount: string | null;
-      expired: boolean;
-      started: boolean;
-    }>(
-      `select code, kind, value, min_subtotal, combinable, usage_limit, used_count, max_discount,
+      code:string;kind:string;value:string;min_subtotal:string;combinable:boolean;usage_limit:number|null;used_count:number;max_discount:string|null;expired:boolean;started:boolean;
+    }>(`select code,kind,value,min_subtotal,combinable,usage_limit,used_count,max_discount,
               (ends_at is not null and ends_at < now()) as expired,
               (starts_at is not null and starts_at > now()) as started
-         from coupons where code = $1 and active`,
-      [code],
-    );
-    const coupon = res.rows[0];
-    if (!coupon) throw new CommerceError("کد تخفیف معتبر نیست.", 400, "coupon_invalid");
-    if (coupon.expired) throw new CommerceError("این کد تخفیف منقضی شده است.", 400, "coupon_expired");
-    if (coupon.started) throw new CommerceError("این کد تخفیف هنوز فعال نشده است.", 400, "coupon_not_started");
-    if (coupon.usage_limit !== null && coupon.used_count >= coupon.usage_limit) {
-      throw new CommerceError("ظرفیت استفاده از این کد تخفیف تمام شده است.", 400, "coupon_exhausted");
-    }
-    // the minimum is compared against the same base the discount is applied to,
-    // otherwise a running campaign and the coupon disagree about the basket value
-    const couponBase = round2(Math.max(0, subtotal - campaignDiscount));
-    if (couponBase < Number(coupon.min_subtotal)) {
-      throw new CommerceError(
-        `این کد برای خرید بالای ${Number(coupon.min_subtotal).toLocaleString("fa-IR")} فعال است.`,
-        400,
-        "coupon_min_subtotal",
-      );
-    }
-
-    const stackableCampaign = eligible.some((rule) => rule.kind !== "freeship" && rule.stackable);
-    const canStack =
-      settings.discountStacking === "explicit" && coupon.combinable && stackableCampaign && campaignDiscount > 0;
-    if (campaignDiscount > 0 && settings.discountStacking === "none") {
-      throw new CommerceError(
-        "این کد تخفیف با کمپین فعال فروشگاه قابل ترکیب نیست؛ یا کد را بردار یا بعد از پایان کمپین امتحان کن.",
-        409,
-        "coupon_not_combinable",
-      );
-    }
-    if (campaignDiscount > 0 && !canStack) {
-      throw new CommerceError(
-        "کد تخفیف و کمپین هم‌زمان قابل اعمال نیستند (قانون عدم ترکیب تخفیف‌ها).",
-        409,
-        "coupon_not_combinable",
-      );
-    }
-
-    const value = Number(coupon.value);
-    const maxDiscount = coupon.max_discount === null ? null : Number(coupon.max_discount);
-    couponDiscount =
-      coupon.kind === "percent"
-        ? round2((couponBase * Math.min(100, Math.max(0, value))) / 100)
-        : round2(Math.min(value, couponBase));
-    if (maxDiscount !== null && couponDiscount > maxDiscount) couponDiscount = round2(maxDiscount);
-    couponDiscount = round2(Math.min(couponBase, Math.max(0, couponDiscount)));
-    if (couponDiscount > 0) {
-      discounts.push({ id: code, name: `کد تخفیف ${code}`, kind: coupon.kind, amount: couponDiscount, source: "coupon" });
-    }
-    couponRow = { code, kind: coupon.kind, value: coupon.value, combinable: coupon.combinable };
+         from coupons where code=$1 and active`,[code]);
+    const coupon=res.rows[0];
+    if (!coupon) throw new CommerceError("کد تخفیف معتبر نیست.",400,"coupon_invalid");
+    if (coupon.expired) throw new CommerceError("این کد تخفیف منقضی شده است.",400,"coupon_expired");
+    if (coupon.started) throw new CommerceError("این کد تخفیف هنوز فعال نشده است.",400,"coupon_not_started");
+    if (coupon.usage_limit !== null && coupon.used_count >= coupon.usage_limit) throw new CommerceError("ظرفیت استفاده از این کد تخفیف تمام شده است.",400,"coupon_exhausted");
+    if (subtotal < Number(coupon.min_subtotal)) throw new CommerceError(`این کد برای خرید بالای ${Number(coupon.min_subtotal).toLocaleString("fa-IR")} فعال است.`,400,"coupon_min_subtotal");
+    const value=Number(coupon.value);
+    couponCandidate=coupon.kind === "percent" ? round2(subtotal*Math.min(100,Math.max(0,value))/100) : round2(Math.min(Math.max(0,value),subtotal));
+    if(coupon.max_discount!==null)couponCandidate=Math.min(couponCandidate,Number(coupon.max_discount));
+    couponCandidate=round2(Math.max(0,Math.min(subtotal,couponCandidate)));
+    couponRow={code,kind:coupon.kind,value:coupon.value,combinable:coupon.combinable};
   }
+  const couponWins=couponCandidate>0 && couponCandidate>(best?.amount ?? 0);
+  const campaignDiscount=couponWins ? 0 : best?.amount ?? 0;
+  const couponDiscount=couponWins ? couponCandidate : 0;
+  const winnerAmount=couponWins ? couponDiscount : campaignDiscount;
+  const winnerIndices=couponWins ? lines.map((_,index)=>index) : best?.indices ?? [];
+  // Distribute the chosen order-wide reduction over eligible line snapshots in
+  // integer cents, preserving exact totals for later per-line refunds.
+  const cents=BigInt(Math.round(winnerAmount*100));
+  const weights=winnerIndices.map(index=>BigInt(Math.round(lines[index].unitPrice*lines[index].quantity*100)));
+  const totalWeight=weights.reduce((a,b)=>a+b,0n);
+  const shares=weights.map(weight=>totalWeight>0n ? cents*weight/totalWeight : 0n);
+  let leftover=cents-shares.reduce((a,b)=>a+b,0n);
+  const ranked=weights.map((weight,index)=>({index,remainder:totalWeight>0n ? (cents*weight)%totalWeight : 0n})).sort((a,b)=>a.remainder===b.remainder ? a.index-b.index : a.remainder>b.remainder ? -1 : 1);
+  for(const entry of ranked) {if(leftover<=0n)break;shares[entry.index]++;leftover--;}
+  const allocated=new Map(winnerIndices.map((index,i)=>[index,Number(shares[i])/100]));
+  const quoteLines:QuoteLine[]=lines.map((line,index)=>{
+    const amount=allocated.get(index) ?? 0;
+    return {...line,discountAmount:amount,campaignId:!couponWins && amount>0 ? best?.rule.id ?? null : null,campaignName:!couponWins && amount>0 ? best?.rule.name ?? null : null,lineTotal:round2(line.unitPrice*line.quantity-amount)};
+  });
+  const discounts:QuoteDiscount[]=couponWins && couponRow ? [{id:couponRow.code,name:`کد تخفیف ${couponRow.code}`,kind:couponRow.kind,amount:couponDiscount,source:"coupon"}] : best && campaignDiscount>0 ? [{id:best.rule.id,name:best.rule.name,kind:best.rule.kind,amount:campaignDiscount,source:"campaign"}] : [];
 
   const discountTotal = round2(campaignDiscount + couponDiscount);
   const afterDiscount = round2(Math.max(0, subtotal - discountTotal));
@@ -251,7 +204,7 @@ export async function buildQuote(params: {
   /* ---------- shipping: one shipment, one fee; threshold after discounts ---------- */
   const shippingBase = round2(shippingMethod === "express" ? settings.shippingExpress : settings.shippingFlat);
   const freeshipCampaign = eligible.some(
-    (rule) => rule.kind === "freeship" && lines.some((line) => scopeMatches(rule, line)),
+    (rule) => (rule.kind === "freeship" || rule.free_shipping) && lines.some((line) => scopeMatches(rule, line)),
   );
   const threshold = Number(settings.freeShippingThreshold) || 0;
   const thresholdBasis = settings.shippingThresholdBasis === "before_discount" ? subtotal : afterDiscount;
@@ -282,6 +235,7 @@ export async function buildQuote(params: {
     coupon: couponRow,
     shippingMethod,
     settings,
+    outcome: {discounts, shippingTotal, grandTotal, lineDiscounts:quoteLines.map(l=>l.discountAmount)},
   });
 
   return {

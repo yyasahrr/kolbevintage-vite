@@ -288,9 +288,10 @@ export function SelectField({
       <span>{label}</span>
       <span className="relative inline-flex items-center">
         <select
+          aria-label={label || "مرتب‌سازی"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="appearance-none rounded-[var(--chip-radius)] border border-black/12 bg-white/60 py-1.5 pr-3 pl-8 text-[11.5px] text-ink transition-colors hover:border-ink/40 focus:outline-none"
+          className="appearance-none rounded-[var(--chip-radius)] border border-black/12 bg-white/60 py-1.5 pr-3 pl-8 text-[11.5px] text-ink transition-colors hover:border-ink/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
         >
           {options.map((o) => (
             <option key={o.value} value={o.value}>

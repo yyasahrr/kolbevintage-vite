@@ -1,5 +1,6 @@
 import type { ColorOption, Look, Product, SizeOption, StockMap } from "@/types";
 import { getAdmin } from "@/state/admin";
+import { sellableStock } from "@/state/live-catalog";
 
 import look1 from "@/assets/models/look-1.webp";
 import look2 from "@/assets/models/look-2.webp";
@@ -112,7 +113,7 @@ const LOOK_SEEDS: LookSeed[] = [
     tagline: "ستونی از پشم سیاه، بلند و رها.",
     season: "پاییز / زمستان ۲۶ · اگزیت ۰۱",
     image: look1,
-    aspect: 427 / 1180,
+    aspect: 900 / 1350,
     accent: "#16130f",
     products: [
       product({
@@ -177,7 +178,7 @@ const LOOK_SEEDS: LookSeed[] = [
     tagline: "کتانِ آفتاب‌گرفته روی شلواری فراخ و سبک.",
     season: "پاییز / زمستان ۲۶ · اگزیت ۰۲",
     image: look2,
-    aspect: 390 / 1180,
+    aspect: 900 / 1350,
     accent: "#a9513a",
     products: [
       product({
@@ -239,7 +240,7 @@ const LOOK_SEEDS: LookSeed[] = [
     tagline: "حجم کشمیر روی جریانی از ساتن اریب.",
     season: "پاییز / زمستان ۲۶ · اگزیت ۰۳",
     image: look3,
-    aspect: 369 / 1180,
+    aspect: 900 / 1350,
     accent: "#c2b09a",
     products: [
       product({
@@ -292,7 +293,7 @@ const LOOK_SEEDS: LookSeed[] = [
     tagline: "یونیفرم، بازطراحی‌شده: جین شسته و توییل خشک.",
     season: "پاییز / زمستان ۲۶ · اگزیت ۰۴",
     image: look4,
-    aspect: 398 / 1180,
+    aspect: 900 / 1350,
     accent: "#4a6487",
     products: [
       product({
@@ -344,7 +345,7 @@ const LOOK_SEEDS: LookSeed[] = [
     tagline: "لغزشی از سرمه‌ای زیر نفس ارگانزای سیاه.",
     season: "پاییز / زمستان ۲۶ · اگزیت ۰۵",
     image: look5,
-    aspect: 431 / 1180,
+    aspect: 900 / 1350,
     accent: "#1d2440",
     products: [
       product({
@@ -397,7 +398,7 @@ const LOOK_SEEDS: LookSeed[] = [
     tagline: "ترنچ، یقه‌لاک‌پشتی، چرم — قدمِ بلند پاییز.",
     season: "پاییز / زمستان ۲۶ · اگزیت ۰۶",
     image: look6,
-    aspect: 496 / 1180,
+    aspect: 900 / 1350,
     accent: "#b7905c",
     products: [
       product({
@@ -516,16 +517,8 @@ export const formatPriceShort = (value: number) => formatNumber(Math.round(value
 
 export const variantKey = (colorId: string, sizeId: string) => `${colorId}:${sizeId}`;
 
-/** base stock, overridden live by the admin panel when it edits a variant */
-/** global resolver: admin edits + custom products, falling back to the base catalogue */
-export const stockOf = (p: Product, colorId: string, sizeId: string) => {
-  const admin = getAdmin();
-  const custom = admin.customProducts.find((c) => c.id === p.id);
-  if (custom) return custom.stock[variantKey(colorId, sizeId)] ?? 0;
-  const edited = admin.stock.find((s) => s.productId === p.id && s.colorId === colorId && s.sizeId === sizeId);
-  if (edited) return edited.qty;
-  return p.stock[variantKey(colorId, sizeId)] ?? 0;
-};
+/** Never fall back to sample stock when the catalogue is unavailable. */
+export const stockOf = (p: Product, colorId: string, sizeId: string) => sellableStock(p.id, colorId, sizeId);
 
 export const firstAvailable = (p: Product): { colorId: string; sizeId: string } => {
   for (const col of p.colors) {

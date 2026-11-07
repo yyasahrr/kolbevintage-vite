@@ -49,12 +49,13 @@ export interface CashbackWallet {
 
 export interface CommerceConfig {
   currency: string;
-  bnpl4: { enabled: boolean; installments: number; provider: string; scope: "store" };
+  bnpl4: { enabled: boolean; providerReady: boolean; availableForCheckout: boolean; installments: number; provider: string; scope: "store" };
   cartMaxQtyPerLine: number;
   reservationHoldMinutes: number;
   paymentWindowMinutes: number;
   shipping: { flat: number; express: number; freeThreshold: number; thresholdBasis: "after_discount" | "before_discount" };
   paymentProvider: string;
+  checkoutAvailable: boolean;
   mockControls: boolean;
   cashback: {
     enabled: boolean;
@@ -131,6 +132,16 @@ export interface CheckoutPayload {
   idempotencyKey?: string;
 }
 
+/** Server snapshots for the signed-in customer; monetary fields use the store's internal unit. */
+export interface CustomerOrder {
+  id:string; createdAt:string; status:string; paymentStatus:string; fulfillmentStatus:string;
+  paymentKind:"simulated"|"provider"|"manual"|"unknown"; total:number; currency:string; city:string; address:string; tracking:string; carrier:string;
+  lines:{id:string;name:string;colorName:string;sizeLabel:string;quantity:number;lineTotal:number}[];
+}
+export interface CustomerReturn {
+  id:string;orderId:string;lineId:string;quantity:number;status:string;kind:string;createdAt:string;name:string;color:string|null;size:string|null;
+}
+
 export interface StartPaymentResult {
   attempt: { id: string; amount: number; method: "online" | "bnpl4"; status: string };
   payment: { redirectUrl: string | null; instructions?: string; mock?: boolean } | null;
@@ -152,6 +163,9 @@ export interface SettleResult {
 
 export const commerce = {
   config: () => api.get<CommerceConfig>("/api/commerce/config"),
+  orders: () => api.get<CustomerOrder[]>("/api/commerce/orders?limit=200"),
+  returns: () => api.get<CustomerReturn[]>("/api/commerce/returns"),
+  requestReturn: (orderId:string,lineId:string,quantity:number,reason:string) => api.post<{ok:boolean}>(`/api/commerce/orders/${encodeURIComponent(orderId)}/returns`,{lineId,quantity,reason,kind:"return"}),
   quote: (items: CommerceItem[], opts: { couponCode?: string; shippingMethod?: "standard" | "express" } = {}) =>
     api.post<ServerQuote>("/api/commerce/quote", { items, ...opts }),
   checkout: (payload: CheckoutPayload) =>

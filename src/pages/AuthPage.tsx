@@ -17,16 +17,15 @@ export function AuthPage() {
   const [params] = useSearchParams();
   const initialMode = params.get("mode");
   const [mode, setMode] = useState<Mode>(
-    initialMode === "register" || initialMode === "password" || initialMode === "otp" ? initialMode : "otp",
+    initialMode === "register" || initialMode === "password" || initialMode === "otp" ? initialMode : "password",
   );
   const [channel, setChannel] = useState<"sms" | "email">("sms");
-  const [email, setEmail] = useState("ava@example.com");
-  const [phone, setPhone] = useState("09120000000");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
-  const [demoCode, setDemoCode] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -40,7 +39,6 @@ export function AuthPage() {
       flash(r);
       if (r.ok) {
         setSent(true);
-        setDemoCode(r.code ?? "");
       }
     } finally {
       setBusy(false);
@@ -115,7 +113,7 @@ export function AuthPage() {
             <>
               <header className="auth-head">
                 <h2>ورود با کد یکبار مصرف</h2>
-                <p>کد ۶ رقمی به {channel === "sms" ? "موبایل" : "ایمیل"} تو ارسال می‌شود و ۲ دقیقه اعتبار دارد.</p>
+                <p>ورود با کد یک‌بارمصرف تا اتصال امن سرویس پیامک و ایمیل در دسترس نیست.</p>
               </header>
               <div className="auth-channels" role="group" aria-label="روش ارسال کد">
                 <button type="button" disabled={!ops.security.otpChannels.sms} className={cn("auth-channel", channel === "sms" && "is-on")} onClick={() => setChannel("sms")} aria-pressed={channel === "sms"}>
@@ -135,7 +133,6 @@ export function AuthPage() {
 
               {sent && (
                 <div className="auth-otp">
-                  <p className="auth-demo">کد نمایشی: <b dir="ltr">{demoCode}</b></p>
                   <label className="auth-field">کد ۶ رقمی
                     <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} dir="ltr" inputMode="numeric" className="auth-code" placeholder="— — — — — —" />
                   </label>
@@ -151,7 +148,7 @@ export function AuthPage() {
             <>
               <header className="auth-head">
                 <h2>ورود با رمز عبور</h2>
-                <p>حساب نمایشی: <b dir="ltr">ava@example.com</b> با رمز <b dir="ltr">demo1234</b></p>
+                <p>با ایمیل و رمز عبور حساب خود وارد شوید.</p>
               </header>
               <label className="auth-field">ایمیل<input value={email} onChange={(e) => setEmail(e.target.value)} dir="ltr" type="email" /></label>
               <label className="auth-field">رمز عبور<input value={password} onChange={(e) => setPassword(e.target.value)} dir="ltr" type="password" /></label>

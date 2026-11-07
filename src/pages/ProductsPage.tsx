@@ -3,10 +3,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { SlidersHorizontal, X, PackageSearch, RotateCcw } from "lucide-react";
 import {
-  ALL_SIZES,
   COLLECTIONS,
   SORTS,
   filterProducts,
+  colorFilterKey,
   productsInCollection,
   visibleProducts,
   type SortKey,
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui";
 import { cn } from "@/utils/cn";
 import { useEscape, useScrollLock } from "@/hooks/useOverlay";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { useOps } from "@/state/ops";
 import { useAdmin } from "@/state/admin";
 import { resolveImg } from "@/builder/stock";
@@ -29,21 +30,24 @@ import { resolveImg } from "@/builder/stock";
 const VALID_SORTS = new Set<string>(SORTS.map((s) => s.id));
 
 export function ProductsPage() {
-  useAdmin();
+  const admin = useAdmin();
+  const live = useLiveCatalog();
   const [params, setParams] = useSearchParams();
   const [filtersOpen, setFiltersOpen] = useState(false);
   useEscape(filtersOpen, () => setFiltersOpen(false));
   useScrollLock(filtersOpen);
   const ops = useOps();
   const { categories } = ops;
-  const inactiveColors = new Set(ops.colorLibrary.filter((item) => !item.active).map((item) => item.id));
+  const sizeOptions = [...new Set(visibleProducts().flatMap(product => product.sizes.map(size => size.label)))];
+  // Product-local IDs like c1 are not globally unique. Group only identical
+  // named swatches; the library's active flag must not hide sellable variants.
   const colorOptions = [...new Map(
-    visibleProducts().flatMap((product) => product.colors)
-      .filter((item) => !inactiveColors.has(item.id))
-      .map((item) => [item.id, item]),
-  ).values()];
+    visibleProducts().flatMap(product => product.colors).map(item => [colorFilterKey(item), item]),
+  ).entries()].map(([key,item]) => ({...item, filterKey:key}));
 
-  const collection = COLLECTIONS.find((c) => c.id === params.get("collection"))?.id ?? "all";
+  const requestedCollection = params.get("collection");
+  const selectedCategory = categories.find(c => c.active && c.id === requestedCollection);
+  const collection = selectedCategory?.id ?? COLLECTIONS.find(c => c.id === requestedCollection && !categories.some(category => category.id === c.id))?.id ?? "all";
   const category = params.get("category") ?? "";
   const size = params.get("size") ?? "";
   const color = params.get("color") ?? "";
@@ -66,10 +70,10 @@ export function ProductsPage() {
 
   const list = useMemo(
     () => filterProducts({ collection, category, size, color, sort, query }),
-    [collection, category, size, color, sort, query],
+    [collection, category, size, color, sort, query, admin, ops, live],
   );
 
-  const activeCollection = COLLECTIONS.find((c) => c.id === collection);
+  const activeCollection = selectedCategory ? { id: selectedCategory.id, label: selectedCategory.name } : COLLECTIONS.find((c) => c.id === collection);
   const title = query
     ? `نتیجهٔ جست‌وجو برای «${query}»`
     : activeCollection
@@ -86,7 +90,7 @@ export function ProductsPage() {
     size && { key: "size", label: `سایز ${size}` },
     color && {
       key: "color",
-      label: `رنگ ${colorOptions.find((c) => c.id === color)?.name ?? color}`,
+      label: `رنگ ${colorOptions.find((c) => c.filterKey === color || c.id === color)?.name ?? color}`,
     },
     query && { key: "q", label: `جست‌وجو: ${query}` },
   ].filter(Boolean) as { key: string; label: string }[];
@@ -99,13 +103,13 @@ export function ProductsPage() {
           <Chip active={!collection || collection === "all"} onClick={() => patch({ collection: "all", category: null })}>
             همه
           </Chip>
-          {COLLECTIONS.map((c) => (
+          {categories.filter(c => c.active).map((c) => (
             <Chip
               key={c.id}
               active={collection === c.id}
               onClick={() => patch({ collection: c.id, category: null })}
             >
-              {c.label}
+              {c.name}
               <span className="text-[9.5px] opacity-60">{productsInCollection(c.id).length}</span>
             </Chip>
           ))}
@@ -115,7 +119,7 @@ export function ProductsPage() {
       <div>
         <p className="mb-2 text-[10px] text-ink-45">سایز</p>
         <div className="flex flex-wrap gap-1.5">
-          {ALL_SIZES.map((s) => (
+          {sizeOptions.map((s) => (
             <Chip key={s} active={size === s} onClick={() => patch({ size: size === s ? undefined : s })}>
               {s}
             </Chip>
@@ -128,15 +132,15 @@ export function ProductsPage() {
         <div className="flex flex-wrap items-center gap-2">
           {colorOptions.map((c) => (
             <button
-              key={c.id}
+              key={c.filterKey}
               type="button"
-              onClick={() => patch({ color: color === c.id ? undefined : c.id })}
-              aria-pressed={color === c.id}
+              onClick={() => patch({ color: color === c.filterKey ? undefined : c.filterKey })}
+              aria-pressed={color === c.filterKey}
               aria-label={`فیلتر رنگ ${c.name}`}
               title={c.name}
               className={cn(
                 "relative h-7 w-7 rounded-full ring-1 ring-black/15 ring-offset-2 ring-offset-bone transition-all",
-                color === c.id ? "ring-[1.5px] ring-ink" : "hover:scale-110",
+                color === c.filterKey ? "ring-[1.5px] ring-ink" : "hover:scale-110",
               )}
               style={{ backgroundColor: c.hex }}
             />
@@ -159,6 +163,7 @@ export function ProductsPage() {
 
   return (
     <div className="pb-12">
+      {live.status !== "online" && <p role="status" className="mx-auto max-w-[1500px] px-4 pt-4 text-sm text-ember">{live.status === "loading" ? "در حال دریافت کاتالوگ…" : "ارتباط با فروشگاه قطع است؛ موجودی قابل تأیید نیست و خرید موقتاً غیرفعال است."}</p>}
       <PageIntro
         crumbs={[{ label: "فروشگاه", to: "/products" }, ...(activeCollection ? [{ label: activeCollection.label }] : [])]}
         eyebrow={`${list.length.toLocaleString("fa-IR")} قطعه در دسترس`}

@@ -152,6 +152,10 @@ export function providerCapabilities(id: string): ProviderCapabilities {
 export function providerFor(id: string): PaymentProvider {
   const provider = PROVIDERS[id];
   if (!provider) throw new CommerceError(`درگاه «${id}» پشتیبانی نمی‌شود.`, 400, "provider_unknown");
+  // No provider in this build has passed provider-specific production
+  // integration, settlement and currency-unit verification. Never allow a
+  // mock or generic adapter to take money merely by changing a setting.
+  if (config.isProd) throw new CommerceError("پرداخت عملیاتی تا اتصال و تأیید درگاه واقعی در دسترس نیست.", 503, "production_provider_not_ready");
   if (id === "gateway" && !gatewayConfigured()) {
     // selecting a gateway without configuring it must fail loudly, not silently
     // fall back to the mock provider and take the order
@@ -166,8 +170,8 @@ export function providerFor(id: string): PaymentProvider {
 
 /** which providers this build can actually offer right now */
 export const availableProviders = () => ({
-  mock: true,
-  gateway: gatewayConfigured(),
+  mock: !config.isProd,
+  gateway: !config.isProd && gatewayConfigured(),
 });
 
 export function publicAttempt(row: PaymentAttemptRow) {
@@ -323,6 +327,7 @@ export async function startPayment(input: {
       [idempotencyKey],
     );
     if (existing.rows[0]) {
+      if (existing.rows[0].checkout_id !== checkout.id) throw new CommerceError("کلید پرداخت متعلق به تسویه دیگری است.",409,"idempotency_conflict");
       const provider = providerFor(existing.rows[0].provider);
       const initiated = await provider.initiate(existing.rows[0]);
       await query(
@@ -487,7 +492,7 @@ async function settleAttempt(attempt: PaymentAttemptRow, outcome: VerifyOutcome)
        instead of silently granting an unbudgeted discount. */
     let couponProblem: string | null = null;
     const couponCode = String(checkout.coupon_code ?? quote.couponCode ?? "").trim().toUpperCase();
-    if (couponCode && !late) {
+    if (couponCode && Number(quote.couponDiscount) > 0 && !late) {
       const coupon = await client.query<{ used_count: number; usage_limit: number | null }>(
         `update coupons set used_count = used_count + 1, updated_at = now()
           where code = $1 and active and (usage_limit is null or used_count < usage_limit)
@@ -629,7 +634,9 @@ export async function paymentStatus(
   const checkoutId = owner.rows[0]?.checkout_id ?? null;
   const isAdmin = viewer?.kind === "admin";
   const ownsOrder = viewer?.kind === "customer" && ownerEmail !== null && viewer.subject === ownerEmail;
-  const ownsBrowser = Boolean(checkoutId && checkoutCookie && checkoutCookie === checkoutId);
+  // The checkout cookie contains only an ID, not a signed proof of ownership.
+  // It is not sufficient for an account-linked payment.
+  const ownsBrowser = Boolean(!ownerEmail && checkoutId && checkoutCookie && checkoutCookie === checkoutId);
   if (!isAdmin && !ownsOrder && !ownsBrowser) {
     throw new CommerceError("این تراکنش برای تو نیست.", 403, "payment_forbidden");
   }
@@ -753,7 +760,9 @@ export async function simulatePayment(
   const checkoutId = owner.rows[0]?.checkout_id ?? null;
   const isAdmin = viewer?.kind === "admin";
   const ownsOrder = viewer?.kind === "customer" && ownerEmail !== null && viewer.subject === ownerEmail;
-  const ownsBrowser = Boolean(checkoutId && checkoutCookie && checkoutCookie === checkoutId);
+  // The checkout cookie contains only an ID, not a signed proof of ownership.
+  // It is not sufficient for an account-linked payment.
+  const ownsBrowser = Boolean(!ownerEmail && checkoutId && checkoutCookie && checkoutCookie === checkoutId);
   if (!isAdmin && !ownsOrder && !ownsBrowser) {
     throw new CommerceError("شبیه‌سازی پرداخت فقط برای صاحب همین سفارش یا ادمین مجاز است.", 403, "simulate_forbidden");
   }

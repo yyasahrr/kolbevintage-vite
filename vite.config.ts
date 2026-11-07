@@ -35,6 +35,7 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: true,
     proxy: {
+      "/panel": { target: "http://127.0.0.1:3000", changeOrigin: false, ws: true },
       "/api": { target: "http://127.0.0.1:4000", changeOrigin: false },
       "/uploads": { target: "http://127.0.0.1:4000", changeOrigin: false },
     },
@@ -48,6 +49,7 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: true,
     proxy: {
+      "/panel": { target: "http://127.0.0.1:3000", changeOrigin: false, ws: true },
       "/api": { target: "http://127.0.0.1:4000", changeOrigin: false },
       "/uploads": { target: "http://127.0.0.1:4000", changeOrigin: false },
     },

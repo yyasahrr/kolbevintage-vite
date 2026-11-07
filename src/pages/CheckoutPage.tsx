@@ -142,7 +142,7 @@ export function CheckoutPage() {
       const q = await commerce.quote(items, { couponCode: trimmed, shippingMethod: shipping });
       setServerQuote(q);
       setAppliedCode(q.couponCode ?? trimmed.toUpperCase());
-      setCodeMsg({ ok: true, message: "کد تخفیف روی سرور اعمال شد." });
+      setCodeMsg({ ok: true, message: q.couponDiscount > 0 ? "کد تخفیف روی سرور اعمال شد." : "کد معتبر است، اما تخفیف دیگری برای این سبد بهتر یا برابر است؛ کد مصرف نمی‌شود." });
     } catch (err) {
       setAppliedCode("");
       setCodeMsg({ ok: false, message: err instanceof Error ? err.message : "کد تخفیف اعمال نشد." });
@@ -157,6 +157,8 @@ export function CheckoutPage() {
   const placeOrder = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!lines.length || placing) return;
+    if (!auth.account) { setCheckoutError("برای ثبت سفارش ابتدا وارد حساب کاربری شوید."); return; }
+    if (!cfg?.checkoutAvailable) { setCheckoutError("پرداخت در حال حاضر در دسترس نیست؛ سفارشی ثبت یا موجودی رزرو نمی‌شود."); return; }
     const form = new FormData(e.currentTarget);
     const address = {
       receiver: `${form.get("given") ?? ""} ${form.get("family") ?? ""}`.trim(),
@@ -211,7 +213,7 @@ export function CheckoutPage() {
               : undefined,
         });
         clear();
-        notify("پرداخت تأیید شد", `سفارش ${settled.orderId} ثبت شد و موجودی از انبار کسر شد.`);
+        notify("سفارش آزمایشی ثبت شد", `پرداخت بانکی انجام نشد؛ موجودی محیط آزمایشی تغییر کرد.`);
         window.scrollTo({ top: 0, behavior: "smooth" });
         return;
       }
@@ -233,7 +235,7 @@ export function CheckoutPage() {
       // fail closed: an order that the server never created must not be shown
       // as placed, and stock/coupon/cashback must never be invented in the browser
       setCheckoutError(
-        "ارتباط با سرور برقرار نشد؛ سفارش ثبت نشد. اتصال را بررسی کن و دوباره تلاش کن. هیچ مبلغی کسر نشده است.",
+        "ارتباط با سرور قطع شد؛ وضعیت سفارش یا پرداخت مشخص نیست. پیش از تلاش دوباره، وضعیت سفارش را بررسی کنید.",
       );
       window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
@@ -247,15 +249,16 @@ export function CheckoutPage() {
       <div className="pb-16">
         <PageIntro
         crumbs={[{ label: "تسویه حساب" }]}
-        title="سفارش شما ثبت شد"
-        description="مبلغ نهایی و موجودی را سرور تأیید کرده است. پرداخت درگاه شبیه‌سازی‌شده اما با همان قرارداد verify و idempotency واقعی ثبت می‌شود."
+        title="سفارش آزمایشی ثبت شد"
+        description="هیچ پرداخت بانکی انجام نشده است؛ این سفارش فقط برای آزمایش است."
       />
         <div className="mx-auto max-w-[520px] px-4">
           <div className="rounded-2xl border border-black/[0.08] bg-paper p-6 text-center">
             <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-ink text-bone">
               <PackageCheck width={26} height={26} />
             </span>
-            <h2 className="mt-4 font-display text-[24px] font-medium text-ink">ممنون که با ولور همراه شدی.</h2>
+            <h2 className="mt-4 font-display text-[24px] font-medium text-ink">پرداخت شبیه‌سازی شد</h2>
+            <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-900">این رسید تأیید پرداخت بانکی نیست. موجودی و سفارش محیط آزمایشی تغییر کرده‌اند؛ از این محیط برای سفارش واقعی استفاده نکنید.</p>
             <dl className="mt-4 grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-3">
               <div className="rounded-xl bg-[#f4efe7] p-3">
                 <dt className="text-ink-45">شمارهٔ سفارش</dt>
@@ -272,7 +275,7 @@ export function CheckoutPage() {
             </dl>
             {order.cashback && order.cashback.amount > 0 && (
               <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-[11.5px] text-emerald-800">
-                {formatPrice(order.cashback.amount)} کش‌بک ({order.cashback.percent.toLocaleString("fa-IR")}٪) به کیف پول حساب تو اضافه شد.
+                {formatPrice(order.cashback.amount)} کش‌بک ({order.cashback.percent.toLocaleString("fa-IR")}٪) برای این سفارش ثبت شد؛ وضعیت قابل استفاده بودن آن را در کیف پول بررسی کنید.
               </p>
             )}
             {order.note && (
@@ -281,7 +284,7 @@ export function CheckoutPage() {
               </p>
             )}
             {order.status === "exception" && (
-              <p className="mt-2 text-[11px] text-ember" dir="ltr">status: exception</p>
+              <p className="mt-2 text-[11px] text-ember" dir="ltr">نیازمند بررسی</p>
             )}
             {order.discounts.length > 0 && (
               <ul className="mt-3 space-y-1 text-[11.5px] text-ink-70">
@@ -302,6 +305,14 @@ export function CheckoutPage() {
       </div>
     );
   }
+
+  if (!auth.account && lines.length) return (
+    <div className="pb-16"><PageIntro crumbs={[{ label: "تسویه حساب" }]} title="تسویه حساب" />
+      <div className="mx-auto max-w-[520px] rounded-2xl border border-black/10 bg-white p-8 text-center">
+        <p className="mb-4">برای ثبت سفارش ابتدا وارد حساب کاربری شوید یا حساب بسازید.</p>
+        <Link to="/auth" className={buttonStyles("solid", "md")}>ورود یا ثبت‌نام</Link>
+      </div></div>
+  );
 
   /* ---------- empty ---------- */
   if (!lines.length) {
@@ -325,7 +336,7 @@ export function CheckoutPage() {
   }
 
   /* ---------- form ---------- */
-  const gateway = GATEWAY_LABEL[admin.integrations.payment.gateway];
+  const gateway = cfg?.paymentProvider === "mock" ? "آزمایشی" : cfg?.paymentProvider === "gateway" ? "درگاه پرداخت" : GATEWAY_LABEL[admin.integrations.payment.gateway];
   return (
     <div className="pb-16">
       <PageIntro
@@ -421,15 +432,13 @@ export function CheckoutPage() {
                 <span className="flex-1">
                   <span className="block text-[12.5px] font-medium text-ink">پرداخت آنلاین — {gateway}</span>
                   <span className="mt-0.5 block text-[11px] text-ink-45">
-                    {admin.integrations.payment.enabled
-                      ? `حالت ${admin.integrations.payment.mode === "test" ? "تست" : "حقیقی"}.`
-                      : "درگاه شبیه‌سازی‌شده؛ تأیید نهایی سمت سرور انجام می‌شود."}
+                    {!cfg ? "در حال بررسی وضعیت پرداخت…" : !cfg.checkoutAvailable ? "پرداخت در حال حاضر در دسترس نیست." : cfg.paymentProvider === "mock" ? "پرداخت بانکی انجام نمی‌شود؛ این عملیات سفارش و موجودی محیط آزمایشی را تغییر می‌دهد." : "تأیید پرداخت از سرور درگاه دریافت می‌شود."}
                   </span>
                 </span>
                 <ShieldCheck className="h-4 w-4 text-ink-45" />
               </button>
 
-              {cfg?.bnpl4.enabled && (
+              {cfg?.bnpl4.availableForCheckout && cfg.checkoutAvailable && (
                 <button
                   type="button"
                   onClick={() => setMethod("bnpl4")}
@@ -505,7 +514,7 @@ export function CheckoutPage() {
               placeholder="کد تخفیف / جشنواره"
               dir="ltr"
               aria-label="کد تخفیف"
-              className="min-w-0 flex-1 rounded-full border border-black/12 bg-white px-3 py-2 text-[11.5px] outline-none focus:border-ink/50"
+              className="min-w-0 flex-1 rounded-full border border-black/12 bg-white px-3 py-2 text-[11.5px] focus:border-ink/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
             />
             <button type="button" onClick={applyCode} className={buttonStyles("outline", "sm")}>اعمال</button>
           </div>
@@ -545,9 +554,10 @@ export function CheckoutPage() {
             </div>
           </dl>
 
-          <button type="submit" disabled={placing} className={buttonStyles("solid", "lg", "mt-4 w-full disabled:opacity-60")}>
+          {cfg && !cfg.checkoutAvailable && <p role="status" className="mt-3 text-xs text-ink-70">پرداخت فعلاً غیرفعال است؛ سفارشی ثبت یا موجودی رزرو نمی‌شود.</p>}
+          <button type="submit" disabled={placing || !cfg?.checkoutAvailable} className={buttonStyles("solid", "lg", "mt-4 w-full disabled:opacity-60")}>
             {placing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
-            {placing ? "در حال رزرو موجودی و پرداخت…" : "پرداخت و ثبت سفارش"}
+            {placing ? "در حال ثبت سفارش…" : cfg?.paymentProvider === "mock" ? "ثبت سفارش با پرداخت آزمایشی" : "پرداخت و ثبت سفارش"}
           </button>
           <p className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-ink-45">
             <Zap className="h-3 w-3" />
@@ -565,7 +575,7 @@ function Field({ label, className, ...rest }: React.InputHTMLAttributes<HTMLInpu
       {label}
       <input
         {...rest}
-        className="mt-1.5 w-full rounded-xl border border-black/12 bg-white px-3 py-2.5 text-[12.5px] text-ink outline-none transition-colors focus:border-ink/50"
+        className="mt-1.5 w-full rounded-xl border border-black/12 bg-white px-3 py-2.5 text-[12.5px] text-ink transition-colors focus:border-ink/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
       />
     </label>
   );
@@ -578,7 +588,7 @@ function ShipOption({ active, title, note, onClick }: { active: boolean; title: 
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "rounded-xl border p-3.5 text-start transition-all",
+        "rounded-xl border p-3.5 text-start transition-colors",
         active ? "border-ink bg-ink/[0.04]" : "border-black/10 hover:border-ink/35",
       )}
     >

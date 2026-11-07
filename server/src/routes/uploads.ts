@@ -1,69 +1,60 @@
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
 import type { FastifyInstance } from "fastify";
 import { config } from "../config";
 import { requirePermission } from "../http/rbac";
+import { recordAudit } from "../commerce/audit";
+import { prepareProductImage } from "../image-upload";
 
-const VIDEO_EXT: Record<string, string> = {
-  "video/mp4": "mp4",
-  "video/webm": "webm",
-  "video/quicktime": "mov",
-};
-
-/** images stay cheap, one short product video may be heavier (owner decision 25) */
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
 
-const EXT: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/jpg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-  "image/gif": "gif",
-  "image/avif": "avif",
-  "image/svg+xml": "svg",
-};
-
+/** The old MIME/extension fallback accepted arbitrary files and active SVG on
+ * the store origin. Images are now decoded/re-encoded; videos require a known
+ * media signature and are served with nosniff. */
 export async function uploadRoutes(app: FastifyInstance) {
   app.post("/api/uploads", async (req, reply) => {
-    await requirePermission(req, "catalog:edit");
+    const session = await requirePermission(req, "catalog:edit");
     const part = await req.file({ limits: { fileSize: MAX_VIDEO_BYTES } });
     if (!part) return reply.code(400).send({ error: "فایلی ارسال نشد." });
-
-    const isVideo = part.mimetype.startsWith("video/");
-    const byName = path.extname(part.filename ?? "").replace(".", "").toLowerCase();
-    const allowedByName = new Set(["jpg", "jpeg", "png", "webp", "gif", "avif", "svg"]);
-    const allowedVideoByName = new Set(["mp4", "webm", "mov"]);
-    const ext = isVideo
-      ? (VIDEO_EXT[part.mimetype] ?? (allowedVideoByName.has(byName) ? byName : null))
-      : (EXT[part.mimetype] ?? (allowedByName.has(byName) ? byName : null));
-    if (!ext) {
-      await part.file.resume();
-      return reply.code(415).send({ error: "فقط تصویر یا ویدیوی mp4/webm مجاز است." });
+    const mime = part.mimetype.toLowerCase();
+    const imageType = mime === "image/jpg" ? "image/jpeg" : mime;
+    const images = ["image/jpeg", "image/png", "image/webp"];
+    const videoExt: Record<string, string> = { "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
+    if (!images.includes(imageType) && !Object.hasOwn(videoExt, mime)) {
+      part.file.resume();
+      return reply.code(415).send({ error: "فقط JPEG، PNG، WebP یا ویدیوی MP4، WebM و MOV مجاز است." });
     }
-
-    fs.mkdirSync(config.uploadsDir, { recursive: true });
-    const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.${ext ?? "bin"}`;
-    const target = path.join(config.uploadsDir, filename);
-    await pipeline(part.file, fs.createWriteStream(target));
-
-    if (part.file.truncated) {
-      fs.unlink(target, () => undefined);
-      return reply
-        .code(413)
-        .send({ error: isVideo ? "حجم ویدیو بیشتر از ۲۰ مگابایت است." : "حجم تصویر بیشتر از ۸ مگابایت است." });
+    let bytes: Buffer;
+    try { bytes = await part.toBuffer(); }
+    catch { return reply.code(413).send({ error: "حجم فایل بیش از حد مجاز است." }); }
+    if (part.file.truncated || !bytes.length || bytes.length > (images.includes(imageType) ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES)) {
+      return reply.code(413).send({ error: "حجم فایل بیش از حد مجاز است." });
     }
-    // the multipart limit is shared, so the ceiling is enforced per kind here
-    const size = fs.statSync(target).size;
-    if ((isVideo && size > MAX_VIDEO_BYTES) || (!isVideo && size > MAX_IMAGE_BYTES)) {
-      fs.unlink(target, () => undefined);
-      return reply
-        .code(413)
-        .send({ error: isVideo ? "حجم ویدیو بیشتر از ۲۰ مگابایت است." : "حجم تصویر بیشتر از ۸ مگابایت است." });
+    let url: string;
+    let discard: () => Promise<void>;
+    if (images.includes(imageType)) {
+      const uploaded = await prepareProductImage(`data:${imageType};base64,${bytes.toString("base64")}`);
+      url = uploaded.url;
+      discard = uploaded.discard;
+    } else {
+      const isWebm = bytes.length >= 4 && bytes.subarray(0,4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3]));
+      const isMp4 = bytes.length >= 12 && bytes.toString("ascii",4,8) === "ftyp";
+      if ((mime === "video/webm" && !isWebm) || (mime !== "video/webm" && !isMp4)) {
+        return reply.code(415).send({ error: "محتوای ویدیو با نوع فایل مطابقت ندارد." });
+      }
+      await fs.mkdir(config.uploadsDir, { recursive: true });
+      const filename = `${Date.now()}-${randomUUID()}.${videoExt[mime]}`;
+      const target = path.join(config.uploadsDir, filename);
+      await fs.writeFile(target, bytes, { flag: "wx" });
+      url = `/uploads/${filename}`;
+      discard = async () => { await fs.unlink(target).catch(() => undefined); };
     }
-
-    return { url: `/uploads/${filename}`, size, mime: part.mimetype, kind: isVideo ? "video" : "image" };
+    try {
+      await recordAudit({ actor: session.subject, action: "media.upload", targetType: "upload", targetId: url,
+        after: { kind: images.includes(imageType) ? "image" : "video", size: bytes.length }, requestId: req.id });
+    } catch (error) { await discard(); throw error; }
+    return { url, size: bytes.length, mime: images.includes(imageType) ? "image/webp" : mime, kind: images.includes(imageType) ? "image" : "video" };
   });
 }

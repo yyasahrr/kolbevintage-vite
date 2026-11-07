@@ -63,7 +63,7 @@ import { href } from "./ctx";
 import { IconView, faNum } from "./kit";
 import { PLACEHOLDER, resolveImg } from "./stock";
 import { P, makeCardWidget } from "./factory";
-import { CATALOG } from "@/data/catalog";
+import { visibleProducts } from "@/data/catalog";
 import { ProductCard } from "@/components/ProductCard";
 
 /* ------------------------------------------------------------------ */
@@ -576,7 +576,7 @@ export const WIDGETS_F: WidgetDef[] = [
       sec("s", "استایل", "style", [slider("gap", "فاصله", 0, 50, { "{{WRAPPER}} .ew-products": "gap:{{VALUE}}px;" }, { default: 18 })]),
     ],
     render: ({ s }) => {
-      const list = [...CATALOG].sort((a, b) => {
+      const list = [...visibleProducts()].sort((a, b) => {
         if (s.order === "price-asc") return a.price - b.price;
         if (s.order === "price-desc") return b.price - a.price;
         if (s.order === "newest") return b.lookOrder - a.lookOrder;

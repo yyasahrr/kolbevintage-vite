@@ -1,0 +1,74 @@
+# Integration status
+
+The panel is served at `/panel` on the **storefront origin**. `npm run dev`
+starts Vite, Fastify and the Next panel; install dependencies in both project
+folders first. For a production deployment, run `npm run build`,
+`npm run build:panel`, and `npm run start:all`. Only the storefront/Fastify
+port should be public; keep the panel's port 3000 private.
+
+The live shell restores the prototype’s grouped sidebar, top bar and dashboard styling, with its real session instead of the prototype’s role switcher and sample alerts. Products, inventory, orders, returns, marketing and the customer gallery use adapted versions of the original layouts. Other migrated modules still use the interim live components; unavailable prototype sections remain disabled and partial modules are marked.
+
+The panel reads the current identity and permissions from `/api/admin/me`,
+products from the store catalog, inventory from the commerce inventory API,
+and orders from the commerce order API. Flat categories can be created, activated, ordered and edited; thumbnails update the same `ops.categories` document used by the storefront. A category in use by products or category campaigns cannot be renamed; disable it or migrate references first. Products must be assigned to an active category. Product create/edit accepts JPEG/PNG/WebP uploads, re-encodes pixels as WebP, and stores the reference alongside the product transaction (with cleanup on transaction errors). Removing an image reference does not delete its stored file. The order list supports inline shipment tracking and guarded fulfillment steps. Receiving, stocktake and adjustment requests, approval
+and ledger use the store's audited approval workflow. Owners and superadmins may approve their own requests; other staff still require another approver; stocktakes reject stale baselines and negative adjustments cannot consume reserved or quarantined stock. Retries use an idempotency key. The new shell also
+integrates draft product creation and basic edits, paid-external manual orders, picking/packing/shipping, customer
+listing, return requests and warehouse QC, consent-based gallery moderation, staff and role creation, audit
+viewing, product image URL management, campaign/coupon creation and activation, brand text editing, order/shipping settings, visit analytics and a grouped order-value summary with the existing store API. Fulfillment actions and sensitive lists
+are permission-checked on the server. The first 200 orders are shown, not a
+complete financial report. The content of the store database may itself be
+seed data and is not evidence of real sales or customers.
+
+The original prototype APIs have been moved to `prototype/api`: they used a
+separate seeded database and role selection that was not authentication. Other
+prototype screens are blocked until individually migrated to store endpoints.
+`PANEL_OPEN_ACCESS` is solely for preview and is ignored when `NODE_ENV=production`. In preview it grants all permissions, including refund decisions; the live-refund switch and provider capability checks still apply and are not bypassed.
+
+Current gaps: category deletion and migration of in-use category names, full product/variant and video editing, exchange policy, journal and other storefront content, advanced campaign rules, reconciliation and comprehensive finance reports, and other prototype modules are not yet wired into this new shell. The grouped order-value summary is not a bank settlement report. The manual-order
+flow attests an external payment; it does not verify it with a bank. Refund
+approval requires the protected superadmin and settlement remains fail-closed
+until the financial settings and a verified provider adapter allow it. Real
+gateway and externally paid refunds currently go to manual review, never a
+mock reversal. Do not
+claim a sandbox dataset is real business data.
+
+`npm run test:live-panel` exercises the new shell against a mock transport;
+`npm test` exercises the backend on PostgreSQL.
+
+Security and launch restrictions: `/api/bootstrap` now withholds private operational records from guests and limited staff, and order access requires the appropriate permission. The legacy full-document writes are owner-only outside production and disabled in production, so any remaining prototype functionality depending on those writes is unavailable there. Preview mode is not production authentication.
+
+OTP and unverified registration are disabled until a real identity verification provider is integrated. Existing password accounts can log in; this is not yet the requested mobile/OTP registration flow. The outbox does not send SMS, accounting events, or webhooks and records failures rather than claiming delivery. External payment/refund and try-on adapters remain unimplemented. Fresh production databases require deliberately provisioned `admin` and `ops` documents; demo customers and catalog projections are not seeded there. Existing seeded data is not automatically deleted. Production owner passcodes shorter than 12 characters cannot log in; a strong legacy owner passcode is upgraded to an scrypt hash on the first production login. Production checkout and all bundled payment providers are blocked until a provider-specific implementation is verified. Superadmin elevation requires an existing finance:approve session, a separate strong passcode, and expires after 15 minutes. See docs/production-readiness-fa.md. These precautions do not constitute a production-readiness certification.
+
+The legacy general upload endpoint no longer permits SVG or filename-based type fallback; images are decoded and re-encoded and video files receive basic signature checks only, not full media scanning. Uploaded content is served with `nosniff` and a sandboxed CSP. Separate malware scanning, safe storage lifecycle and production object storage are not yet implemented.
+
+Storefront catalogue and sellable-stock snapshot: public product list and detail now derive each active variant's available quantity from on-hand stock minus quarantine and active, unexpired reservations. The storefront reads the public API, refreshes on a 30-second visible-page interval and on focus/reconnection, and disables adding when the snapshot is stale, invalid or offline; the last catalogue may remain visible with an explicit connectivity warning. Cart display prices follow the current catalogue, and checkout still validates and reserves inventory transactionally. This is a snapshot, not a reservation. `npm run test:live-catalog` uses jsdom and a mocked API, not a browser E2E test. The database in preview still contains seed products and imagery; replacing them with real catalogue data, all page-builder selections, complete variant/video editing and production storage remain separate work.
+
+Product option management: `/api/admin/products/:id/options` requires `catalog:edit` and supports adding a color or size and correcting an unused option. New cross-product variant rows start at zero and use the existing audited inventory workflow; existing SKUs, stock and reservations are not replaced. To avoid changing the meaning of an existing SKU, editing an option is blocked if any corresponding variant has stock, reservations, order history, movements or inventory requests. Removing options, separately disabling individual combinations, per-variant pricing/cost and bulk import are still not implemented. The panel's inventory forms submit the selected stock version, so a stale form is rejected after an option edit; older API clients that omit the optional version do not get this extra stale-form protection. Catalogue synchronization and targeted edits share a transaction lock. Legacy owner-only state-document projection in nonproduction remains a separate compatibility path and is not safe for concurrent production use.
+
+### Storefront style packs
+- The live panel's Style Packs menu reads `/api/admin/style-packs` with `design:view`; publication/rollback use `design:edit`, CSRF, a row lock on the real `ops` document, expected current theme and transactional audit. Only the immediately previous published theme is retained. A stale panel must refresh on conflict. Legacy full ops saves preserve the locked current theme.
+- `/api/public/store-theme` is public and `no-store`. The storefront loads it and refreshes on focus/visibility/online and every 30 seconds while visible. A validated `?themePreview=<id>` URL applies only to that browser page and never publishes; the panel iframe is sandboxed. In production only this storefront preview permits same-origin framing; other pages retain DENY. The public builder's legacy theme toggle no longer publishes a global change.
+- Twelve implemented token/style variants are available, including Soft UI, Glassmorphism, Editorial, Liquid Glass, Bento, Neumorphism and Brutalism. Bento modifies shared surfaces and the default home collections grid, not a complete page-template replacement. Individually styled/custom builder content may not inherit every token. The panel itself is unchanged.
+- `test:store-theme` covers storefront provider behavior in jsdom/mock; `test:live-panel` covers panel preview/publish/rollback with mock transport. PostgreSQL/RBAC tests cover permission, validation, conflict, legacy saves, audit and rollback. These are not visual browser E2E tests.
+
+
+### Production hardening (not a launch approval)
+The preflight `npm run production:check` reports hard blockers. The Next runtime has been updated; both runtime dependency audits currently report zero vulnerabilities. Database backups use a consistent snapshot and lossless numeric JSON, omit sessions, verify download checksums, and only the owner can download; restores validate tables and fix sequences. They do **not** include uploaded media, encryption/key management, or a real cloud restore rehearsal. IP limiting is per-process; configure `TRUST_PROXY` narrowly. Browser E2E, provider integrations, and other production requirements remain open.
+
+### Empty-store provisioning
+`provision:store` initializes an explicitly confirmed empty separate database atomically with hashed owner credentials and no demo records. A new store is marked `siteUnderSetup`; the storefront displays a preparation screen after bootstrap. The marker is a UI guard, not network access control, and there is intentionally no self-service launch toggle yet. Prototype content and other launch blockers must be resolved before opening it. Both the old `clear-demo` command and its HTTP purge route are disabled because they would truncate real data alongside demos. No existing store is reset by the provisioning tool.
+
+### Journal (partially connected)
+The original shell's blog item now uses the live store PostgreSQL API, not the prototype. Draft/edit and publish permissions are checked server-side; scheduled publication, an enable/disable switch, optimistic versions, unique immutable slugs, transactional audit, plaintext paragraphs, optional SEO fields and processed cover images are supported. Public list/detail only return visible published content; no bundled demo articles are used. Public listing is capped at 100, admin at 200; direct links to older published articles work. Video, rich blocks, deletion, pagination, SSR/sitemap SEO and migration of old prototype articles remain unimplemented. Covers are not in logical backups, old unused images are retained, and pre-migration logical backups are rejected by default; the explicitly destructive `--allow-empty-journal` restore option accepts only that one missing table and leaves the target journal empty. Test restores on a separate database first. Tests use PostgreSQL plus jsdom/mock, not browser E2E.
+
+### Print center (partially connected)
+The original shell now renders order label, packing, picking and internal order statement from the authorized `orders:view` invoice API. Before preview and on the print button it fetches a fresh snapshot and refuses unpaid, cancelled, exception and unknown order statuses; this is not a server-side fulfillment lock and cannot prove bank settlement. Return/refund statuses remain separate from the original order total. Amounts are labeled internal units, not a verified currency conversion or tax invoice. There is no fabricated sender address, postal code, barcode, or claim of physical printer calibration. Only the most recent 200 orders can be selected. Order/invoice responses use no-store. UI and print invocation are tested in jsdom with mock transport, not an actual browser or physical printer.
+
+### Size templates and catalogue filters (partially connected)
+The original shell's size-template page uses `ops.sizeSets` in the store database with server-side `catalog:view`/`catalog:edit`, row locking, expected previous snapshot, validation and audit. Creating/editing a template never rewrites existing product variants or stock. Existing measurements are retained; removing a label with saved measurements is rejected. Template deletion and editing measurement tables are not supported. Category forms can assign a template; product creation can copy its labels explicitly (and still permits manual labels). This is a suggestion, not a live link to existing products. Storefront settings hydrate at boot, so other open tabs may need a reload. Nonproduction legacy whole-document saves preserve targeted size templates; the old size editor no longer pretends to persist them.
+
+Product color IDs are product-local (e.g. different products both use `c1`), so storefront color filters now group by normalized color name and swatch instead of treating IDs as globally unique. A combined size/color filter requires stock in the *same* variant. Old links using a bare local color ID still work as legacy filters but may be ambiguous; selecting the swatch again creates the new form. These changes do not alter product SKUs or inventory. PostgreSQL integration and jsdom/mock storefront/panel tests cover these paths; there has been no real browser E2E.
+
+Size templates support audited, optimistic-concurrency measurement table edits (body or garment, centimetres) and deletion only when no category or saved measurements refer to the template. Unknown legacy tables are not overwritten. Category tables appear on the storefront for matching product sizes, with no automatic fit recommendation; product inventory is unchanged. Open storefront tabs may need a reload.
+
+Mock payments remain non-production only and are visibly marked as simulated (no bank payment) in checkout, orders and printed documents; they still change the test environment's orders, stock and cashback. Orders without a known payment attempt are not identified as bank-verified. A real Chromium checkout was exercised only against a temporary isolated database.

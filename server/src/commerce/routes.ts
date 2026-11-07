@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { config } from "../config";
-import { query } from "../db";
+import { query, withTransaction } from "../db";
 import { createSession, setSessionCookie } from "../sessions";
-import { actorOf, currentSession, requireAdminSession, requireSuperadmin } from "./auth";
-import { requirePermission } from "../http/rbac";
+import { actorOf, currentSession, requireCustomerSession, requireSuperadmin } from "./auth";
+import { requirePermission, roleForSubject } from "../http/rbac";
 import { cookieSecurity } from "../http/security";
 import {
   cashbackWallet,
@@ -56,6 +57,7 @@ import {
   listRefunds,
   publicAdjustment,
   requestAdjustment,
+  requestStocktake,
   requestRefund,
   type AdjustmentRow,
 } from "./refunds";
@@ -87,6 +89,7 @@ export async function commerceRoutes(app: FastifyInstance) {
         enabled: settings.bnpl4Enabled,
         providerReady: settings.bnpl4ProviderReady,
         availableForCheckout:
+          !config.isProd &&
           settings.bnpl4Enabled &&
           settings.bnpl4ProviderReady &&
           providerCapabilities(settings.bnpl4Provider).bnpl4,
@@ -105,6 +108,7 @@ export async function commerceRoutes(app: FastifyInstance) {
         thresholdBasis: settings.shippingThresholdBasis,
       },
       paymentProvider: settings.paymentProvider,
+      checkoutAvailable: !config.isProd && (settings.paymentProvider === "mock" ? settings.allowMockControls : settings.paymentProvider === "gateway" && availableProviders().gateway),
       // what this build can actually offer; the gateway stays false until its
       // URL is configured, so the storefront never promises it early
       providers: availableProviders(),
@@ -183,16 +187,18 @@ export async function commerceRoutes(app: FastifyInstance) {
       idempotencyKey?: string;
     };
   }>("/api/commerce/checkout", async (req, reply) => {
-    const session = await currentSession(req);
-    let cartId = req.body?.cartId ?? null;
-    if (!cartId && !req.body?.items?.length) {
+    const session = await requireCustomerSession(req);
+    // Never reserve stock for an order that cannot be paid in this build.
+    if (config.isProd) throw new CommerceError("ثبت سفارش تا اتصال درگاه واقعی در دسترس نیست.",503,"production_provider_not_ready");
+    let cartId: string | null = null;
+    if (!req.body?.items?.length) {
       const cart = await resolveCart(req, reply);
       cartId = cart.id;
     }
     const result = await startCheckout({
       cartId,
       items: req.body?.items,
-      customerEmail: session?.kind === "customer" ? session.subject : null,
+      customerEmail: session.subject,
       address: req.body?.address ?? null,
       shippingMethod: req.body?.shippingMethod,
       couponCode: req.body?.couponCode ?? null,
@@ -212,27 +218,31 @@ export async function commerceRoutes(app: FastifyInstance) {
     return reply.code(201).send(result);
   });
 
+  async function ownCheckout(req: FastifyRequest, id: string) {
+    const session = await requireCustomerSession(req);
+    const row = await getCheckout(id);
+    if (row.customer_email !== session.subject) throw notFound("تسویه‌حساب پیدا نشد.");
+    return { session, row };
+  }
   app.get<{ Params: { id: string } }>("/api/commerce/checkout/:id", async (req) =>
-    publicCheckout(await getCheckout(req.params.id)),
+    publicCheckout((await ownCheckout(req, req.params.id)).row),
   );
-
   app.post<{ Params: { id: string }; Body: { couponCode?: string | null; shippingMethod?: "standard" | "express" } }>(
-    "/api/commerce/checkout/:id/quote",
-    async (req) =>
-      requoteCheckout(req.params.id, {
-        couponCode: req.body?.couponCode === undefined ? undefined : req.body.couponCode,
-        shippingMethod: req.body?.shippingMethod,
-      }),
+    "/api/commerce/checkout/:id/quote", async (req) => {
+      await ownCheckout(req, req.params.id);
+      return requoteCheckout(req.params.id, { couponCode: req.body?.couponCode, shippingMethod: req.body?.shippingMethod });
+    },
   );
 
-  app.post<{ Params: { id: string } }>("/api/commerce/checkout/:id/cancel", async (req) =>
-    cancelCheckout(req.params.id),
-  );
+  app.post<{ Params: { id: string } }>("/api/commerce/checkout/:id/cancel", async (req) => {
+    await ownCheckout(req, req.params.id);
+    return cancelCheckout(req.params.id);
+  });
 
   app.post<{ Params: { id: string }; Body: { method?: "online" | "bnpl4"; idempotencyKey?: string } }>(
     "/api/commerce/checkout/:id/pay",
     async (req) => {
-      const session = await currentSession(req);
+      const { session } = await ownCheckout(req, req.params.id);
       return startPayment({
         checkoutId: req.params.id,
         method: req.body?.method,
@@ -252,12 +262,14 @@ export async function commerceRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string }; Body: { result?: string } }>("/api/commerce/payments/:id/simulate", async (req) => {
     const session = await currentSession(req);
+    if (session?.kind === "admin") await requirePermission(req, "finance:approve");
     const cookie = req.cookies?.kv_checkout ?? null;
     return simulatePayment(req.params.id, String(req.body?.result ?? "success"), session, cookie);
   });
 
   app.get<{ Params: { id: string } }>("/api/commerce/payments/:id", async (req) => {
     const session = await currentSession(req);
+    if (session?.kind === "admin") await requirePermission(req, "finance:view");
     const cookie = req.cookies?.kv_checkout ?? null;
     return paymentStatus(req.params.id, session, cookie);
   });
@@ -297,7 +309,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { result?: "success" | "fail" | "timeout" } }>(
     "/api/commerce/payments/:id/reconcile",
     async (req) => {
-      await requireAdminSession(req);
+      await requirePermission(req,"finance:approve");
       return reconcileAttempt(req.params.id, req.body?.result ?? "success");
     },
   );
@@ -306,12 +318,14 @@ export async function commerceRoutes(app: FastifyInstance) {
      Orders (customer + admin)
      --------------------------------------------------------------- */
 
-  app.get<{ Querystring: { status?: string; limit?: string; all?: string } }>("/api/commerce/orders", async (req) => {
+  app.get<{ Querystring: { status?: string; limit?: string; all?: string } }>("/api/commerce/orders", async (req, reply) => {
+    reply.header("cache-control", "private, no-store");
     const session = await currentSession(req);
     const isAdmin = session?.kind === "admin";
     const isCustomer = session?.kind === "customer";
     if (!isAdmin && !isCustomer) throw unauthorized("برای دیدن سفارش‌ها وارد شو.");
     if (req.query.all === "1" && !isAdmin) throw forbidden();
+    if (isAdmin) await requirePermission(req, "orders:view");
     return listOrders({
       email: isAdmin ? null : session?.subject ?? null,
       status: req.query.status ?? null,
@@ -319,10 +333,12 @@ export async function commerceRoutes(app: FastifyInstance) {
     });
   });
 
-  app.get<{ Params: { id: string } }>("/api/commerce/orders/:id", async (req) => {
+  app.get<{ Params: { id: string } }>("/api/commerce/orders/:id", async (req, reply) => {
+    reply.header("cache-control", "private, no-store");
     const session = await currentSession(req);
     const { order, lines } = await getOrder(req.params.id);
-    if (session?.kind !== "admin") {
+    if (session?.kind === "admin") await requirePermission(req, "orders:view");
+    else {
       if (session?.kind !== "customer" || order.email !== session.subject) {
         throw notFound("سفارش پیدا نشد.");
       }
@@ -330,10 +346,12 @@ export async function commerceRoutes(app: FastifyInstance) {
     return publicOrder(order, lines);
   });
 
-  app.get<{ Params: { id: string } }>("/api/commerce/orders/:id/invoice", async (req) => {
+  app.get<{ Params: { id: string } }>("/api/commerce/orders/:id/invoice", async (req, reply) => {
+    reply.header("cache-control", "private, no-store");
     const session = await currentSession(req);
     const { order, lines } = await getOrder(req.params.id);
-    if (session?.kind !== "admin" && order.email !== session?.subject) throw notFound("سفارش پیدا نشد.");
+    if (session?.kind === "admin") await requirePermission(req, "orders:view");
+    else if (session?.kind !== "customer" || order.email !== session.subject) throw notFound("سفارش پیدا نشد.");
     const refunds = await query("select * from refunds where order_id = $1 order by created_at", [order.id]);
     return {
       order: publicOrder(order, lines),
@@ -349,32 +367,47 @@ export async function commerceRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post<{ Params: { id: string }; Body: { sku?: string } }>("/api/commerce/orders/:id/picking", async (req) => {
-    const session = await requireAdminSession(req);
-    return advanceOrder(req.params.id, "picking", { sku: req.body?.sku, actor: actorOf(session) });
+  app.post<{ Params: { id: string }; Body: { sku?: string; scanKey?: string; undo?: boolean } }>("/api/commerce/orders/:id/picking", async (req) => {
+    const session = await requirePermission(req, "orders:edit");
+    if (req.body?.undo !== undefined && typeof req.body.undo !== "boolean") throw new CommerceError("درخواست اسکن معتبر نیست.",400,"invalid_scan");
+    return advanceOrder(req.params.id, "picking", { sku: req.body?.sku, scanKey: req.body?.scanKey, undo: req.body?.undo, actor: actorOf(session) });
   });
 
   app.post<{ Params: { id: string }; Body: { confirm?: boolean } }>("/api/commerce/orders/:id/packing", async (req) => {
-    const session = await requireAdminSession(req);
+    const session = await requirePermission(req, "orders:edit");
     return advanceOrder(req.params.id, "packing", {
       actor: actorOf(session),
-      note: req.body?.confirm === false ? "unconfirmed" : undefined,
+      note: req.body?.confirm === true ? undefined : "unconfirmed",
     });
   });
 
   app.post<{ Params: { id: string } }>("/api/commerce/orders/:id/ship", async (req) => {
-    const session = await requireAdminSession(req);
+    const session = await requirePermission(req, "orders:edit");
     return advanceOrder(req.params.id, "ship", { actor: actorOf(session) });
   });
 
   app.post<{ Params: { id: string } }>("/api/commerce/orders/:id/deliver", async (req) => {
-    const session = await requireAdminSession(req);
+    const session = await requirePermission(req, "orders:edit");
     return advanceOrder(req.params.id, "deliver", { actor: actorOf(session) });
   });
 
   app.post<{ Params: { id: string }; Body: { reason?: string } }>("/api/commerce/orders/:id/cancel", async (req) => {
-    const session = await requireAdminSession(req);
+    const session = await requirePermission(req, "orders:edit");
     return cancelOrder(req.params.id, req.body?.reason ?? "cancelled by admin", actorOf(session));
+  });
+
+  // Customer-only, scoped in SQL to the authenticated owner. Do not expose
+  // staff notes, internal QC notes or provider references to the customer.
+  app.get("/api/commerce/returns", async (req, reply) => {
+    const session = await requireCustomerSession(req);
+    reply.header("cache-control", "private, no-store");
+    const result = await query<{id:string;order_id:string;order_line_id:string;quantity:number;status:string;kind:string;created_at:Date;name_snapshot:string;color_name:string|null;size_label:string|null}>(
+      `select r.id,r.order_id,r.order_line_id,r.quantity,r.status,r.kind,r.created_at,
+              l.name_snapshot,l.color_name,l.size_label
+         from refunds r join orders o on o.id=r.order_id
+         join order_lines l on l.id=r.order_line_id and l.order_id=o.id
+        where o.email=$1 order by r.created_at desc, r.id desc limit 200`, [session.subject]);
+    return result.rows.map(r=>({id:r.id,orderId:r.order_id,lineId:r.order_line_id,quantity:r.quantity,status:r.status,kind:r.kind,createdAt:r.created_at,name:r.name_snapshot,color:r.color_name,size:r.size_label}));
   });
 
   app.post<{
@@ -384,8 +417,12 @@ export async function commerceRoutes(app: FastifyInstance) {
     const session = await currentSession(req);
     const { order } = await getOrder(req.params.id);
     const isAdmin = session?.kind === "admin";
+    if (isAdmin) await requirePermission(req, "orders:edit");
     if (!isAdmin && (session?.kind !== "customer" || order.email !== session.subject)) {
       throw notFound("سفارش پیدا نشد.");
+    }
+    if (typeof req.body?.lineId !== "string" || !req.body.lineId || typeof req.body?.quantity !== "number" || !Number.isSafeInteger(req.body.quantity) || req.body.quantity <= 0 || (req.body.reason !== undefined && (typeof req.body.reason !== "string" || req.body.reason.length > 500)) || (req.body.kind !== undefined && !["return","exchange","refund"].includes(req.body.kind))) {
+      throw new CommerceError("اطلاعات درخواست مرجوعی معتبر نیست.", 400, "invalid_return_request");
     }
     const refund = await requestRefund({
       orderId: req.params.id,
@@ -426,30 +463,18 @@ export async function commerceRoutes(app: FastifyInstance) {
     Body: { tracking?: string; carrier?: string };
   }>("/api/commerce/admin/orders/:id/shipment", async (req) => {
     const session = await requirePermission(req, "orders:edit");
-    const tracking = String(req.body?.tracking ?? "").trim().slice(0, 120);
-    const carrier = String(req.body?.carrier ?? "").trim().slice(0, 120);
-    const result = await query(
-      `update orders
-          set tracking_code = $2, carrier_name = $3,
-              data = jsonb_set(jsonb_set(data, '{tracking}', to_jsonb($2::text), true), '{carrier}', to_jsonb($3::text), true)
-        where id = $1 returning id`,
-      [req.params.id, tracking, carrier],
-    );
-    if (!result.rows[0]) throw notFound("سفارش پیدا نشد.");
-    await query(
-      `insert into fulfillment_events (order_id, stage, accepted, actor, note)
-       values ($1, 'shipment_details', true, $2, $3)`,
-      [req.params.id, actorOf(session), tracking ? `tracking:${tracking}` : "tracking cleared"],
-    );
-    await recordAudit({
-      actor: actorOf(session),
-      action: "order.shipment_update",
-      targetType: "order",
-      targetId: req.params.id,
-      after: { tracking, carrier },
-      requestId: req.id,
+    const body=req.body ?? {};
+    if ((body.tracking !== undefined && typeof body.tracking !== "string") || (body.carrier !== undefined && typeof body.carrier !== "string") || (body.tracking?.length ?? 0) > 120 || (body.carrier?.length ?? 0) > 120) throw new CommerceError("اطلاعات ارسال معتبر نیست.",400,"invalid_shipment");
+    return withTransaction(async client => {
+      const previous=await client.query<{tracking_code:string|null;carrier_name:string|null}>("select tracking_code,carrier_name from orders where id=$1 for update",[req.params.id]);
+      if (!previous.rows[0]) throw notFound("سفارش پیدا نشد.");
+      const tracking=body.tracking === undefined ? (previous.rows[0].tracking_code ?? "") : body.tracking.trim();
+      const carrier=body.carrier === undefined ? (previous.rows[0].carrier_name ?? "") : body.carrier.trim();
+      await client.query(`update orders set tracking_code=$2,carrier_name=$3,data=jsonb_set(jsonb_set(data,'{tracking}',to_jsonb($2::text),true),'{carrier}',to_jsonb($3::text),true) where id=$1`,[req.params.id,tracking,carrier]);
+      await client.query(`insert into fulfillment_events (order_id,stage,accepted,actor,note) values ($1,'shipment_details',true,$2,$3)`,[req.params.id,actorOf(session),tracking ? `tracking:${tracking}` : "tracking cleared"]);
+      await recordAudit({actor:actorOf(session),action:"order.shipment_update",targetType:"order",targetId:req.params.id,before:{tracking:previous.rows[0].tracking_code,carrier:previous.rows[0].carrier_name},after:{tracking,carrier},requestId:req.id},client);
+      return {ok:true,id:req.params.id,tracking,carrier};
     });
-    return { ok: true, id: req.params.id, tracking, carrier };
   });
 
   app.get<{ Params: { id: string } }>("/api/commerce/admin/orders/:id/events", async (req) => {
@@ -466,7 +491,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   app.get("/api/commerce/admin/inventory", async (req) => {
     await requirePermission(req, "inventory:view");
     const rows = await query<any>(
-      `select v.id, v.product_id, v.color_id, v.size_id, v.sku, v.on_hand, v.quarantined, v.active,
+      `select v.id, v.product_id, v.color_id, v.size_id, v.sku, v.on_hand, v.quarantined, v.active, v.updated_at::text as stock_version,
               p.name, p.category, p.price, p.colors, p.sizes,
               coalesce((select sum(r.quantity) from stock_reservations r
                 where r.variant_id = v.id and r.status = 'active' and r.expires_at > now()), 0)::int as reserved
@@ -496,6 +521,7 @@ export async function commerceRoutes(app: FastifyInstance) {
         sizeId: row.size_id,
         sizeLabel: size?.label ?? row.size_id,
         onHand,
+        stockVersion: row.stock_version,
         quarantined,
         reserved,
         sellable,
@@ -534,7 +560,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: { targetType?: string; targetId?: string; action?: string; actor?: string; limit?: string };
   }>("/api/commerce/admin/audit", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req, "security:view");
     return listAudit({
       targetType: req.query.targetType,
       targetId: req.query.targetId,
@@ -545,7 +571,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   });
 
   app.get("/api/commerce/admin/cashback", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req,"finance:view");
     return cashbackOverview();
   });
 
@@ -577,6 +603,21 @@ export async function commerceRoutes(app: FastifyInstance) {
     for (const key of allowed) {
       if (req.body && key in req.body) (patch as Record<string, unknown>)[key] = req.body[key];
     }
+    const numericLimits: Partial<Record<keyof CommerceSettings, [number, number, boolean]>> = {
+      shippingFlat: [0, 99999999, false], shippingExpress: [0, 99999999, false], freeShippingThreshold: [0, 99999999, false],
+      taxRate: [0, 100, false], cartMaxQtyPerLine: [1, 10000, true], reservationHoldMinutes: [1, 1440, true],
+      paymentWindowMinutes: [1, 1440, true], quoteTtlMinutes: [1, 1440, true], bnpl4Installments: [1, 48, true],
+      cashbackMaxAmount: [0, 99999999, false], cashbackHoldDays: [0, 3650, true], cashbackExpiryMonths: [0, 1200, true], cashbackRedeemMaxPercent: [0, 100, false],
+    };
+    for (const [key, [min, max, integer]] of Object.entries(numericLimits)) {
+      const value = (patch as Record<string, unknown>)[key];
+      if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value)))) throw new CommerceError("مقدار تنظیمات معتبر نیست.", 400, "invalid_settings");
+    }
+    for (const key of ["bnpl4Enabled", "bnpl4ProviderReady", "liveRefundsEnabled", "requireCallbackSignature", "cashbackEnabled", "cashbackRedeemEnabled", "cashbackCombineWithDiscounts"] as const) {
+      if (patch[key] !== undefined && typeof patch[key] !== "boolean") throw new CommerceError("وضعیت تنظیمات معتبر نیست.", 400, "invalid_settings");
+    }
+    if (patch.shippingThresholdBasis !== undefined && !["before_discount", "after_discount"].includes(patch.shippingThresholdBasis)) throw new CommerceError("مبنای ارسال معتبر نیست.", 400, "invalid_settings");
+    if (patch.discountStacking !== undefined && !["none", "explicit"].includes(patch.discountStacking)) throw new CommerceError("قانون تخفیف معتبر نیست.", 400, "invalid_settings");
     if (patch.cashbackTiers) patch.cashbackTiers = normalizeTiers(patch.cashbackTiers);
 
     /* the master switch cannot be turned on without a confirmed provider */
@@ -615,24 +656,26 @@ export async function commerceRoutes(app: FastifyInstance) {
           : null,
       });
     }
-    return saved;
+    return { ...saved, providerWebhookSecret: saved.providerWebhookSecret ? "***" : "" };
   });
 
   /** elevation to the protected superadmin subject (separate passcode) */
   app.post<{ Body: { passcode?: string } }>("/api/commerce/admin/elevate", async (req, reply) => {
-    if (!config.superadminPasscode) {
-      throw forbidden("دسترسی Superadmin در این نصب تنظیم نشده است.");
+    const actor = await requirePermission(req, "finance:approve");
+    if (!config.superadminPasscode || (config.isProd && config.superadminPasscode.length < 12)) {
+      throw forbidden("دسترسی Superadmin در این نصب به‌صورت امن تنظیم نشده است.");
     }
     if ((req.body?.passcode ?? "") !== config.superadminPasscode) {
       throw unauthorized("رمز Superadmin درست نیست.");
     }
-    const session = await createSession("admin", "superadmin");
+    const session = await createSession("admin", "superadmin", 15 * 60_000);
+    await recordAudit({actor:actor.subject,action:"admin.elevated",targetType:"staff",targetId:"superadmin",requestId:req.id});
     setSessionCookie(reply, session.token, session.expires);
-    return { ok: true, subject: "superadmin" };
+    return { ok: true, subject: "superadmin", ...(!config.isProd ? {sessionToken:session.token} : {}) };
   });
 
   app.post("/api/commerce/admin/sync", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req,"catalog:edit");
     const { syncVariants } = await import("./variants");
     const { syncPromotions } = await import("./promotions");
     const { getDocument } = await import("../seed");
@@ -643,13 +686,13 @@ export async function commerceRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: { productId?: string } }>("/api/commerce/admin/variants", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req,"inventory:view");
     if (req.query.productId) {
       const rows = await productVariants(req.query.productId);
       return rows.map((row) => publicVariant(row as Record<string, unknown>));
     }
     const rows = await query(
-      `select v.*, p.name, p.category, p.price,
+      `select v.*, v.updated_at::text as stock_version, p.name, p.category, p.price,
               (select coalesce(sum(r.quantity),0)::int from stock_reservations r
                 where r.variant_id = v.id and r.status = 'active' and r.expires_at > now()) as reserved
          from product_variants v join products p on p.id = v.product_id
@@ -660,11 +703,12 @@ export async function commerceRoutes(app: FastifyInstance) {
       name: row.name,
       category: row.category,
       price: Number(row.price),
+      stockVersion: row.stock_version,
     }));
   });
 
   app.get<{ Querystring: { variantId?: string; limit?: string } }>("/api/commerce/admin/inventory/movements", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req, "inventory:view");
     const params: unknown[] = [];
     let where = "";
     if (req.query.variantId) {
@@ -685,7 +729,7 @@ export async function commerceRoutes(app: FastifyInstance) {
     return rows.rows;
   });
 
-  app.post<{ Body: { variantId?: string; delta?: number; reason?: string; note?: string } }>(
+  app.post<{ Body: { variantId?: string; delta?: number; reason?: string; note?: string; expectedVersion?: string } }>(
     "/api/commerce/admin/inventory/adjustments",
     async (req, reply) => {
       const session = await requirePermission(req, "inventory:adjust");
@@ -695,40 +739,47 @@ export async function commerceRoutes(app: FastifyInstance) {
         reason: String(req.body?.reason ?? "manual"),
         actor: actorOf(session),
         note: req.body?.note,
+        expectedVersion: req.body?.expectedVersion,
       });
       return reply.code(201).send({ ok: true, adjustment });
     },
   );
 
+  app.post<{Body:{operation?:string;variantId?:string;acceptedQty?:number;rejectedQty?:number;countedQty?:number;expectedOnHand?:number;expectedVersion?:string;delta?:number;reference?:string;note?:string;idempotencyKey?:string}}>("/api/commerce/admin/inventory/operations", async (req,reply) => {
+    const session = await requirePermission(req,"inventory:adjust"); const b = req.body ?? {};
+    const variantId = typeof b.variantId === "string" ? b.variantId : "";
+    const reference = typeof b.reference === "string" ? b.reference.trim() : "";
+    const note = typeof b.note === "string" ? b.note.trim() : "";
+    if (!variantId || !reference || reference.length > 150 || note.length > 1000) throw new CommerceError("شناسه کالا و مرجع عملیات معتبر لازم است.",400,"invalid_inventory_operation");
+    if (typeof b.idempotencyKey !== "string" || !/^[A-Za-z0-9_-]{16,100}$/.test(b.idempotencyKey)) throw new CommerceError("شناسه درخواست معتبر لازم است.",400,"invalid_operation_key");
+    const identity={operationKey:b.idempotencyKey,fingerprint:createHash("sha256").update(JSON.stringify(b)).digest("hex"),requestId:req.id};
+    let adjustment;
+    if (b.operation === "receive") {
+      if (!Number.isSafeInteger(b.acceptedQty) || b.acceptedQty! < 0 || b.acceptedQty! > 1000000 || !Number.isSafeInteger(b.rejectedQty) || b.rejectedQty! < 0 || b.rejectedQty! > 1000000 || (b.acceptedQty === 0 && b.rejectedQty === 0)) throw new CommerceError("تعداد دریافت معتبر نیست.",400,"invalid_receipt");
+      adjustment = await requestAdjustment({...identity,variantId,delta:b.acceptedQty!,reason:"receiving",actor:actorOf(session),expectedVersion:b.expectedVersion,note:`مرجع: ${reference}؛ ردشده: ${b.rejectedQty}؛ ${note}`});
+    } else if (b.operation === "stocktake") {
+      adjustment = await requestStocktake({...identity,variantId,counted:b.countedQty as number,expectedOnHand:b.expectedOnHand as number,expectedVersion:b.expectedVersion as string,actor:actorOf(session),note:`مرجع: ${reference}؛ ${note}`});
+    } else if (b.operation === "adjust") {
+      if (!note) throw new CommerceError("علت اصلاح لازم است.",400,"invalid_adjustment");
+      adjustment = await requestAdjustment({...identity,variantId,delta:b.delta as number,reason:"manual",actor:actorOf(session),expectedVersion:b.expectedVersion,note:`مرجع: ${reference}؛ ${note}`});
+    } else throw new CommerceError("نوع عملیات معتبر نیست.",400,"invalid_inventory_operation");
+    return reply.code(201).send({ok:true,adjustment});
+  });
+
   app.post<{ Params: { id: string }; Body: { decision?: "approve" | "reject"; note?: string } }>(
     "/api/commerce/admin/inventory/adjustments/:id",
     async (req) => {
       const session = await requirePermission(req, "inventory:approve");
-      const before = await query<{ status: string; delta: number; variant_id: string }>(
-        "select status, delta, variant_id from inventory_adjustments where id = $1",
-        [req.params.id],
-      );
-      const result = await decideAdjustment({
-        id: req.params.id,
-        decision: req.body?.decision === "reject" ? "reject" : "approve",
-        actor: actorOf(session),
-        note: req.body?.note,
-      });
-      await recordAudit({
-        actor: actorOf(session),
-        action: `stock_adjustment.${req.body?.decision === "reject" ? "reject" : "approve"}`,
-        targetType: "inventory_adjustment",
-        targetId: req.params.id,
-        before: before.rows[0] ? { status: before.rows[0].status, delta: before.rows[0].delta } : null,
-        after: { status: result.adjustment.status, approvedBy: result.adjustment.approvedBy },
-        reason: typeof req.body?.note === "string" ? req.body.note : null,
-      });
+      if (req.body?.decision !== "approve" && req.body?.decision !== "reject") throw new CommerceError("تصمیم معتبر نیست.",400,"invalid_decision");
+      const role = await roleForSubject(session.subject);
+      const canSelfApprove = (config.panelOpenAccess && session.subject === "review-owner") || role?.roleId === "owner" || role?.roleId === "superadmin";
+      const result = await decideAdjustment({id:req.params.id,decision:req.body.decision,actor:actorOf(session),canSelfApprove,note:req.body?.note,requestId:req.id});
       return result;
     },
   );
 
   app.get("/api/commerce/admin/inventory/adjustments", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req, "inventory:view");
     const rows = await query<AdjustmentRow>(
       "select * from inventory_adjustments order by created_at desc limit 200",
     );
@@ -736,7 +787,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: { status?: string } }>("/api/commerce/admin/reservations", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req,"inventory:view");
     const status = req.query.status ?? "active";
     const rows = await query(
       `select r.*, v.product_id, v.color_id, v.size_id, v.sku, p.name
@@ -751,7 +802,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: { status?: string } }>("/api/commerce/admin/payments", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req,"finance:view");
     const rows = await query<PaymentAttemptRow>(
       `select * from payment_attempts where ($1 = 'all' or status = $1) order by created_at desc limit 200`,
       [req.query.status ?? "all"],
@@ -760,7 +811,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   });
 
   app.get("/api/commerce/admin/outbox", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req,"security:view");
     const rows = await query(
       "select id, type, payload, dedupe_key, status, attempts, last_error, created_at, processed_at from outbox_events order by id desc limit 200",
     );
@@ -768,13 +819,13 @@ export async function commerceRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Body: { limit?: number } }>("/api/commerce/admin/outbox/process", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req,"settings:edit");
     return processOutbox(Math.min(100, Number(req.body?.limit ?? 20)));
   });
 
   /** the worker ticks from a request too, so a serverless deploy still drains */
   app.post("/api/commerce/admin/tick", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req,"settings:edit");
     const expired = await expireReservations();
     const attempts = await expirePaymentAttempts();
     const outbox = await processOutbox();
@@ -784,7 +835,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { note?: string } }>(
     "/api/commerce/admin/refunds/:id/receive",
     async (req) => {
-      const session = await requireAdminSession(req);
+      const session = await requirePermission(req, "orders:edit");
       const result = await receiveReturn({ refundId: req.params.id, actor: actorOf(session), note: req.body?.note });
       await recordAudit({
         actor: actorOf(session),
@@ -800,7 +851,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { result?: "saleable" | "defective"; note?: string } }>(
     "/api/commerce/admin/refunds/:id/qc",
     async (req) => {
-      const session = await requireAdminSession(req);
+      const session = await requirePermission(req, "orders:edit");
       const result = await qcReturn({
         refundId: req.params.id,
         result: req.body?.result === "defective" ? "defective" : "saleable",
@@ -820,7 +871,7 @@ export async function commerceRoutes(app: FastifyInstance) {
   );
 
   app.get<{ Querystring: { status?: string; orderId?: string } }>("/api/commerce/admin/refunds", async (req) => {
-    await requireAdminSession(req);
+    await requirePermission(req, "orders:view");
     return listRefunds({ status: req.query.status, orderId: req.query.orderId });
   });
 

@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import {JSDOM} from "jsdom";
+const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>",{url:"http://store.test"});
+Object.assign(globalThis,{window:dom.window,document:dom.window.document,HTMLElement:dom.window.HTMLElement,IS_REACT_ACT_ENVIRONMENT:true});
+const React=await import("react");const {act}=React;const {createRoot}=await import("react-dom/client");
+const {SmartSizeGuide}=await import("../src/components/SmartSizeGuide");
+const root=createRoot(document.getElementById("root")!);let chosen="";let closed=0;
+const sizes=[{id:"s",label:"S"},{id:"m",label:"M"}];
+await act(async()=>root.render(<SmartSizeGuide sizes={sizes} measurements={{S:{chest:92.5},L:{chest:777}}} measurementBasis="body" availableIds={["s"]} onPick={size=>{chosen=size}} onClose={()=>{closed++}}/>));
+assert.match(document.body.textContent!,/اندازهٔ بدن/);assert.match(document.body.textContent!,/۹۲٫۵/);assert.doesNotMatch(document.body.textContent!,/۷۷۷|اطمینان|پیشنهادی/);
+const unavailable=[...document.querySelectorAll("button")].find(b=>b.textContent?.includes("انتخاب M"))!;assert.equal(unavailable.disabled,true);unavailable.click();assert.equal(chosen,"");
+const available=[...document.querySelectorAll("button")].find(b=>b.textContent?.includes("انتخاب S"))!;await act(async()=>available.click());assert.equal(chosen,"S");assert.equal(closed,1);
+await act(async()=>root.render(<SmartSizeGuide sizes={sizes} measurements={{S:{waist:70}}} onClose={()=>{}}/>));assert.match(document.body.textContent!,/مبنای این اندازه‌ها مشخص نشده/);
+await act(async()=>root.render(<SmartSizeGuide sizes={sizes} onClose={()=>{}}/>));assert.match(document.body.textContent!,/جدول اندازه‌گیری ثبت نشده/);
+await act(async()=>root.unmount());console.log("size guide: real category measurements, availability and empty/legacy states OK (jsdom)");

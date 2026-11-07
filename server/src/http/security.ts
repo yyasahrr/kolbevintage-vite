@@ -54,7 +54,7 @@ export function resetRateLimits() {
 
 function classFor(path: string, method: string): string | null {
   if (SAFE_METHODS.has(method)) return null;
-  if (path.startsWith("/api/admin/login")) return "admin_login";
+  if (path.startsWith("/api/admin/login") || path === "/api/commerce/admin/elevate") return "admin_login";
   if (path.startsWith("/api/auth/")) return "auth";
   if (path.startsWith("/api/commerce/checkout")) return "checkout";
   if (path.startsWith("/api/commerce/payments")) return "payment";
@@ -73,9 +73,8 @@ function isBeacon(path: string): boolean {
 }
 
 function clientKey(req: FastifyRequest): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  const ip = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.ip;
-  return ip || "unknown";
+  // Fastify has already evaluated the configured trusted proxy chain.
+  return req.ip || "unknown";
 }
 
 function readCookie(req: FastifyRequest, name: string): string | null {
@@ -119,14 +118,13 @@ function signedCsrfValid(token: string): boolean {
  * will be dropped, so the cookies below switch to `SameSite=None; Secure`.
  */
 export function isCrossSite(req: FastifyRequest): boolean {
-  const forwarded = req.headers["x-forwarded-proto"];
-  const proto = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.protocol;
-  if (proto === "https") return true;
+  if (req.protocol === "https") return true;
   const fetchSite = req.headers["sec-fetch-site"];
   return typeof fetchSite === "string" && fetchSite.toLowerCase() === "cross-site";
 }
 
 export function cookieSecurity(req: FastifyRequest): { secure: boolean; sameSite: "none" | "lax" } {
+  if (config.isProd) return { secure: true, sameSite: "lax" };
   const https = isCrossSite(req);
   return https ? { secure: true, sameSite: "none" } : { secure: false, sameSite: "lax" };
 }
@@ -195,7 +193,12 @@ export function registerSecurity(app: FastifyInstance) {
     // Clickjacking protection stays on for real deployments. The development and
     // preview environment renders the storefront inside a frame on another origin,
     // so a hard DENY there would break the preview instead of protecting it.
-    if (config.isProd) reply.header("x-frame-options", "DENY");
+    if (config.isProd) {
+      // The harmless storefront preview may be framed by the same-origin
+      // admin; all other pages retain the stricter clickjacking policy.
+      const preview = req.method === "GET" && (req.url.startsWith("/?themePreview=") || req.url.startsWith("/index.html?themePreview="));
+      reply.header("x-frame-options", preview ? "SAMEORIGIN" : "DENY");
+    }
     reply.header("cross-origin-resource-policy", "same-site");
     const path = req.url.split("?")[0];
     if (path.startsWith("/api/auth") || path.startsWith("/api/admin") || path.startsWith("/api/commerce/cashback")) {

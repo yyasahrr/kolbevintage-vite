@@ -52,7 +52,6 @@ import {
   CornerDownLeft,
   X,
   XCircle,
-  BookOpen,
   Clock,
   ToggleRight,
   Ruler,
@@ -61,9 +60,7 @@ import { cn } from "@/utils/cn";
 import { weekdayName } from "@/utils/date";
 import { COLLECTIONS, liveCatalog, liveGetProduct, type CatalogProduct } from "@/data/catalog";
 import { LOOKS, formatPrice, stockOf } from "@/data/looks";
-import { POSTS, type ArticleBlock } from "@/data/journal";
 import { computeDiscounts } from "@/state/discounts";
-import { fileToDataUrl } from "@/builder/ControlsUI";
 import { ProductThumb } from "@/components/ProductThumb";
 import { ProductMediaEditor } from "@/components/ProductMediaEditor";
 import { adminLogin, adminLogout, api, ApiError } from "@/lib/api";
@@ -73,7 +70,7 @@ import { THEMES } from "@/theme/themes";
 import { useSyncStatus } from "@/state/sync";
 import type { Permission } from "@/admin/rbac";
 import { defaultHomeSections, moveHomeSection, setHomeSections, toggleHomeSection } from "@/state/ops";
-import { addLog, logSmsCampaign, removeSmsTemplate, resetJournalBlocks, saveSmsTemplate, setFeature, setJournalBlocks, setJournalVideo, setSeo, setSizeGuide } from "@/state/ops";
+import { addLog, logSmsCampaign, removeSmsTemplate, saveSmsTemplate, setFeature, setSeo, setSizeGuide } from "@/state/ops";
 import { PRODUCT_BADGES, setReviewReply, type Coupon, LOW_STOCK_DEFAULT, isLowStock, lowStockLine, lowStockLineOf, useAdmin, setOrderStatus, patchOrder, addOrderNote, removeOrder, setReviewApproved, removeReview, toggleHidden, toggleFeatured, addCustomProduct, updateCustomProduct, removeCustomProduct, setStockUnified, saveCampaign, removeCampaign, saveRule, removeRule, saveCoupon, saveCoupons, generateCouponCode, removeCoupon, setIntegrations, setCustomerMeta, patchSettings, resetAdmin, adminUnlocked, unlockAdmin, lockAdmin, openPanelForReview, GARMENT_LABEL, ORDER_STATUS_LABEL, SCOPE_LABEL, RULE_TYPE_LABEL, getAdmin, saveProductEdit, resetProductEdit, productEditOf, complementsOf, setComplements } from "@/state/admin";
 import { useDocs, useSubmissions } from "@/builder/docs";
 import { sizeSetOf, useOps, getOps, recordFailedLogin, productImagesOf, setProductImages } from "@/state/ops";
@@ -81,7 +78,7 @@ import { resolveImg } from "@/builder/stock";
 import { useCart as useNotifyCart } from "@/state/cart";
 import type { AdminState, Campaign, DiscountRule, OrderStatus, RuleType, Scope, StockMove } from "@/state/admin";
 import type { GarmentKind, ProductImage } from "@/types";
-import { BrandPanel, CategoriesPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, AnalyticsPanel, BackupPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel} from "./AdminOps";
+import { BrandPanel, MediaPanel, LooksPanel, CrmPanel, TicketsPanel, ReturnsPanel, LogsPanel, HealthPanel, AnalyticsPanel, BackupPanel, SecurityPanel, FormsPanel, TryOnPanel, MegaMenuPanel} from "./AdminOps";
 import { ColorLibraryPanel, FulfillmentPanel, GalleryModerationPanel, InventoryLedgerPanel, InventoryOperationsPanel, InventoryWorkspace, ManualOrderPanel, PrintCenterPanel } from "./AdminV3";
 import { CashbackPanel } from "./AdminCashback";
 import { CommercePanel } from "./AdminCommercePanel";
@@ -634,7 +631,7 @@ export function AdminPage() {
                 { id: "inventoryops", label: "دریافت و اصلاح", node: <InventoryOperationsPanel /> },
                 { id: "ledger", label: "دفتر گردش", node: <InventoryLedgerPanel /> },
                 { id: "colors", label: "کتابخانه رنگ", node: <ColorLibraryPanel /> },
-                { id: "categories", label: "دسته‌بندی و سایز", node: <CategoriesPanel /> },
+                { id: "categories", label: "دسته‌بندی و سایز", node: <Card title="دسته‌بندی و سایز"><p>ویرایشگر قدیمی غیرفعال است. دسته‌ها و الگوهای سایز را در پنل اصلی مدیریت کنید.</p><a href="/panel">رفتن به پنل اصلی</a></Card> },
                 { id: "media", label: "تصاویر", node: <MediaPanel /> },
               ]}
               value={tab}
@@ -648,7 +645,7 @@ export function AdminPage() {
                 { id: "brand", label: "برند و لوگو", node: <BrandPanel /> },
                 { id: "megamenu", label: "مگا منو", node: <MegaMenuPanel /> },
                 { id: "content", label: "محتوا", node: <Content /> },
-                { id: "journal", label: "ژورنال و ویدیو", node: <JournalEditor /> },
+                { id: "journal", label: "ژورنال و ویدیو", node: <Card title="مدیریت ژورنال"><p>ویرایشگر قدیمی غیرفعال است. برای مدیریت مقاله‌ها از بخش ژورنال در پنل اصلی استفاده کنید.</p><a href="/panel">رفتن به پنل اصلی</a></Card> },
                 { id: "gallery", label: "گالری مشتریان", node: <GalleryModerationPanel /> },
                 { id: "appearance", label: "ظاهر سایت", node: <Appearance /> },
                 { id: "forms", label: "فرم‌ها", node: <FormsPanel /> },
@@ -4733,207 +4730,11 @@ function HomeOrderPanel() {
 
 
 /* ------------------------------------------------------------------ */
-/* journal block editor (decision 68)                                  */
-/* the shipped article is the starting point; the owner's version is   */
-/* stored per slug and can always be thrown away to get it back.       */
+/* Legacy block editor retired; the live journal is managed in /panel. */
 /* ------------------------------------------------------------------ */
 
 /** how many colour rows the variant matrix shows at once (decision 22) */
 const VARIANT_ROWS = 8;
-
-const BLOCK_TYPES: { id: ArticleBlock["type"]; label: string }[] = [
-  { id: "h", label: "تیتر" },
-  { id: "p", label: "متن" },
-  { id: "quote", label: "نقل‌قول" },
-  { id: "image", label: "عکس" },
-  { id: "gallery", label: "گالری" },
-];
-
-function JournalEditor() {
-  const ops = useOps();
-  const [slug, setSlug] = useState(POSTS[0]?.slug ?? "");
-  const post = POSTS.find((p) => p.slug === slug) ?? POSTS[0];
-  const saved = ops.journalBlocks?.[slug];
-  const [draft, setDraft] = useState<ArticleBlock[]>(saved ?? post?.blocks ?? []);
-  const [dirty, setDirty] = useState(false);
-  const [notice, setNotice] = useState("");
-  // a half-edited article survives a closed tab (decision 50)
-  const localDraft = useLocalDraft<ArticleBlock[]>(
-    `kv_journal_draft_${slug}`,
-    draft,
-    (blocks) => {
-      if (Array.isArray(blocks)) {
-        setDraft(blocks);
-        setDirty(true);
-      }
-    },
-    dirty,
-  );
-
-  useEffect(() => {
-    const next = ops.journalBlocks?.[slug] ?? post?.blocks ?? [];
-    setDraft(next.map((b) => ({ ...b })));
-    setDirty(false);
-    setNotice("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
-
-  if (!post) return <Card title="ژورنال"><Empty text="مقاله‌ای برای ویرایش نیست." /></Card>;
-
-  const write = (blocks: ArticleBlock[]) => {
-    setDraft(blocks);
-    setDirty(true);
-    setNotice("");
-  };
-  const patchBlock = (i: number, patch: Partial<ArticleBlock>) =>
-    write(draft.map((b, j) => (j === i ? { ...b, ...patch } : b)));
-  const move = (i: number, dir: -1 | 1) => {
-    const j = i + dir;
-    if (j < 0 || j >= draft.length) return;
-    const next = [...draft];
-    [next[i], next[j]] = [next[j], next[i]];
-    write(next);
-  };
-
-  const uploadFor = async (files: FileList | null, i: number, multiple: boolean) => {
-    if (!files?.length) return;
-    const urls: string[] = [];
-    for (const file of Array.from(files)) {
-      const url = await fileToDataUrl(file);
-      if (url) urls.push(url);
-    }
-    if (!urls.length) return;
-    if (multiple) patchBlock(i, { images: [...(draft[i].images ?? []), ...urls] });
-    else patchBlock(i, { src: urls[0] });
-  };
-
-  return (
-    <>
-      {/* every other screen opens with an h2; this one opened with the card's h3 */}
-      <div className="ad-head">
-        <div>
-          <h2>ژورنال</h2>
-          <p>مقاله را بلوک‌به‌بلوک بچین: متن، تصویر، نقل‌قول و فاصله. نسخهٔ ذخیره‌شده جای نسخهٔ اصلی را در فروشگاه می‌گیرد.</p>
-        </div>
-      </div>
-      <Card title="ویرایشگر بلوکی ژورنال" icon={<BookOpen width={14} height={14} />}>
-      <DraftBanner draft={localDraft} what="این مقاله" />
-      <label className="ad-field">
-        مقاله
-        <select className="ad-select" value={slug} onChange={(e) => setSlug(e.target.value)}>
-          {POSTS.map((p) => (
-            <option key={p.slug} value={p.slug}>{p.title}</option>
-          ))}
-        </select>
-        <small className="ad-hint">
-          {saved ? "این مقاله نسخهٔ ویرایش‌شدهٔ خودت را دارد." : "نسخهٔ اصلی مقاله؛ هر تغییری که ذخیره کنی جای آن را می‌گیرد."}
-        </small>
-      </label>
-
-      <label className="ad-field">ویدیوی لوک‌بوک (اختیاری)
-        <input
-          className="ad-input"
-          dir="ltr"
-          type="url"
-          value={ops.journalVideos[slug] ?? ""}
-          placeholder="https://…/lookbook.mp4"
-          onChange={(e) => setJournalVideo(slug, e.target.value)}
-        />
-        <small className="ad-hint">با افزودنش، همین مقاله در فروشگاه به یک لوک‌بوک ویدیویی تبدیل می‌شود.</small>
-      </label>
-
-      <div className="ad-blocks">
-        {draft.map((block, i) => (
-          <div key={i} className="ad-block">
-            <div className="ad-block-head">
-              <select
-                className="ad-select is-compact"
-                value={block.type}
-                aria-label="نوع بلوک"
-                onChange={(e) => patchBlock(i, { type: e.target.value as ArticleBlock["type"] })}
-              >
-                {BLOCK_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-              </select>
-              <span className="ad-hint">بلوک {fa(i + 1)}</span>
-              <div className="ad-actions">
-                <button type="button" className="ad-icon" aria-label="بالا" onClick={() => move(i, -1)} disabled={i === 0}><ArrowUp width={13} height={13} /></button>
-                <button type="button" className="ad-icon" aria-label="پایین" onClick={() => move(i, 1)} disabled={i === draft.length - 1}><ArrowDown width={13} height={13} /></button>
-                <button type="button" className="ad-icon" aria-label="حذف بلوک" onClick={() => write(draft.filter((_, j) => j !== i))}><Trash2 width={13} height={13} /></button>
-              </div>
-            </div>
-
-            {block.type === "image" && (
-              <>
-                {block.src && <img src={block.src} alt="" className="ad-block-img" />}
-                <input type="file" accept="image/*" aria-label="بارگذاری عکس" onChange={(e) => void uploadFor(e.target.files, i, false)} />
-              </>
-            )}
-            {block.type === "gallery" && (
-              <>
-                <div className="ad-block-gallery">
-                  {(block.images ?? []).map((src, gi) => (
-                    <img key={gi} src={src} alt="" />
-                  ))}
-                </div>
-                <input type="file" accept="image/*" multiple aria-label="بارگذاری گالری" onChange={(e) => void uploadFor(e.target.files, i, true)} />
-                {(block.images?.length ?? 0) > 0 && (
-                  <button type="button" className="ad-btn is-sm" onClick={() => patchBlock(i, { images: [] })}>خالی کردن گالری</button>
-                )}
-              </>
-            )}
-
-            <textarea
-              className="ad-input"
-              rows={block.type === "h" ? 1 : 3}
-              value={block.text}
-              aria-label={block.type === "image" || block.type === "gallery" ? "توضیح تصویر" : "متن بلوک"}
-              placeholder={block.type === "image" || block.type === "gallery" ? "توضیح کوتاه تصویر (اختیاری)" : "متن…"}
-              onChange={(e) => patchBlock(i, { text: e.target.value })}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="ad-actions">
-        <button type="button" className="ad-btn is-sm" onClick={() => write([...draft, { type: "p", text: "" }])}>
-          <Plus width={13} height={13} /> بلوک تازه
-        </button>
-        <button
-          type="button"
-          className="ad-btn is-primary is-sm"
-          disabled={!dirty}
-          onClick={() => {
-            setJournalBlocks(slug, draft.filter((b) => b.text.trim() || b.src || b.images?.length));
-            setDirty(false);
-            localDraft.clear();
-            setNotice("ذخیره شد؛ مقاله از همین حالا نسخهٔ تو را نشان می‌دهد.");
-          }}
-        >
-          <Save width={13} height={13} /> ذخیرهٔ مقاله
-        </button>
-        {saved && (
-          <button
-            type="button"
-            className="ad-btn is-sm"
-            onClick={() => {
-              if (!window.confirm("نسخهٔ ویرایش‌شده پاک شود و متن اصلی برگردد؟")) return;
-              resetJournalBlocks(slug);
-              setDraft(post.blocks.map((b) => ({ ...b })));
-              setDirty(false);
-              setNotice("به نسخهٔ اصلی برگشت.");
-            }}
-          >
-            بازگشت به نسخهٔ اصلی
-          </button>
-        )}
-        <a className="ad-btn is-sm" href={`#/journal/${slug}`} target="_blank" rel="noreferrer">دیدن مقاله</a>
-        {dirty && <span className="ad-hint">تغییر ذخیره‌نشده داری.</span>}
-        {notice && <span className="ad-hint">{notice}</span>}
-      </div>
-      </Card>
-    </>
-  );
-}
 
 function Content() {
   const docs = useDocs();
@@ -5130,9 +4931,11 @@ function FeatureSwitches() {
 
 function Appearance() {
   const { theme, setTheme } = useTheme();
+  const [themeError, setThemeError] = useState("");
   return (
     <>
       <PageHead title="ظاهر سایت" sub="یک تصمیم سطح فروشگاه: تم انتخابی برای همهٔ بازدیدکنندگان اعمال می‌شود و مشتری کلید تغییر ظاهر ندارد." />
+      {themeError && <p role="alert">{themeError}</p>}
       <div className="ad-appearance-note">
         <b>{fa(THEMES.length)} سبک آماده است</b>
         <span>
@@ -5154,7 +4957,7 @@ function Appearance() {
                 key={t.id}
                 type="button"
                 className={cn("ad-theme", on && "is-on")}
-                onClick={() => setTheme(t.id)}
+                onClick={() => { setThemeError(""); void setTheme(t.id).catch(error=>setThemeError(error instanceof Error ? error.message : "تغییر ظاهر ناموفق بود.")); }}
                 aria-pressed={on}
                 aria-label={`سبک ${t.label}${on ? " — اعمال‌شده" : ""}`}
               >

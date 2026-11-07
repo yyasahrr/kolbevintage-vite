@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/utils/cn";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { useOps } from "@/state/ops";
 import { ProductThumb } from "./ProductThumb";
 import type { CatalogProduct } from "@/data/catalog";
@@ -14,7 +15,8 @@ import type { CatalogProduct } from "@/data/catalog";
 export function CardMedia({ product, className }: { product: CatalogProduct; className?: string }) {
   const ops = useOps();
   const legacy = ops.hoverMedia[product.id];
-  const gallery = ops.productImages[product.id] ?? [];
+  const catalog = useLiveCatalog();
+  const gallery = catalog.products.find(item => item.id === product.id)?.images ?? [];
   const media = {
     hoverImage: gallery.find((i) => i.role === "hover")?.url ?? legacy?.hoverImage,
     hoverVideo: legacy?.hoverVideo,

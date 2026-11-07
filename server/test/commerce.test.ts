@@ -4,7 +4,7 @@ process.env.LOG_LEVEL = "silent";
 process.env.SUPERADMIN_PASSCODE = "super-secret";
 
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import test, { after, before, beforeEach } from "node:test";
 import type { FastifyInstance } from "fastify";
 
@@ -146,6 +146,12 @@ async function setStock(sku: string, qty: number) {
 }
 
 async function startCheckout(client: Client, items: { variantId: string; quantity: number }[], extra: Json = {}) {
+  // Checkout fixtures now use an actual authenticated account, never a test-only bypass.
+  const me = await client.get("/api/auth/me");
+  if (!me.body.customer) {
+    const login = await client.post("/api/auth/login", {email:"ava@example.com",password:"demo1234"});
+    assert.equal(login.status, 200, JSON.stringify(login.body));
+  }
   return client.post("/api/commerce/checkout", {
     items,
     address: { receiver: "آوا رادمهر", city: "تهران", province: "تهران", street: "ولیعصر", postal: "1234567890" },
@@ -284,6 +290,27 @@ test("adding to the cart does not reserve stock", async () => {
   assert.equal((await client.get("/api/commerce/cart")).body.lines[0].variantId, variantId);
 });
 
+test("public catalogue reports sellable stock, including quarantine and reservations", async () => {
+  const variantId=await setStock(SKU,5);
+  const variant=(await query("select product_id,color_id,size_id,active from product_variants where id=$1",[variantId])).rows[0];
+  await query("update product_variants set quarantined=1,active=true where id=$1",[variantId]);
+  const productId=variant.product_id as string; const key=`${variant.color_id}:${variant.size_id}`;
+  const guest=makeClient(); const buyer=await customerClient();
+  try {
+    const before=await guest.get(`/api/products/${encodeURIComponent(productId)}`); assert.equal(before.status,200);assert.equal(before.body.stock[key],4);
+    const checkout=await startCheckout(buyer,[{variantId,quantity:2}]);assert.equal(checkout.status,201,JSON.stringify(checkout.body));
+    const during=await guest.get(`/api/products/${encodeURIComponent(productId)}`);assert.equal(during.body.stock[key],2);
+    const list=await guest.get("/api/products");assert.equal(list.body.find((p:any)=>p.id===productId).stock[key],2);
+    await query("update stock_reservations set expires_at=now()-interval '1 minute' where variant_id=$1 and status='active'",[variantId]);
+    assert.equal((await guest.get(`/api/products/${encodeURIComponent(productId)}`)).body.stock[key],4);
+    await query("update stock_reservations set expires_at=now()+interval '10 minutes' where variant_id=$1 and status='active'",[variantId]);
+    assert.equal((await buyer.post(`/api/commerce/checkout/${checkout.body.checkout.id}/cancel`,{})).status,200);
+    assert.equal((await guest.get(`/api/products/${encodeURIComponent(productId)}`)).body.stock[key],4);
+    await query("update product_variants set active=false where id=$1",[variantId]);
+    assert.equal((await guest.get(`/api/products/${encodeURIComponent(productId)}`)).body.stock[key],0);
+  } finally {await query("update product_variants set quarantined=0,active=$2 where id=$1",[variantId,variant.active]);}
+});
+
 test("two simultaneous checkouts for the last unit: exactly one wins", async () => {
   const variantId = await setStock(SKU, 1);
   const a = makeClient();
@@ -355,7 +382,7 @@ test("a price change between quote and payment forces a re-quote", async () => {
   await query("update products set price = price - 100 where id = $1", [rows[0].product_id]);
 });
 
-test("a coupon is refused when an active campaign is already applied", async () => {
+test("equal coupon and campaign never stack and the campaign wins the tie", async () => {
   const variantId = await setStock(SKU, 5);
   // the campaign is refreshed rather than skipped: a stale row from an earlier
   // run would silently disarm this test
@@ -378,8 +405,10 @@ test("a coupon is refused when an active campaign is already applied", async () 
   assert.ok(checkout.body.checkout.quote.campaignDiscount > 0);
 
   const quote = await client.post(`/api/commerce/checkout/${id}/quote`, { couponCode: "TEST-NOSTACK" });
-  assert.equal(quote.status, 409);
-  assert.equal(quote.body.code, "coupon_not_combinable");
+  assert.equal(quote.status, 200);
+  assert.equal(quote.body.quote.couponDiscount, 0);
+  assert.ok(quote.body.quote.campaignDiscount > 0);
+  assert.equal(quote.body.quote.discounts.length,1);
 });
 
 test("a campaign ceiling caps the percent it advertises", async () => {
@@ -707,7 +736,28 @@ test("a partial return cannot exceed the remaining quantity", async () => {
   assert.equal(third.status, 409);
 });
 
-test("manual stock corrections need two different people", async () => {
+test("concurrent return requests reserve each unit exactly once, including approved requests", async () => {
+  const variantId = await setStock(SKU, 2);
+  const client = await customerClient();
+  const { settled } = await payAndSettle(client, [{ variantId, quantity: 1 }]);
+  const order = await client.get(`/api/commerce/orders/${settled.orderId}`);
+  const lineId = order.body.lines[0].id;
+  const requests = await Promise.all([
+    client.post(`/api/commerce/orders/${settled.orderId}/returns`, { lineId, quantity: 1, kind: "return" }),
+    client.post(`/api/commerce/orders/${settled.orderId}/returns`, { lineId, quantity: 1, kind: "return" }),
+  ]);
+  assert.deepEqual(requests.map(r => r.status).sort(), [201, 409]);
+  const refundId = requests.find(r => r.status === 201)!.body.refund.id;
+  const superAdmin = await superAdminClient();
+  const me = await superAdmin.get("/api/admin/me");
+  assert.equal(me.body.role, "superadmin");
+  assert.ok(me.body.permissions.includes("orders:view"));
+  assert.equal((await superAdmin.post(`/api/commerce/admin/refunds/${refundId}`, { decision: "approve" })).status, 200);
+  const repeated = await client.post(`/api/commerce/orders/${settled.orderId}/returns`, { lineId, quantity: 1, kind: "return" });
+  assert.equal(repeated.status, 409, "an approved request still reserves the unit");
+});
+
+test("the owner can approve their own stock correction", async () => {
   const variantId = await setStock(SKU, 1);
   const admin = await adminClient();
   const created = await admin.post("/api/commerce/admin/inventory/adjustments", {
@@ -719,8 +769,7 @@ test("manual stock corrections need two different people", async () => {
   const id = created.body.adjustment.id;
 
   const selfApprove = await admin.post(`/api/commerce/admin/inventory/adjustments/${id}`, { decision: "approve" });
-  assert.equal(selfApprove.status, 403);
-  assert.equal(selfApprove.body.code, "two_person_rule");
+  assert.equal(selfApprove.status, 200, JSON.stringify(selfApprove.body));
 
   const superAdmin = await superAdminClient();
   const approved = await superAdmin.post(`/api/commerce/admin/inventory/adjustments/${id}`, { decision: "approve" });
@@ -747,9 +796,10 @@ test("a broken SMS provider never invalidates a paid order", async () => {
   await settings.saveCommerceSettings({ smsSimulateDown: false });
   await query("update outbox_events set available_at = now()");
   const retry = await outbox.processOutbox();
-  assert.ok(retry.done >= 1);
-  const pending = await query("select count(*)::int as n from outbox_events where status = 'pending'");
-  assert.equal(pending.rows[0].n, 0);
+  assert.equal(retry.done, 0);
+  assert.ok(retry.failed >= 1);
+  const events = await query("select result,last_error from outbox_events");
+  assert.ok(events.rows.every((row:any) => !row.result && /not configured/.test(row.last_error)));
 });
 
 test("warehouse flow blocks a wrong SKU scan and moves the order forward", async () => {
@@ -758,15 +808,24 @@ test("warehouse flow blocks a wrong SKU scan and moves the order forward", async
   const { settled } = await payAndSettle(client, [{ variantId, quantity: 1 }]);
 
   const admin = await adminClient();
-  const wrong = await admin.post(`/api/commerce/orders/${settled.orderId}/picking`, { sku: "NOT-THIS-SKU" });
+  const earlyShip = await admin.post(`/api/commerce/orders/${settled.orderId}/ship`);
+  assert.equal(earlyShip.status, 409);
+  assert.equal(earlyShip.body.code, "packing_required");
+  const earlyPack = await admin.post(`/api/commerce/orders/${settled.orderId}/packing`, { confirm: true });
+  assert.equal(earlyPack.status, 409);
+  assert.equal(earlyPack.body.code, "picking_required");
+  const wrong = await admin.post(`/api/commerce/orders/${settled.orderId}/picking`, { sku: "NOT-THIS-SKU", scanKey: randomUUID() });
   assert.equal(wrong.status, 409);
   assert.equal(wrong.body.code, "sku_mismatch");
 
   const order = await admin.get(`/api/commerce/orders/${settled.orderId}`);
-  const picking = await admin.post(`/api/commerce/orders/${settled.orderId}/picking`, { sku: order.body.lines[0].sku });
+  const picking = await admin.post(`/api/commerce/orders/${settled.orderId}/picking`, { sku: order.body.lines[0].sku, scanKey: randomUUID() });
   assert.equal(picking.status, 200);
   assert.equal(picking.body.order.status, "preparing");
 
+  const noConfirmation = await admin.post(`/api/commerce/orders/${settled.orderId}/packing`, {});
+  assert.equal(noConfirmation.status, 400);
+  assert.equal(noConfirmation.body.code, "packing_confirmation_required");
   const packing = await admin.post(`/api/commerce/orders/${settled.orderId}/packing`, { confirm: true });
   assert.equal(packing.status, 200);
   const shipped = await admin.post(`/api/commerce/orders/${settled.orderId}/ship`);
@@ -803,6 +862,11 @@ test("the invoice keeps its snapshot after the product price changes", async () 
   const { settled } = await payAndSettle(client, [{ variantId, quantity: 1 }]);
   const admin = await adminClient();
   const before = await admin.get(`/api/commerce/orders/${settled.orderId}/invoice`);
+  assert.equal(before.body.order.paymentKind, "simulated", "a sandbox order must not look like a bank payment");
+  const listing = await admin.get("/api/commerce/orders?all=1&limit=200");
+  assert.equal(listing.body.find((o:any)=>o.id===settled.orderId)?.paymentKind,"simulated");
+  const single = await admin.get(`/api/commerce/orders/${settled.orderId}`);
+  assert.equal(single.body.paymentKind,"simulated");
 
   const { rows } = await query(
     "select p.id, p.price from product_variants v join products p on p.id = v.product_id where v.id = $1",
@@ -926,14 +990,12 @@ test("a paid order credits exactly one cashback entry and a refund claws back it
   assert.equal(afterRefund.body.reversed, -settled.cashback.amount / 2);
 });
 
-test("guest orders never earn cashback", async () => {
+test("a guest cannot create a checkout or earn cashback", async () => {
   const variantId = await setStock(SKU, 2);
   const guest = makeClient();
-  const { checkout, settled } = await payAndSettle(guest, [{ variantId, quantity: 1 }]);
-  assert.equal(settled.orderStatus, "paid");
-  assert.ok(checkout.quote.cashback.amount > 0, "the quote still advertises the earn rate");
-  const rows = await query("select count(*)::int as n from cashback_ledger where order_id = $1", [settled.orderId]);
-  assert.equal(rows.rows[0].n, 0);
+  const checkout = await guest.post("/api/commerce/checkout", {items:[{variantId,quantity:1}]});
+  assert.equal(checkout.status,401);
+  assert.equal((await query("select count(*)::int as n from checkout_sessions")).rows[0].n,0);
 });
 
 /* ---------------------------------------------------------------------
@@ -944,12 +1006,13 @@ test("guest orders never earn cashback", async () => {
 
 async function deliverOrder(orderId: string, sku: string) {
   const admin = await adminClient();
-  for (const [path, body] of [
-    ["picking", { sku }],
-    ["packing", { confirm: true }],
-    ["ship", {}],
-    ["deliver", {}],
-  ] as const) {
+  const order = await admin.get(`/api/commerce/orders/${orderId}`);
+  assert.ok(order.body.lines.some((line: {sku:string})=>line.sku===sku));
+  for (const line of order.body.lines) for (let i=0;i<line.quantity;i++) {
+    const scan=await admin.post(`/api/commerce/orders/${orderId}/picking`,{sku:line.sku,scanKey:randomUUID()});
+    assert.equal(scan.status,200,JSON.stringify(scan.body));
+  }
+  for (const [path, body] of [["packing", {confirm:true}], ["ship",{}], ["deliver",{}]] as const) {
     const res = await admin.post(`/api/commerce/orders/${orderId}/${path}`, body);
     assert.equal(res.status, 200, `${path}: ${JSON.stringify(res.body)}`);
   }
@@ -1003,16 +1066,25 @@ test("earned cashback stays pending until delivery and then becomes spendable", 
   assert.equal(Number(redeem.rows[0].amount), -applied);
 });
 
-test("a guest cannot pay with the wallet", async () => {
+test("a guest cannot read, quote, cancel or pay another customer's checkout", async () => {
   const variantId = await setStock(SKU, 2);
+  const buyer = await customerClient();
+  const checkout = await startCheckout(buyer,[{variantId,quantity:1}], {idempotencyKey:"ownership-test-key"});
+  const id = checkout.body.checkout.id;
   const guest = makeClient();
-  const checkout = await startCheckout(guest, [{ variantId, quantity: 1 }]);
-  const pay = await guest.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, {
-    method: "online",
-    useCashback: true,
-  });
-  assert.equal(pay.status, 401, JSON.stringify(pay.body));
-  assert.equal(pay.body.code, "cashback_login_required");
+  for (const result of [await guest.get(`/api/commerce/checkout/${id}`), await guest.post(`/api/commerce/checkout/${id}/quote`,{}), await guest.post(`/api/commerce/checkout/${id}/cancel`,{}), await guest.post(`/api/commerce/checkout/${id}/pay`,{method:"online"})]) assert.equal(result.status,401);
+  const other = makeClient();
+  const email = `different-${Date.now()}@example.com`;
+  const {hashPassword} = await import("../src/security");
+  await query("insert into customers (email,name,password_hash,addresses) values ($1,$2,$3,'[]'::jsonb)",[email,"خریدار آزمون",hashPassword("demo1234")]);
+  assert.equal((await other.post("/api/auth/login",{email,password:"demo1234"})).status,200);
+  for (const result of [await other.get(`/api/commerce/checkout/${id}`), await other.post(`/api/commerce/checkout/${id}/quote`,{}), await other.post(`/api/commerce/checkout/${id}/cancel`,{}), await other.post(`/api/commerce/checkout/${id}/pay`,{method:"online"})]) assert.equal(result.status,404);
+  const replay = await startCheckout(other,[{variantId,quantity:1}],{idempotencyKey:"ownership-test-key"});
+  assert.equal(replay.status,409); assert.equal(replay.body.code,"idempotency_conflict");
+  const paid = await buyer.post(`/api/commerce/checkout/${id}/pay`,{method:"online"});
+  assert.equal(paid.status,200,JSON.stringify(paid.body));
+  const forgedCookie = await fetch(`${base}/api/commerce/payments/${paid.body.attempt.id}`,{headers:{cookie:`kv_checkout=${id}`}});
+  assert.equal(forgedCookie.status,403);
 });
 
 test("a refund returns the wallet share to the wallet, not to the gateway", async () => {
@@ -1086,12 +1158,11 @@ test("cashback is not withdrawable and never crosses accounts", async () => {
 
   // a different signed-in customer has an empty wallet, even with the same basket
   const other = makeClient();
-  const signup = await other.post("/api/auth/register", {
-    name: "کی‌میای تست",
-    email: `second-${Date.now()}@example.com`,
-    password: "demo1234",
-  });
-  assert.equal(signup.status === 200 || signup.status === 201, true, JSON.stringify(signup.body));
+  const email = `second-${Date.now()}@example.com`;
+  const { hashPassword } = await import("../src/security");
+  await query("insert into customers (email,name,password_hash,addresses) values ($1,$2,$3,'[]'::jsonb)",[email,"خریدار آزمون",hashPassword("demo1234")]);
+  const login = await other.post("/api/auth/login", {email,password:"demo1234"});
+  assert.equal(login.status,200,JSON.stringify(login.body));
   const otherWallet = await other.get("/api/commerce/cashback");
   assert.equal(otherWallet.body.available, 0);
 
@@ -1135,9 +1206,10 @@ test("BNPL has three states: enabled, provider-ready and actually available", as
 
   // losing provider readiness immediately blocks new installment payments
   const variantId = await setStock(SKU, 2);
-  const checkout = await startCheckout(makeClient(), [{ variantId, quantity: 1 }]);
+  const buyer = await customerClient();
+  const checkout = await startCheckout(buyer, [{ variantId, quantity: 1 }]);
   await admin.put("/api/commerce/admin/settings", { bnpl4ProviderReady: false });
-  const pay = await makeClient().post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, { method: "bnpl4" });
+  const pay = await buyer.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`, { method: "bnpl4" });
   assert.ok(pay.status === 409 || pay.status === 403, JSON.stringify(pay.body));
   assert.ok(
     ["bnpl_provider_not_ready", "bnpl_disabled"].includes(pay.body.code),
@@ -1191,8 +1263,56 @@ test("state-changing requests need the CSRF token and repeated attempts get rate
   security.resetRateLimits();
 });
 
+test("production blocks every unverified payment provider and refuses mock callbacks", async () => {
+  const variantId=await setStock(SKU,2); const buyer=await customerClient();
+  const checkout=await startCheckout(buyer,[{variantId,quantity:1}]);
+  const {config}=await import("../src/config"); const payment=await import("../src/commerce/payments");
+  const was=config.isProd;const oldUrl=process.env.PAYMENT_GATEWAY_URL;process.env.PAYMENT_GATEWAY_URL="https://gateway.invalid";config.isProd=true;
+  try {
+    assert.deepEqual(payment.availableProviders(),{mock:false,gateway:false});
+    for(const provider of ["mock","mock-bnpl4","gateway"]) assert.throws(()=>payment.providerFor(provider),(e:any)=>e.code==="production_provider_not_ready");
+    const result=await buyer.post(`/api/commerce/checkout/${checkout.body.checkout.id}/pay`,{method:"online"});
+    assert.equal(result.status,503,JSON.stringify(result.body));assert.equal(result.body.code,"production_provider_not_ready");
+    assert.equal((await query("select id from payment_attempts where checkout_id=$1",[checkout.body.checkout.id])).rows.length,0);
+    const cfg=await buyer.get("/api/commerce/config");assert.equal(cfg.body.bnpl4.availableForCheckout,false);assert.equal(cfg.body.checkoutAvailable,false);
+    const before=(await query("select count(*)::int as n from checkout_sessions")).rows[0].n;
+    const blocked=await buyer.post("/api/commerce/checkout",{items:[{variantId,quantity:1}]});assert.equal(blocked.status,503);assert.equal(blocked.body.code,"production_provider_not_ready");
+    assert.equal((await query("select count(*)::int as n from checkout_sessions")).rows[0].n,before,"unpayable checkout must not reserve stock");
+  } finally {config.isProd=was;if(oldUrl===undefined)delete process.env.PAYMENT_GATEWAY_URL;else process.env.PAYMENT_GATEWAY_URL=oldUrl;}
+});
+
+test("spoofed forwarded client addresses cannot bypass login rate limits", async () => {
+  const security=await import("../src/http/security");security.setRateLimit("admin_login",{max:3,windowMs:60000});security.resetRateLimits();
+  try {
+    const csrf=await fetch(base+"/api/csrf");const {token}=await csrf.json() as {token:string};
+    let result=0;
+    for(let i=0;i<4;i++) {const r=await fetch(base+"/api/admin/login",{method:"POST",headers:{"content-type":"application/json","x-csrf-token":token,"x-forwarded-for":`192.0.2.${i+1}`},body:JSON.stringify({passcode:"invalid"})});result=r.status;}
+    assert.equal(result,429);
+  } finally {security.setRateLimit("admin_login",{max:20,windowMs:60000});security.resetRateLimits();}
+});
+
+test("production sessions use only secure HttpOnly cookies and elevation needs prior permission", async () => {
+  const {config}=await import("../src/config");const was=config.isProd;
+  const guest=makeClient();assert.equal((await guest.post("/api/commerce/admin/elevate",{passcode:"super-secret"})).status,401);
+  const admin=await adminClient();const elevated=await admin.post("/api/commerce/admin/elevate",{passcode:"super-secret"});assert.equal(elevated.status,200);
+  const expires=(await query("select extract(epoch from (expires_at-now())) as ttl from sessions where token=$1",[elevated.body.sessionToken])).rows[0];
+  assert.ok(Number(expires.ttl)>0 && Number(expires.ttl)<=900,"superadmin session is short lived");
+  assert.ok((await query("select id from audit_events where actor='admin' and action='admin.elevated'")).rows.length);
+  config.isProd=true;
+  try {
+    const csrf=await fetch(base+"/api/csrf");const {token}=await csrf.json() as {token:string};
+    const login=await fetch(base+"/api/auth/login",{method:"POST",headers:{"content-type":"application/json","x-csrf-token":token},body:JSON.stringify({email:"ava@example.com",password:"demo1234"})});
+    assert.equal(login.status,200);const body=await login.json() as any;assert.equal(body.sessionToken,undefined);
+    const cookie=login.headers.getSetCookie().find(x=>x.startsWith("kv_session="));assert.ok(cookie);assert.match(cookie,/HttpOnly/i);assert.match(cookie,/Secure/i);assert.match(cookie,/SameSite=Lax/i);
+    const value=cookie.split(";")[0];const raw=value.slice("kv_session=".length);
+    assert.equal((await (await fetch(base+"/api/auth/me",{headers:{"x-session-token":raw}})).json() as any).customer,null);
+    assert.ok((await (await fetch(base+"/api/auth/me",{headers:{cookie:value}})).json() as any).customer);
+  } finally {config.isProd=was;}
+});
+
 test("the public bootstrap never leaks the admin passcode, orders or provider secrets", async () => {
   const guest = makeClient();
+  const health=await guest.get("/api/health");assert.equal(health.body.orders,undefined);assert.equal(health.body.customers,undefined);
   const boot = await guest.get("/api/bootstrap");
   assert.equal(boot.status, 200);
   const admin = boot.body.admin as Record<string, any>;
@@ -1283,9 +1403,9 @@ test("a returned unit is not restocked before QC and a defective one is quaranti
   assert.equal(defective.body.refund.status, "qc_failed");
 
   const afterQc = await stockOf(SKU);
-  assert.equal(afterQc.onHand, 2, "a defective unit never returns to saleable stock");
+  assert.equal(afterQc.onHand, 4, "returned units are physically present in quarantine");
   assert.equal(afterQc.quarantined, 2, "it sits in quarantine instead");
-  assert.equal(afterQc.available, 0);
+  assert.equal(afterQc.available, 2, "quarantine must not consume unrelated sellable stock");
 
   const settledRefund = await superAdmin.post(`/api/commerce/admin/refunds/${refundId}/settle`, {});
   assert.equal(settledRefund.status, 200, JSON.stringify(settledRefund.body));
@@ -1717,7 +1837,7 @@ test("the gateway claims no capability it was not given (refunds stay off by def
   assert.equal(off.signedCallbacks, true);
 
   process.env.PAYMENT_GATEWAY_REFUNDS = "1";
-  assert.equal(providerCapabilities("gateway").refund, true);
+  assert.equal(providerCapabilities("gateway").refund, false, "a flag cannot implement a real refund adapter");
   await clearGatewayEnv();
 });
 
@@ -1749,7 +1869,7 @@ test("a browser that cannot keep cookies still logs in, with a signed token", as
   assert.equal(((await me.json()) as Json).authenticated, true);
 });
 
-test("signing up works from a cookie-less browser too", async () => {
+test("unverified registration fails closed even without cookies", async () => {
   const { token } = (await (await fetch(`${base}/api/csrf`)).json()) as { token: string };
   const email = `frame-${Date.now()}@example.com`;
   const signup = await fetch(`${base}/api/auth/register`, {
@@ -1757,9 +1877,9 @@ test("signing up works from a cookie-less browser too", async () => {
     headers: { "content-type": "application/json", "x-csrf-token": token },
     body: JSON.stringify({ email, password: "demo1234", name: "خریدار بدون کوکی" }),
   });
-  assert.ok([200, 201].includes(signup.status), await signup.clone().text());
-  const session = (signup.headers.getSetCookie?.() ?? []).find((c) => c.startsWith("kv_session="));
-  assert.ok(session, "the new customer is signed in");
+  assert.equal(signup.status, 503);
+  assert.equal(((await signup.json()) as Json).code, "registration_unavailable");
+  assert.equal((signup.headers.getSetCookie?.() ?? []).some((c) => c.startsWith("kv_session=")), false);
 });
 
 test("a write with no token at all is still refused", async () => {
@@ -1830,6 +1950,36 @@ test("every login hands the session back, so a lost cookie is not a lost login",
   // the header alone is enough — the cookie is not required anywhere
   const me = await fetch(`${base}/api/admin/me`, { headers: { "x-session-token": body.sessionToken } });
   assert.equal(((await me.json()) as Json).authenticated, true);
+});
+
+test("review owner can make protected decisions in preview while money remains fail-closed", async () => {
+  const variantId = await setStock(SKU, 3);
+  const customer = await customerClient();
+  const { settled } = await payAndSettle(customer, [{variantId,quantity:1}]);
+  const admin = await adminClient();
+  const order = await admin.get(`/api/commerce/orders/${settled.orderId}`);
+  const request = await customer.post(`/api/commerce/orders/${settled.orderId}/returns`, {lineId:order.body.lines[0].id,quantity:1,reason:"test"});
+  assert.equal(request.status,201,JSON.stringify(request.body));
+  const id = request.body.refund.id;
+  assert.equal((await admin.post(`/api/commerce/admin/refunds/${id}`,{decision:"approve"})).status,403);
+  try {
+    process.env.PANEL_OPEN_ACCESS="1";
+    const preview=makeClient();
+    const me=await preview.get("/api/admin/me");
+    assert.equal(me.body.subject,"review-owner");
+    const approved=await preview.post(`/api/commerce/admin/refunds/${id}`,{decision:"approve"});
+    assert.equal(approved.status,200,JSON.stringify(approved.body));
+    assert.equal(approved.body.refund.status,"approved");
+    const settle=await preview.post(`/api/commerce/admin/refunds/${id}/settle`,{});
+    assert.equal(settle.status,403); assert.equal(settle.body.code,"live_refunds_blocked");
+    // An existing admin cookie must not make the preview less privileged.
+    const existingAdmin=await admin.post(`/api/commerce/admin/refunds/${id}`,{decision:"approve"});
+    assert.equal(existingAdmin.status,200,JSON.stringify(existingAdmin.body));
+    const {config}=await import("../src/config");
+    const original=config.isProd;
+    try { config.isProd=true; assert.equal(config.panelOpenAccess,false,"preview cannot enable open access in production"); }
+    finally { config.isProd=original; }
+  } finally { delete process.env.PANEL_OPEN_ACCESS; }
 });
 
 test("review mode opens the panel without a passcode, and only when asked to", async () => {
@@ -1906,6 +2056,27 @@ test("manual orders reserve and consume real stock once, then share shipment tra
   assert.equal(forbidden.status, 401);
 });
 
+test("refund for externally paid manual order never fabricates a provider reversal", async () => {
+  const admin = await adminClient();
+  const variantId = await setStock(SKU, 2);
+  const created = await admin.post("/api/commerce/admin/orders/manual", {
+    items: [{ variantId, quantity: 1 }], address: { receiver: "مشتری", phone: "09121234567", province: "تهران", city: "تهران", street: "نشانی", postal: "1234567890" },
+    paymentReference: "bank-reference", idempotencyKey: "external-refund-test", shippingMethod: "standard",
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const order = created.body.order;
+  const requested = await admin.post(`/api/commerce/orders/${order.id}/returns`, { lineId: order.lines[0].id, quantity: 1, kind: "refund" });
+  assert.equal(requested.status, 201, JSON.stringify(requested.body));
+  const superAdmin = await superAdminClient();
+  await superAdmin.put("/api/commerce/admin/settings", { liveRefundsEnabled: true });
+  const id = requested.body.refund.id;
+  await superAdmin.post(`/api/commerce/admin/refunds/${id}`, { decision: "approve" });
+  const result = await superAdmin.post(`/api/commerce/admin/refunds/${id}/settle`, {});
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.refund.status, "manual_review");
+  assert.equal(result.body.refund.providerRef, null);
+});
+
 test("customer gallery requires consent and publishes only moderated images", async () => {
   const visitor = makeClient();
   const imageUrl = "data:image/png;base64,iVBORw0KGgo=";
@@ -1924,4 +2095,307 @@ test("customer gallery requires consent and publishes only moderated images", as
   const published = await visitor.get("/api/gallery");
   assert.equal(published.body.length, 1);
   assert.equal(published.body[0].handle, "آوا");
+});
+
+test("receiving is idempotent and changes stock only after approval", async () => {
+  const variantId=await setStock(SKU,3); const admin=await adminClient(); const approver=await superAdminClient();
+  const payload={operation:"receive",variantId,acceptedQty:4,rejectedQty:2,reference:"RCPT-23",note:"بازبینی",idempotencyKey:"warehouse-receipt-0001"};
+  const [first,second]=await Promise.all([admin.post("/api/commerce/admin/inventory/operations",payload),admin.post("/api/commerce/admin/inventory/operations",payload)]);
+  assert.equal(first.status,201,JSON.stringify(first.body));assert.equal(second.status,201,JSON.stringify(second.body));assert.equal(first.body.adjustment.id,second.body.adjustment.id);
+  assert.equal((await stockOf(SKU)).onHand,3);
+  assert.equal((await admin.post("/api/commerce/admin/inventory/operations",{...payload,acceptedQty:5})).status,409);
+  const id=first.body.adjustment.id;
+  const result=await admin.post(`/api/commerce/admin/inventory/adjustments/${id}`,{decision:"approve"});assert.equal(result.status,200,JSON.stringify(result.body));
+  assert.equal((await stockOf(SKU)).onHand,7);
+  assert.equal((await approver.post(`/api/commerce/admin/inventory/adjustments/${id}`,{decision:"approve"})).status,200);
+  const rows=await query("select count(*)::int as n from inventory_movements where ref_id=$1",[id]);assert.equal(rows.rows[0].n,1);
+  assert.match(result.body.adjustment.note,/ردشده: 2/);
+});
+
+test("stocktake requires a fresh baseline at both request and approval and protects reserved stock", async () => {
+  const variantId=await setStock(SKU,5);const admin=await adminClient();const approver=await superAdminClient();
+  const inventory=await admin.get("/api/commerce/admin/inventory");const v=inventory.body.find((x:any)=>x.id===variantId);assert.ok(v.stockVersion);
+  const payload={operation:"stocktake",variantId,countedQty:4,expectedOnHand:5,expectedVersion:v.stockVersion,reference:"COUNT-1",note:"",idempotencyKey:"warehouse-stocktake-001"};
+  const created=await admin.post("/api/commerce/admin/inventory/operations",payload);assert.equal(created.status,201,JSON.stringify(created.body));assert.equal(created.body.adjustment.countedOnHand,4);
+  await query("update product_variants set on_hand=on_hand+1,updated_at=clock_timestamp() where id=$1",[variantId]);
+  await query("update product_variants set on_hand=on_hand-1,updated_at=clock_timestamp() where id=$1",[variantId]);
+  const decision=await approver.post(`/api/commerce/admin/inventory/adjustments/${created.body.adjustment.id}`,{decision:"approve"});
+  assert.equal(decision.status,409);assert.equal(decision.body.code,"stale_stocktake");assert.equal((await stockOf(SKU)).onHand,5);
+  const replay=await admin.post("/api/commerce/admin/inventory/operations",payload);assert.equal(replay.body.adjustment.id,created.body.adjustment.id);
+  const stale=await admin.post("/api/commerce/admin/inventory/operations",{...payload,idempotencyKey:"warehouse-stocktake-002"});assert.equal(stale.body.code,"stale_stocktake");
+  const v2=(await admin.get("/api/commerce/admin/inventory")).body.find((x:any)=>x.id===variantId);
+  const zero=await admin.post("/api/commerce/admin/inventory/operations",{...payload,countedQty:5,expectedVersion:v2.stockVersion,idempotencyKey:"warehouse-stocktake-003"});assert.equal(zero.status,201);assert.equal(zero.body.adjustment.delta,0);
+  assert.equal((await approver.post(`/api/commerce/admin/inventory/adjustments/${zero.body.adjustment.id}`,{decision:"approve"})).status,200);
+  const shopper=makeClient();assert.equal((await startCheckout(shopper,[{variantId,quantity:4}])).status,201);
+  const correction=await admin.post("/api/commerce/admin/inventory/operations",{operation:"adjust",variantId,delta:-2,reference:"ADJ-1",note:"مغایرت",idempotencyKey:"warehouse-adjustment-001"});assert.equal(correction.status,201);
+  const blocked=await approver.post(`/api/commerce/admin/inventory/adjustments/${correction.body.adjustment.id}`,{decision:"approve"});assert.equal(blocked.status,409);assert.equal(blocked.body.code,"stock_committed");
+  const rejected=await approver.post(`/api/commerce/admin/inventory/adjustments/${correction.body.adjustment.id}`,{decision:"reject",note:"نیاز به بررسی"});assert.equal(rejected.status,200);assert.match(rejected.body.adjustment.note,/مغایرت/);assert.equal(rejected.body.adjustment.decisionNote,"نیاز به بررسی");
+});
+
+test("quick tracking preserves the carrier and concurrent lifecycle actions cannot rewind a packed order", async () => {
+  const variantId=await setStock(SKU,2); const shopper=makeClient();const {settled}=await payAndSettle(shopper,[{variantId,quantity:1}]);const admin=await adminClient();const path=`/api/commerce/admin/orders/${settled.orderId}/shipment`;
+  assert.equal((await admin.patch(path,{tracking:"old",carrier:"Post"})).status,200);
+  const saved=await admin.patch(path,{tracking:"new"});assert.equal(saved.status,200);assert.equal(saved.body.carrier,"Post");
+  assert.equal((await admin.get(`/api/commerce/orders/${settled.orderId}`)).body.carrier,"Post");
+  assert.equal((await admin.post(`/api/commerce/orders/${settled.orderId}/picking`,{sku:SKU,scanKey:randomUUID()})).status,200);
+  assert.equal((await admin.post(`/api/commerce/orders/${settled.orderId}/packing`,{confirm:true})).status,200);
+  const [ship,rewind]=await Promise.all([admin.post(`/api/commerce/orders/${settled.orderId}/ship`,{}),admin.post(`/api/commerce/orders/${settled.orderId}/picking`,{sku:SKU,scanKey:randomUUID()})]);
+  assert.equal(ship.status,200);assert.equal(rewind.status,409);assert.equal((await admin.get(`/api/commerce/orders/${settled.orderId}`)).body.fulfillmentStatus,"shipped");
+});
+
+test("customer order and return history are owner-scoped, validated and never include staff notes", async () => {
+  const variantId = await setStock(SKU, 5);
+  const buyer = await customerClient();
+  const { settled } = await payAndSettle(buyer, [{variantId, quantity:2}]);
+  const orders = await buyer.get("/api/commerce/orders?limit=200");
+  assert.equal(orders.status,200);
+  const order = orders.body.find((o:Json)=>o.id===settled.orderId);
+  assert.ok(order);
+  assert.equal(order.paymentKind,"simulated");
+  assert.equal((await makeClient().get("/api/commerce/returns")).status,401);
+  const other = makeClient();
+  const email = `returns-${Date.now()}@example.com`;
+  const {hashPassword} = await import("../src/security");
+  await query("insert into customers (email,name,password_hash,addresses) values ($1,$2,$3,'[]'::jsonb)",[email,"خریدار آزمون",hashPassword("demo1234")]);
+  assert.equal((await other.post("/api/auth/login",{email,password:"demo1234"})).status,200);
+  assert.equal((await other.get(`/api/commerce/orders/${order.id}`)).status,404);
+  assert.equal((await other.post(`/api/commerce/orders/${order.id}/returns`,{lineId:order.lines[0].id,quantity:1,kind:"return"})).status,404);
+  for (const quantity of [0, -1, 1.2, "1"]) {
+    assert.equal((await buyer.post(`/api/commerce/orders/${order.id}/returns`,{lineId:order.lines[0].id,quantity,kind:"return"})).status,400);
+  }
+  assert.equal((await buyer.post(`/api/commerce/orders/${order.id}/returns`,{lineId:order.lines[0].id,quantity:1,reason:"x".repeat(501),kind:"return"})).status,400);
+  const created = await buyer.post(`/api/commerce/orders/${order.id}/returns`,{lineId:order.lines[0].id,quantity:1,reason:"سایز",kind:"return"});
+  assert.equal(created.status,201,JSON.stringify(created.body));
+  await query("update refunds set note='private note', qc_note='private QC' where id=$1",[created.body.refund.id]);
+  const history = await buyer.get("/api/commerce/returns");
+  assert.equal(history.status,200,JSON.stringify(history.body));
+  const historyHeaders = await fetch(`${base}/api/commerce/returns`,{headers:{cookie:buyer.cookie()}});
+  assert.match(historyHeaders.headers.get("cache-control") ?? "",/no-store/);
+  await historyHeaders.text();
+  assert.equal(history.body.length,1);
+  assert.equal(history.body[0].orderId,order.id);
+  assert.equal(history.body[0].status,"requested");
+  assert.equal(history.body[0].kind,"return");
+  assert.equal(history.body[0].quantity,1);
+  assert.ok(!JSON.stringify(history.body).includes("private"));
+  assert.deepEqual((await other.get("/api/commerce/orders")).body,[]);
+  assert.deepEqual((await other.get("/api/commerce/returns")).body,[]);
+  const tooMany = await buyer.post(`/api/commerce/orders/${order.id}/returns`,{lineId:order.lines[0].id,quantity:2,kind:"return"});
+  assert.equal(tooMany.status,409);
+});
+
+test("customer addresses and profile changes are confirmed, isolated and conflict-safe", async () => {
+  const {hashPassword} = await import("../src/security");
+  const email=`account-address-${Date.now()}@example.com`;
+  await query("insert into customers (email,name,phone,password_hash,addresses) values ($1,$2,$3,$4,'[]'::jsonb)",[email,"آزمون","09120000000",hashPassword("old-pass-123")]);
+  const one=makeClient(), two=makeClient(), stranger=makeClient();
+  assert.equal((await one.post("/api/auth/login",{email,password:"old-pass-123"})).status,200);
+  assert.equal((await two.post("/api/auth/login",{email,password:"old-pass-123"})).status,200);
+  const address=(id:string)=>({id,label:id,receiver:"گیرنده",phone:"09120000000",province:"تهران",city:"تهران",street:"نشانی",postal:"1234567890",default:true});
+  assert.equal((await stranger.put("/api/auth/addresses",{expected:[],addresses:[address("x")]})).status,401);
+  for (const body of [{password:"new-password"},{addresses:[address("x")]},{twoFactor:true},{phone:"09123456789"}]) assert.equal((await one.patch("/api/auth/profile",body)).status,400);
+  assert.equal((await one.put("/api/auth/addresses",{expected:[],addresses:[{...address("x"),street:""}]})).status,400);
+  assert.equal((await one.put("/api/auth/addresses",{expected:[],addresses:[{...address("x"),default:false}]})).status,400);
+  assert.equal((await one.put("/api/auth/addresses",{expected:[],addresses:[address("x"),address("x")]})).status,400);
+  const [first,second] = await Promise.all([
+    one.put("/api/auth/addresses",{expected:[],addresses:[address("first")]}),
+    two.put("/api/auth/addresses",{expected:[],addresses:[address("second")]}),
+  ]);
+  assert.deepEqual([first.status,second.status].sort(),[200,409]);
+  const stored = (await one.get("/api/auth/me")).body.customer.addresses;
+  assert.equal(stored.length,1);
+  const original=stored[0];
+  const addition={...address("another"),default:false};
+  assert.equal((await one.put("/api/auth/addresses",{expected:stored,addresses:[original,addition]})).status,200);
+  assert.equal((await two.put("/api/auth/addresses",{expected:stored,addresses:[]})).status,409,"stale deletion cannot erase a newer address");
+  assert.equal((await two.get("/api/auth/me")).body.customer.addresses.length,2);
+  assert.equal((await one.patch("/api/auth/profile",{phone:"09121111111",expectedPhone:"09120000000"})).status,200);
+  assert.equal((await two.patch("/api/auth/profile",{phone:"09122222222",expectedPhone:"09120000000"})).status,409);
+  const row=await query("select phone,addresses from customers where email=$1",[email]);
+  assert.equal(row.rows[0].phone,"09121111111");assert.equal(row.rows[0].addresses.length,2);
+});
+
+test("password change requires current password and revokes other sessions without a legacy bypass", async () => {
+  const {hashPassword,verifyPassword} = await import("../src/security");
+  const email=`account-password-${Date.now()}@example.com`;
+  await query("insert into customers (email,name,password_hash,addresses) values ($1,$2,$3,'[]'::jsonb)",[email,"آزمون",hashPassword("old-pass-123")]);
+  const current=makeClient(),other=makeClient(),racing=makeClient();
+  for (const client of [current,other]) assert.equal((await client.post("/api/auth/login",{email,password:"old-pass-123"})).status,200);
+  assert.equal((await current.patch("/api/auth/profile",{password:"new-password-123"})).status,400);
+  assert.equal((await current.post("/api/auth/password",{currentPassword:"incorrect",newPassword:"new-password-123"})).status,403);
+  assert.equal((await current.post("/api/auth/password",{currentPassword:"old-pass-123",newPassword:"short"})).status,400);
+  const [changed,login] = await Promise.all([
+    current.post("/api/auth/password",{currentPassword:"old-pass-123",newPassword:"new-password-123"}),
+    racing.post("/api/auth/login",{email,password:"old-pass-123"}),
+  ]);
+  assert.equal(changed.status,200,JSON.stringify(changed.body));
+  assert.equal((await current.get("/api/auth/me")).body.customer.email,email);
+  assert.equal((await other.get("/api/auth/me")).body.customer,null);
+  assert.equal((await racing.get("/api/auth/me")).body.customer,null,`racing old-password login status ${login.status}`);
+  assert.equal((await other.put("/api/auth/addresses",{expected:[],addresses:[]})).status,401);
+  assert.equal((await makeClient().post("/api/auth/login",{email,password:"old-pass-123"})).status,401);
+  assert.equal((await makeClient().post("/api/auth/login",{email,password:"new-password-123"})).status,200);
+  const saved=(await query("select password_hash from customers where email=$1",[email])).rows[0].password_hash;
+  assert.equal(verifyPassword("new-password-123",saved),true);assert.ok(!saved.includes("new-password-123"));
+  const audit=await query("select before,after,reason from audit_events where action='customer.password_changed' and target_id=$1",[email]);
+  assert.equal(audit.rows.length,1);assert.ok(!JSON.stringify(audit.rows).includes("password-123"));
+});
+
+
+test("unit scans are serialized, retry-safe and required before packing", async () => {
+  const variantId=await setStock(SKU,4); const shopper=makeClient();
+  const {settled}=await payAndSettle(shopper,[{variantId,quantity:2}]); const admin=await adminClient();
+  const path=`/api/commerce/orders/${settled.orderId}`;
+  assert.equal((await admin.post(`${path}/picking`,{sku:SKU})).body.code,"scan_key_required");
+  const firstKey=randomUUID(); const first=await admin.post(`${path}/picking`,{sku:SKU,scanKey:firstKey});
+  assert.equal(first.status,200);assert.equal(first.body.order.lines[0].pickedQuantity,1);
+  assert.equal((await admin.post(`${path}/picking`,{sku:SKU,scanKey:firstKey})).body.unchanged,true);
+  assert.equal((await admin.post(`${path}/picking`,{sku:"OTHER",scanKey:firstKey})).body.code,"scan_key_conflict");
+  assert.equal((await admin.post(`${path}/packing`,{confirm:true})).body.code,"picking_incomplete");
+  const [a,b]=await Promise.all([admin.post(`${path}/picking`,{sku:SKU,scanKey:randomUUID()}),admin.post(`${path}/picking`,{sku:SKU,scanKey:randomUUID()})]);
+  assert.deepEqual([a.status,b.status].sort(),[200,409]);
+  assert.equal((await admin.get(path)).body.lines[0].pickedQuantity,2);
+  assert.equal((await admin.post(`${path}/picking`,{sku:SKU,scanKey:randomUUID(),undo:true})).body.order.lines[0].pickedQuantity,1);
+  assert.equal((await admin.post(`${path}/packing`,{confirm:true})).body.code,"picking_incomplete");
+  assert.equal((await admin.post(`${path}/picking`,{sku:SKU,scanKey:randomUUID()})).status,200);
+  assert.equal((await admin.post(`${path}/packing`,{confirm:true})).status,200);
+  assert.equal((await admin.post(`${path}/picking`,{sku:SKU,scanKey:firstKey})).body.unchanged,true);
+});
+
+test("legacy picking events require a fresh scan for every SKU", async () => {
+  const a=await setStock(SKU,3), b=await setStock(SKU2,3);const shopper=makeClient();
+  const {settled}=await payAndSettle(shopper,[{variantId:a,quantity:2},{variantId:b,quantity:1}]);
+  const admin=await adminClient(),path=`/api/commerce/orders/${settled.orderId}`;
+  await query("update orders set status='preparing',fulfillment_status='picking' where id=$1",[settled.orderId]);
+  await query("insert into fulfillment_events(order_id,stage,sku,accepted) values($1,'picking',$2,true)",[settled.orderId,SKU]);
+  let order=(await admin.get(path)).body;
+  assert.ok(order.lines.every((line:{pickedQuantity:number})=>line.pickedQuantity===0));
+  assert.equal((await admin.post(`${path}/packing`,{confirm:true})).body.code,"picking_incomplete");
+  for(const sku of [SKU,SKU,SKU2]) assert.equal((await admin.post(`${path}/picking`,{sku,scanKey:randomUUID()})).status,200);
+  order=(await admin.get(path)).body;
+  assert.ok(order.lines.every((line:{pickedQuantity:number;quantity:number})=>line.pickedQuantity===line.quantity));
+  assert.equal((await admin.post(`${path}/packing`,{confirm:true})).status,200);
+});
+
+test("customer labels support manual optimistic updates, live automatic rules and any/all audiences", async () => {
+  await query("delete from commerce_settings where key='customer_labels_v1'");
+  await query("update customers set manual_labels=null where email='ava@example.com'");
+  const admin=await adminClient(),guest=makeClient();
+  assert.equal((await guest.get('/api/admin/customer-labels')).status,401);
+  const manual=await admin.post('/api/admin/customer-labels',{name:'برچسب دستی',minDeliveredOrders:null});assert.equal(manual.status,201,JSON.stringify(manual.body));
+  const auto=await admin.post('/api/admin/customer-labels',{name:'خودکار',minDeliveredOrders:1});assert.equal(auto.status,201,JSON.stringify(auto.body));
+  const mid=manual.body.label.id,aid=auto.body.label.id;
+  const {labelsForCustomer}=await import('../src/routes/customer-labels');
+  assert.deepEqual(await labelsForCustomer(null),[]);
+  assert.deepEqual(await labelsForCustomer('no-such-customer@example.com'),[]);
+  const modified=await admin.patch(`/api/admin/customer-labels/${aid}`,{name:'خودکار',minDeliveredOrders:2,expected:auto.body.label});assert.equal(modified.status,200);
+  assert.equal((await admin.patch(`/api/admin/customer-labels/${aid}`,{name:'خودکار',minDeliveredOrders:1,expected:auto.body.label})).body.code,'label_conflict');
+  assert.equal((await admin.patch(`/api/admin/customer-labels/${aid}`,{name:'خودکار',minDeliveredOrders:1,expected:modified.body.label})).status,200);
+  assert.equal((await admin.post('/api/admin/customer-labels',{name:'خودکار'})).status,409);
+  assert.equal((await admin.post('/api/admin/customer-labels',{name:'خراب',minDeliveredOrders:0})).status,422);
+  const path='/api/admin/customers/ava%40example.com/labels';
+  const [a,b]=await Promise.all([admin.put(path,{labels:[mid],expected:[]}),admin.put(path,{labels:[aid],expected:[]})]);
+  assert.deepEqual([a.status,b.status].sort(),[200,409]);
+  let customer=(await admin.get('/api/admin/customer-labels')).body.customers.find((c:any)=>c.email==='ava@example.com');
+  const old=customer.manualLabels;assert.equal(old.length,1);
+  assert.equal((await admin.put(path,{labels:[mid],expected:old})).status,200);
+  assert.equal((await admin.post('/api/admin/customer-labels/audience',{labels:[mid,aid],mode:'all'})).body.count,0);
+  const variantId=await setStock(SKU,3);const buyer=await customerClient();const {settled}=await payAndSettle(buyer,[{variantId,quantity:2}]);
+  await deliverOrder(settled.orderId,SKU);
+  customer=(await admin.get('/api/admin/customer-labels')).body.customers.find((c:any)=>c.email==='ava@example.com');
+  assert.equal(customer.deliveredOrders,0,"simulated payments never grant loyalty");
+  await query("update orders set data=data || '{\"manual\":true}'::jsonb where id=$1",[settled.orderId]);
+  customer=(await admin.get('/api/admin/customer-labels')).body.customers.find((c:any)=>c.email==='ava@example.com');
+  assert.equal(customer.deliveredOrders,1);assert.deepEqual(customer.manualLabels,[mid]);assert.deepEqual(customer.automaticLabels,[aid]);
+  assert.deepEqual(new Set(await labelsForCustomer('AVA@EXAMPLE.COM')),new Set([mid,aid]));
+  const all=await admin.post('/api/admin/customer-labels/audience',{labels:[mid,aid],mode:'all'});assert.ok(all.body.customers.some((c:any)=>c.email==='ava@example.com'));
+  assert.equal((await admin.put(path,{labels:[],expected:[mid]})).status,200);
+  const any=await admin.post('/api/admin/customer-labels/audience',{labels:[mid,aid],mode:'any'});assert.ok(any.body.customers.some((c:any)=>c.email==='ava@example.com'));
+  assert.equal((await admin.post('/api/admin/customer-labels/audience',{labels:[mid,aid],mode:'all'})).body.count,0);
+  await query("update order_lines set refunded_quantity=1 where order_id=$1",[settled.orderId]);
+  customer=(await admin.get('/api/admin/customer-labels')).body.customers.find((c:any)=>c.email==='ava@example.com');assert.equal(customer.deliveredOrders,1,"partial refunds retain loyalty count");
+  await query("update order_lines set refunded_quantity=quantity where order_id=$1",[settled.orderId]);
+  customer=(await admin.get('/api/admin/customer-labels')).body.customers.find((c:any)=>c.email==='ava@example.com');assert.equal(customer.deliveredOrders,0,"fully refunded orders do not qualify");
+  assert.deepEqual(await labelsForCustomer('ava@example.com'),[]);
+  assert.equal((await admin.put(path,{labels:[`lbl-${randomUUID()}`],expected:[]})).status,422);
+  assert.ok((await query("select id from audit_events where action='customer.labels_updated' and target_id='ava@example.com'")).rows.length>=2);
+  await query("delete from commerce_settings where key='customer_labels_v1'");
+  await query("update customers set manual_labels=null where email='ava@example.com'");
+});
+
+test("best single whole-order discount beats priority and free shipping remains separate", async () => {
+  const a=await setStock(SKU,5),b=await setStock(SKU2,5);const client=makeClient();
+  await query(`insert into price_rules(id,name,kind,value,scope,priority,active,max_discount) values
+   ('priority','اولویت','amount',1,'all',100,true,null),('better','بهتر','percent',20,'all',1,true,150),('ship','ارسال','freeship',0,'all',0,true,null)`);
+  await query(`insert into coupons(code,kind,value,min_subtotal,active,combinable,usage_limit,used_count) values ('SMALL','amount',1,0,true,false,1,0)
+    on conflict(code) do update set kind='amount',value=1,min_subtotal=0,active=true,usage_limit=1,used_count=0`);
+  const {checkout,settled}=await payAndSettle(client,[{variantId:a,quantity:1},{variantId:b,quantity:1}],"online",{couponCode:'SMALL'});
+  const q=checkout.quote;assert.equal(q.discounts.length,1);assert.equal(q.discounts[0].id,'better');
+  assert.equal(q.couponDiscount,0);assert.equal(q.campaignDiscount,150);assert.equal(q.freeShipping,true);assert.equal(q.shippingTotal,0);
+  assert.equal(Math.round(q.lines.reduce((sum:number,l:any)=>sum+l.discountAmount,0)*100),15000);
+  assert.equal(Math.round(q.lines.reduce((sum:number,l:any)=>sum+l.lineTotal,0)*100),Math.round((q.subtotal-150)*100));
+  assert.equal(Number((await query("select used_count from coupons where code='SMALL'")).rows[0].used_count),0);
+  const order=await (await adminClient()).get(`/api/commerce/orders/${settled.orderId}`);assert.equal(order.body.coupon,null);
+});
+
+test("winning coupon is allocated to refund line snapshots and coupon changes invalidate quotes", async () => {
+  const a=await setStock(SKU,5),b=await setStock(SKU2,5);const client=makeClient();
+  await query(`insert into price_rules(id,name,kind,value,scope,priority,active) values ('smaller','کوچک','amount',1,'all',100,true)`);
+  await query(`insert into coupons(code,kind,value,min_subtotal,max_discount,active,combinable,usage_limit,used_count) values ('BEST','percent',30,0,125,true,false,2,0)
+    on conflict(code) do update set kind='percent',value=30,min_subtotal=0,max_discount=125,active=true,usage_limit=2,used_count=0`);
+  const started=await startCheckout(client,[{variantId:a,quantity:1},{variantId:b,quantity:1}],{couponCode:'BEST'});
+  const q=started.body.checkout.quote;assert.equal(q.couponDiscount,125);assert.equal(q.campaignDiscount,0);assert.equal(q.discounts.length,1);
+  assert.equal(Math.round(q.lines.reduce((sum:number,l:any)=>sum+l.discountAmount,0)*100),12500);
+  await query("update coupons set max_discount=100 where code='BEST'");
+  const path=`/api/commerce/checkout/${started.body.checkout.id}/pay`;
+  const stale=await client.post(path,{method:'online'});assert.equal(stale.status,409);assert.equal(stale.body.code,'quote_stale');
+  const paid=await client.post(path,{method:'online'});assert.equal(paid.status,200,JSON.stringify(paid.body));
+  const done=await client.post(`/api/commerce/payments/${paid.body.attempt.id}/simulate`,{result:'success'});assert.equal(done.body.status,'settled');
+  assert.equal(Number((await query("select used_count from coupons where code='BEST'")).rows[0].used_count),1);
+  const order=(await (await adminClient()).get(`/api/commerce/orders/${done.body.orderId}`)).body;
+  assert.equal(order.coupon,'BEST');assert.equal(Math.round(order.lines.reduce((sum:number,l:any)=>sum+l.lineTotal,0)*100),Math.round((q.subtotal-100)*100));
+});
+
+test("manual order consumes only a winning coupon exactly once", async () => {
+  const admin=await adminClient(),variantId=await setStock(SKU,4);
+  await query(`insert into coupons(code,kind,value,min_subtotal,active,usage_limit,used_count) values ('MANUALBEST','amount',20,0,true,2,0)
+     on conflict(code) do update set kind='amount',value=20,min_subtotal=0,active=true,usage_limit=2,used_count=0`);
+  const body={items:[{variantId,quantity:1}],customerEmail:'ava@example.com',address:{receiver:'مشتری',phone:'09121234567',street:'نشانی',city:'تهران'},paymentReference:'bank-reference',idempotencyKey:'manual-best-discount',couponCode:'MANUALBEST'};
+  const first=await admin.post('/api/commerce/admin/orders/manual',body);assert.equal(first.status,201,JSON.stringify(first.body));
+  assert.equal(first.body.order.coupon,'MANUALBEST');assert.equal((await admin.post('/api/commerce/admin/orders/manual',body)).status,200);
+  assert.equal(Number((await query("select used_count from coupons where code='MANUALBEST'")).rows[0].used_count),1);
+});
+
+test("partial refund requests cannot exceed a discounted line after rounding", async () => {
+  const variantId=await setStock(SKU,5), shopper=makeClient();
+  const product=(await query("select product_id from product_variants where id=$1",[variantId])).rows[0].product_id;
+  const original=(await query("select price from products where id=$1",[product])).rows[0].price;
+  try {
+    await query("update products set price=1 where id=$1",[product]);
+    await query(`insert into coupons(code,kind,value,min_subtotal,active,used_count) values ('ROUNDING','amount',1,0,true,0)
+      on conflict(code) do update set kind='amount',value=1,min_subtotal=0,max_discount=null,active=true,usage_limit=null,used_count=0`);
+    const {settled}=await payAndSettle(shopper,[{variantId,quantity:3}],"online",{couponCode:'ROUNDING'});
+    const admin=await adminClient();const order=(await admin.get(`/api/commerce/orders/${settled.orderId}`)).body;assert.equal(order.lines[0].lineTotal,2);
+    const path=`/api/commerce/orders/${settled.orderId}/returns`;
+    const results=await Promise.all([0,1,2].map(()=>admin.post(path,{lineId:order.lines[0].id,quantity:1,kind:'refund'})));
+    assert.ok(results.every(r=>r.status===201),JSON.stringify(results));
+    assert.equal(Math.round(results.reduce((n,r)=>n+Number(r.body.refund.amount),0)*100),200);
+    assert.deepEqual(results.map(r=>Number(r.body.refund.amount)).sort(),[0.66,0.67,0.67]);
+  } finally {await query("update products set price=$2 where id=$1",[product,original]);}
+});
+
+test("one monetary campaign can also grant shipping even when a coupon wins", async () => {
+  const variantId=await setStock(SKU,4),client=makeClient();
+  await query(`insert into price_rules(id,name,kind,value,scope,priority,active,free_shipping) values
+    ('both','تخفیف و ارسال','amount',1,'all',0,true,true)`);
+  await query(`insert into coupons(code,kind,value,min_subtotal,active,used_count) values ('SHIPBEST','amount',10,0,true,0)
+    on conflict(code) do update set kind='amount',value=10,min_subtotal=0,max_discount=null,active=true,usage_limit=null,used_count=0`);
+  const preview=await client.post('/api/commerce/quote',{items:[{variantId,quantity:1}],couponCode:'SHIPBEST'});
+  assert.equal(preview.status,200,JSON.stringify(preview.body));
+  assert.equal(preview.body.couponDiscount,10);assert.equal(preview.body.campaignDiscount,0);
+  assert.equal(preview.body.freeShippingBy,'campaign');assert.equal(preview.body.shippingTotal,0);
+  const begun=await startCheckout(client,[{variantId,quantity:1}],{couponCode:'SHIPBEST'});
+  await query("update price_rules set free_shipping=false,updated_at=now() where id='both'");
+  const stale=await client.post(`/api/commerce/checkout/${begun.body.checkout.id}/pay`,{method:'online'});
+  assert.equal(stale.status,409);assert.equal(stale.body.code,'quote_stale');
 });

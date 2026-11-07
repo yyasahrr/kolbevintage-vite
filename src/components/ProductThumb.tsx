@@ -1,5 +1,6 @@
 import { cn } from "@/utils/cn";
-import { useOps } from "@/state/ops";
+import { ProductImage } from "./ProductImage";
+import { useLiveCatalog } from "@/state/live-catalog";
 import type { Product } from "@/types";
 
 interface Props {
@@ -20,8 +21,8 @@ interface Props {
  */
 export function ProductThumb({ product, tint = "#bba893", className, tileAspect = 0.78, softLight = true, decorative = false }: Props) {
   const { crop, aspect, image, name } = product;
-  const ops = useOps();
-  const uploaded = ops.productImages[product.id] ?? [];
+  const catalog = useLiveCatalog();
+  const uploaded = catalog.products.find(item => item.id === product.id)?.images ?? [];
   // an uploaded photo always wins over the runway crop
   const cover = (uploaded.find((i) => i.role === "main") ?? uploaded.find((i) => i.role !== "hover"))?.url;
   const hFrac = Math.min(1, (crop.zoom * aspect) / tileAspect);
@@ -40,12 +41,10 @@ export function ProductThumb({ product, tint = "#bba893", className, tileAspect 
       style={{ aspectRatio: tileAspect }}
     >
       {cover ? (
-        <img
+        <ProductImage
           src={cover}
           alt={decorative ? "" : name}
-          loading="lazy"
-          decoding="async"
-          draggable={false}
+          lazy
           className="pointer-events-none absolute inset-0 h-full w-full object-cover"
         />
       ) : (
@@ -54,12 +53,10 @@ export function ProductThumb({ product, tint = "#bba893", className, tileAspect 
             className="absolute inset-0"
             style={{ background: `linear-gradient(155deg, ${tint}2e 0%, ${tint}0d 45%, #ffffff00 100%)` }}
           />
-          <img
+          <ProductImage
             src={image}
             alt={decorative ? "" : name}
-            loading="lazy"
-            decoding="async"
-            draggable={false}
+            lazy
             className="pointer-events-none absolute select-none"
             style={{
               width: `${widthPct}%`,

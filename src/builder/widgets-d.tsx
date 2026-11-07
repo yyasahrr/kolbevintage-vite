@@ -44,7 +44,7 @@ import { Carousel, IconView, faNum } from "./kit";
 import { P, makeCardWidget } from "./factory";
 import { resolveImg } from "./stock";
 import { useCart } from "@/state/cart";
-import { CATALOG, COLLECTIONS, productsInCollection } from "@/data/catalog";
+import { CATALOG, COLLECTIONS, productsInCollection, visibleProducts } from "@/data/catalog";
 import { POSTS } from "@/data/journal";
 import { LOOKS, formatPrice } from "@/data/looks";
 import { ProductCard } from "@/components/ProductCard";
@@ -695,7 +695,7 @@ const productSlider: WidgetDef = {
   presets: [P.carousel({ per: 4 }), P.carousel({ per: 3 })],
   }),
   render: () => {
-    const list = CATALOG.slice(0, 6);
+    const list = visibleProducts().slice(0, 6);
     return (
       <Carousel perView={4} arrows dots items={list.map((p) => (
         <div key={p.id} className="ew-product"><ProductCard product={p} /></div>

@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { StoreBootGate } from "@/components/StoreBootGate";
+import { useJournal } from "@/data/journal";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { CartProvider } from "@/state/cart";
 import { ThemeProvider } from "@/theme/ThemeProvider";
 import { AuthProvider } from "@/state/auth";
@@ -190,13 +193,17 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const catalog = useLiveCatalog();
+  useJournal();
   return (
+    <StoreBootGate>
     <ThemeProvider>
       <HashRouter>
         <AuthProvider>
         <CartProvider>
           <ScrollToTop />
           <BrandMeta />
+          {catalog.status === "offline" && <div role="alert" className="bg-amber-100 px-4 py-2 text-center text-sm text-amber-950">اتصال به کاتالوگ برقرار نیست؛ موجودی قابل تأیید نیست و امکان افزودن کالا موقتاً غیرفعال است.</div>}
           <AdminHostGuard />
           <Routes>
             <Route path="/builder/*" element={<AdminOnly><BuilderApp /></AdminOnly>} />
@@ -210,5 +217,6 @@ export default function App() {
         </AuthProvider>
       </HashRouter>
     </ThemeProvider>
+    </StoreBootGate>
   );
 }

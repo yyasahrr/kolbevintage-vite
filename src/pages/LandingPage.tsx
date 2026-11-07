@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowUpRight, Quote } from "lucide-react";
 import { CAMPAIGN_IMAGE, HERO_IMAGE, LOOK2_IMAGE, ATELIER_IMAGE } from "@/data/journal";
 import { LOOKS } from "@/data/looks";
-import { CATALOG } from "@/data/catalog";
+import { visibleProducts } from "@/data/catalog";
 import { ProductCard } from "@/components/ProductCard";
 import {
   Breadcrumbs,
@@ -49,7 +49,7 @@ const CHAPTERS = [
 ];
 
 export function LandingPage() {
-  const featured = [CATALOG[0], CATALOG[8], CATALOG[17], CATALOG[22]];
+  const featured = visibleProducts().slice(0, 4);
 
   return (
     <div>

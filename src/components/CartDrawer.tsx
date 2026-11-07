@@ -2,13 +2,16 @@ import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
+import { useLiveCatalog, sellableStock } from "@/state/live-catalog";
 import { useCart } from "@/state/cart";
 import { getAdmin } from "@/state/admin";
-import { ALL_PRODUCTS, formatPrice } from "@/data/looks";
+import { formatPrice } from "@/data/looks";
+import { liveGetProduct } from "@/data/catalog";
 import { ProductThumb } from "./ProductThumb";
 
 export function CartDrawer({ reduced }: { reduced: boolean }) {
   const { lines, subtotal, count, cartOpen, setCartOpen, remove, setQty, clear } = useCart();
+  const catalog = useLiveCatalog();
   const freeShippingLeft = Math.max(0, getAdmin().settings.freeShipping - subtotal);
 
   useEffect(() => {
@@ -73,7 +76,8 @@ export function CartDrawer({ reduced }: { reduced: boolean }) {
                 <ul className="space-y-3">
                   <AnimatePresence initial={false}>
                     {lines.map((line) => {
-                      const product = ALL_PRODUCTS.find((p) => p.id === line.productId);
+                      const product = liveGetProduct(line.productId);
+                      const available = sellableStock(line.productId,line.colorId,line.sizeId);
                       return (
                         <motion.li
                           key={line.key}
@@ -95,6 +99,7 @@ export function CartDrawer({ reduced }: { reduced: boolean }) {
                               />
                               {line.colorName} · {line.sizeLabel}
                             </p>
+                            {catalog.status !== "online" ? <p className="mt-1 text-[11px] text-ember">موجودی در دسترس نیست؛ اتصال را بررسی کنید.</p> : line.qty > available ? <p className="mt-1 text-[11px] text-ember">موجودی فعلی برای این تعداد کافی نیست.</p> : null}
                             <div className="mt-2 flex items-center justify-between">
                               <div className="flex items-center gap-1 rounded-full border border-black/10 px-1 py-0.5">
                                 <button

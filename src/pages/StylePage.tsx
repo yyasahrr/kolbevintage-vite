@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { liveLooks } from "@/data/catalog";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { useAdmin } from "@/state/admin";
 import { RunwaySection } from "@/components/RunwaySection";
 import { Breadcrumbs } from "@/components/ui";
@@ -8,7 +9,8 @@ import { Breadcrumbs } from "@/components/ui";
 export function StylePage() {
   const { lookId } = useParams();
   const admin = useAdmin();
-  const look = useMemo(() => liveLooks().find((l) => l.id === lookId), [lookId, admin]);
+  const catalog = useLiveCatalog();
+  const look = useMemo(() => liveLooks().find((l) => l.id === lookId), [lookId, admin, catalog.products]);
 
   return (
     <>

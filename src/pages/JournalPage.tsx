@@ -1,22 +1,23 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, BookOpen } from "lucide-react";
-import { POSTS } from "@/data/journal";
+import { POSTS, useJournal } from "@/data/journal";
 import { Chip, EmptyState, PageIntro, Reveal } from "@/components/ui";
-import { useOps } from "@/state/ops";
 
-const CATEGORIES = ["همه", "استایل", "آتلیه", "پارچه", "رانوی"] as const;
+
 
 export function JournalPage() {
   const [category, setCategory] = useState<string>("همه");
-  const ops = useOps();
-  const features = ops.features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
+  const journal = useJournal();
+  const categories = ["همه", ...new Set(POSTS.map(p => p.category))];
   const posts = category === "همه" ? POSTS : POSTS.filter((p) => p.category === category);
   const featured = POSTS.find((p) => p.featured) ?? POSTS[0];
 
   // the owner can switch the journal off from the panel; when it is off the
   // section is really gone instead of showing an empty shell (decision 62)
-  if (!features.journal) {
+  if (journal.status === "loading") return <div className="p-10 text-center">در حال بارگذاری ژورنال…</div>;
+  if (journal.status === "offline") return <div role="alert" className="p-10 text-center">ارتباط با ژورنال برقرار نشد. لطفاً دوباره تلاش کنید.</div>;
+  if (!journal.enabled) {
     return (
       <div className="pb-14">
         <PageIntro crumbs={[{ label: "ژورنال" }]} title="ژورنال فعلاً خاموش است" description="مالک فروشگاه این بخش را از پنل خاموش کرده است." />
@@ -27,12 +28,13 @@ export function JournalPage() {
     );
   }
 
+  if (!featured) return <div className="p-10"><EmptyState icon={<BookOpen className="h-5 w-5" />} title="هنوز مقاله‌ای منتشر نشده" body="به‌زودی دوباره سر بزنید." /></div>;
   return (
     <div className="pb-14">
       <PageIntro
         crumbs={[{ label: "ژورنال" }]}
-        eyebrow={`${POSTS.length.toLocaleString("fa-IR")} مقاله · به‌روزرسانی هفتگی`}
-        title="ژورنال ولور"
+        eyebrow={`${POSTS.length.toLocaleString("fa-IR")} مقاله`}
+        title="ژورنال"
         description="یادداشت‌هایی از آتلیه، رانوی و کمدی که هر روز می‌پوشیم. دربارهٔ پارچه، نسبت و ماندگاری."
       />
 
@@ -82,7 +84,7 @@ export function JournalPage() {
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1.5">
-            {CATEGORIES.map((c) => (
+            {categories.map((c) => (
               <Chip key={c} active={category === c} onClick={() => setCategory(c)}>
                 {c}
               </Chip>
@@ -113,7 +115,7 @@ export function JournalPage() {
                     }
                   />
                   <span className="absolute top-3 right-3 rounded-full bg-white/85 px-2.5 py-1 text-[9.5px] text-ink backdrop-blur">
-                    {ops.journalVideos[post.slug] ? "لوک‌بوک ویدیویی" : post.category}
+                    {post.category}
                   </span>
                 </div>
                 <div className="mt-3 flex flex-1 flex-col">

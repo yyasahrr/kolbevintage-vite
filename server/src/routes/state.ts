@@ -1,11 +1,13 @@
 import type { FastifyInstance } from "fastify";
-import { query } from "../db";
+import { config } from "../config";
+import { query, withTransaction } from "../db";
 import { syncProjection } from "../projection";
 import { getDocument, putDocument } from "../seed";
 import { readSession } from "../sessions";
-import { requirePermission, type Permission } from "../http/rbac";
+import { requirePermission, requireOwnerRole, permissionsFor, roleForSubject, type Permission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
 import { publicCustomer } from "./auth";
+import { hasUnsupportedCampaignRestrictions } from "../commerce/promotions";
 
 const ADMIN_KEYS = new Set(["admin", "ops"]);
 
@@ -45,9 +47,20 @@ function publicAdminDoc(doc: Record<string, unknown> | null): Record<string, unk
   if (clone.settings && typeof clone.settings === "object") {
     // the staff passcode lives under settings.passcode in the legacy document
     const settings = { ...(clone.settings as Record<string, unknown>) };
-    delete settings.passcode;
+    for (const field of Object.keys(settings)) if (SECRET_KEY.test(field)) delete settings[field];
     clone.settings = settings;
   }
+  // Drafts, stock movements and coupon codes are not public storefront data.
+  clone.movements = [];
+  clone.coupons = [];
+  // Do not advertise a restricted campaign whose restrictions are not yet
+  // enforced. Admins still see the draft in their privileged document.
+  for (const key of ["campaigns", "discountRules"]) {
+    if (Array.isArray(clone[key])) clone[key] = (clone[key] as any[]).filter(item => !item || typeof item !== "object" || !hasUnsupportedCampaignRestrictions(item));
+  }
+  if (Array.isArray(clone.customProducts)) clone.customProducts = clone.customProducts.filter((product: any) => product?.active === true);
+  if (Array.isArray(clone.customLooks)) clone.customLooks = clone.customLooks.filter((look: any) => look?.published === true);
+  if (Array.isArray(clone.reviews)) clone.reviews = clone.reviews.filter((review: any) => review?.approved === true);
   if (clone.integrations && typeof clone.integrations === "object") {
     const integrations = clone.integrations as Record<string, unknown>;
     clone.integrations = Object.fromEntries(
@@ -88,34 +101,37 @@ export async function stateRoutes(app: FastifyInstance) {
     }
 
     const isAdmin = session?.kind === "admin";
-    const responseAdmin = isAdmin
+    const permissions = isAdmin ? await permissionsFor(session.subject) : [];
+    const role = isAdmin ? await roleForSubject(session.subject) : null;
+    const isOwner = isAdmin && ((config.panelOpenAccess && session.subject === "review-owner") || role?.roleId === "owner" || role?.roleId === "superadmin");
+    const responseAdmin = isOwner
       ? (redact(map.admin ?? null) as Record<string, unknown> | null)
       : publicAdminDoc((map.admin as Record<string, unknown> | null) ?? null);
-
-    // Orders are relational financial records, not a public state document.
-    // Administrators receive the full book; a signed-in customer receives only
-    // their own orders; anonymous visitors receive none.
-    if (responseAdmin && (isAdmin || session?.kind === "customer")) {
-      const orderRows = isAdmin
-        ? await query<{ data: unknown }>("select data from orders order by created_at desc limit 400")
-        : await query<{ data: unknown }>("select data from orders where email = $1 order by created_at desc limit 100", [session?.subject]);
-      responseAdmin.orders = orderRows.rows.map((row) => row.data);
+    if (responseAdmin && isAdmin && permissions.includes("customers:view") && !isOwner) {
+      responseAdmin.customers = (map.admin as Record<string,unknown> | undefined)?.customers ?? {};
     }
+    if (responseAdmin && isAdmin && permissions.includes("orders:view")) {
+      const orderRows = await query<{data:unknown}>("select data from orders order by created_at desc limit 400");
+      responseAdmin.orders = orderRows.rows.map(row=>row.data);
+    } else if (responseAdmin && session?.kind === "customer") {
+      // Do not disclose historical guest orders merely because an unverified
+      // registration claims the same email; require the checkout's account link.
+      const orderRows = await query<{data:unknown}>(`select o.data from orders o join checkout_sessions c on c.id=o.checkout_id where c.customer_email=$1 order by o.created_at desc limit 100`,[session.subject]);
+      responseAdmin.orders = orderRows.rows.map(row=>row.data);
+    } else if (responseAdmin) delete responseAdmin.orders;
+
+    const sourceOps = (map.ops as Record<string,unknown> | null) ?? {};
+    const publicKeys = ["brand","siteTheme","siteUnderSetup","categories","colorLibrary","sizeSets","homeSections","productImages","productVideos","colorMedia","hoverMedia","sizeGuides","features","categorySort","seo","cashbackRate","tryonPackages","formFields","megaMenus","widgets","faqs","lookProducts","lookImages"];
+    const safeOps:Record<string,unknown> = Object.fromEntries(publicKeys.filter(key=>key in sourceOps).map(key=>[key,sourceOps[key]]));
+    const security = (sourceOps.security && typeof sourceOps.security === "object" ? sourceOps.security : {}) as Record<string,unknown>;
+    safeOps.security = {allowCustomerSignup:security.allowCustomerSignup, otpChannels:security.otpChannels};
+    // Explicit empty values prevent the legacy client from restoring demo data.
+    Object.assign(safeOps,{cashbackTxns:[],tryonRequests:[],tryonCredits:{},tickets:[],returns:[],logs:[],issues:[],smsCampaigns:[],smsTemplates:[],labels:[],replyTemplates:[]});
+    const responseOps = isOwner ? redact(map.ops ?? null) : safeOps;
 
     return {
       admin: responseAdmin,
-      // the ops document can carry the same staff passcode under security
-      ops: isAdmin
-        ? redact(map.ops ?? null)
-        : (() => {
-            const doc = { ...((map.ops as Record<string, unknown> | null) ?? {}) };
-            if (doc.security && typeof doc.security === "object") {
-              const security = { ...(doc.security as Record<string, unknown>) };
-              delete security.passcode;
-              doc.security = security;
-            }
-            return doc;
-          })(),
+      ops: responseOps,
       auth: { admin: session?.kind === "admin", customer },
       updatedAt,
       server: { version: 1, time: new Date().toISOString() },
@@ -127,17 +143,19 @@ export async function stateRoutes(app: FastifyInstance) {
     if (!ADMIN_KEYS.has(key)) return reply.code(404).send({ error: "سند ناشناخته است." });
     // a real admin session *with* the permission for this document
     const session = await requirePermission(req, KEY_PERMISSION[key]);
+    // A legacy whole-document write can change financial, customer and security
+    // data irrespective of the nominal permission. Restrict it to the owner;
+    // staff must use narrowly-scoped APIs.
+    await requireOwnerRole(session);
+    // Full-document projection is a legacy compatibility path and can bypass
+    // transactional stock/finance services. It must never run in production.
+    if (config.isProd) return reply.code(403).send({error:"ذخیره سند کامل در محیط عملیاتی غیرفعال است.",code:"legacy_write_disabled"});
     const body = req.body;
     if (!body || typeof body !== "object") return reply.code(400).send({ error: "بدنهٔ نامعتبر." });
 
     // every panel save leaves a trail: which top-level keys changed (decision 36)
     const before = (await getDocument<Record<string, unknown>>(key)) ?? {};
     const after = body as Record<string, unknown>;
-    const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((field) => {
-      // credentials are never copied into the audit log
-      if (SECRET_KEY.test(field)) return false;
-      return JSON.stringify(before[field]) !== JSON.stringify(after[field]);
-    });
 
     // a save must never wipe the store passcode by omission — that would lock the
     // owner out of their own panel (decision 30: owner recovery)
@@ -149,7 +167,26 @@ export async function stateRoutes(app: FastifyInstance) {
       (body as any).settings = { ...(body as any).settings, passcode: stored.settings.passcode };
     }
 
-    await putDocument(key, body);
+    if (key === "ops") {
+      // Full legacy writes must not undo a targeted theme publication. Lock
+      // the same document row and preserve targeted theme, categories and size templates inside the lock.
+      await withTransaction(async client => {
+        const row=await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");
+        const current=row.rows[0]?.value ?? {};
+        const next=body as Record<string,any>;
+        for (const field of ["siteTheme","previousSiteTheme","sizeSets","categories"]) {
+          if (Object.prototype.hasOwnProperty.call(current,field)) next[field]=current[field];
+          else delete next[field];
+        }
+        if(current.security?.passcode && !next.security?.passcode) next.security={...(next.security ?? {}),passcode:current.security.passcode};
+        await client.query("insert into state_documents(key,value,updated_at) values('ops',$1::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()",[JSON.stringify(next)]);
+      });
+    } else await putDocument(key, body);
+    const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((field) => {
+      // credentials are never copied into the audit log
+      if (SECRET_KEY.test(field)) return false;
+      return JSON.stringify(before[field]) !== JSON.stringify(after[field]);
+    });
 
     const admin = key === "admin" ? (body as Record<string, never>) : ((await getDocument("admin")) as Record<string, never>);
     const ops = key === "ops" ? (body as Record<string, never>) : ((await getDocument("ops")) as Record<string, never>);

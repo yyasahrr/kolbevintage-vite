@@ -99,7 +99,7 @@ export const DEFAULT_COMMERCE_SETTINGS: CommerceSettings = {
   bnpl4Provider: "mock-bnpl4",
   bnpl4Installments: 4,
   cartMaxQtyPerLine: 5,
-  reservationHoldMinutes: 10,
+  reservationHoldMinutes: 15,
   paymentWindowMinutes: 15,
   quoteTtlMinutes: 10,
   shippingFlat: 12,

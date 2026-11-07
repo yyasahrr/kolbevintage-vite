@@ -16,6 +16,7 @@ import { WidgetZone } from "@/widgets/WidgetZone";
 import { COLLECTIONS, complementProducts, getProduct, liveGetProduct, relatedProducts, totalStock } from "@/data/catalog";
 import { ProductGallery } from "@/components/ProductGallery";
 import { SmartSizeGuide } from "@/components/SmartSizeGuide";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { useAuth } from "@/state/auth";
 import { submitReview, useAdmin } from "@/state/admin";
 import { useOps, requestTryon, tryonBalance, type TryOnPackage } from "@/state/ops";
@@ -29,6 +30,7 @@ import { cn } from "@/utils/cn";
 
 export function ProductPage() {
   const { productId } = useParams();
+  const catalog = useLiveCatalog();
   // subscribe to the admin store so edits, new products and complements render live
   useAdmin();
   const product = liveGetProduct(productId);
@@ -48,6 +50,8 @@ export function ProductPage() {
   // per-category measurements the owner maintains in the panel (decision 56)
   const opsForGuide = useOps();
   const categoryGuide = product ? opsForGuide.sizeGuides[product.category] : undefined;
+  const category = product ? opsForGuide.categories.find(c => c.name === product.category) : undefined;
+  const sizeSet = category ? opsForGuide.sizeSets.find(s => s.id === category.sizeSetId) : undefined;
   const features = opsForGuide.features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
   const video = product ? opsForGuide.productVideos?.[product.id] : undefined;
   const [tryonOpen, setTryonOpen] = useState(false);
@@ -61,16 +65,16 @@ export function ProductPage() {
     const color = product.colors.find((c) =>
       product.sizes.some((s) => stockOf(product, c.id, s.id) > 0),
     );
-    setColorId(color?.id ?? product.colors[0].id);
-    const firstSize = product.sizes.find((s) => stockOf(product, color?.id ?? product.colors[0].id, s.id) > 0);
-    setSizeId(firstSize?.id ?? product.sizes[0].id);
+    setColorId(color?.id ?? product.colors[0]?.id ?? "");
+    const firstSize = product.sizes.find((s) => stockOf(product, color?.id ?? product.colors[0]?.id ?? "", s.id) > 0);
+    setSizeId(firstSize?.id ?? product.sizes[0]?.id ?? "");
     document.title = `${product.name} — فروشگاه ولور`;
     // remembered in this browser only, for the «بازدیدهای اخیر» widget
     rememberView(product.id);
     return () => {
       document.title = "ولور — خرید بر اساس استایل | رانوی تعاملی";
     };
-  }, [productId]);
+  }, [productId, product?.id]);
 
   useEffect(() => {
     if (!product) return;
@@ -78,7 +82,26 @@ export function ProductPage() {
     if (!product.sizes.some((s) => s.id === sizeId)) setSizeId(product.sizes[0]?.id ?? "");
   }, [product, colorId, sizeId]);
 
-  if (!product) return <NotFoundPage />;
+  useEffect(() => {
+    const el = priceRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        // sticky bar appears only after the price has scrolled *above* the viewport
+        setPastPrice(!entry.isIntersecting && entry.boundingClientRect.top < 0);
+      },
+      { rootMargin: "-96px 0px 0px 0px", threshold: 0 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [product?.id]);
+
+  if (!product) {
+    if (catalog.status === "loading") return <div role="status" className="p-10 text-center">در حال دریافت محصول…</div>;
+    if (catalog.status === "offline") return <div role="alert" className="p-10 text-center">ارتباط با کاتالوگ برقرار نیست؛ دوباره تلاش کنید.</div>;
+    return <NotFoundPage />;
+  }
+
 
   const stock = stockOf(product, colorId, sizeId);
   const color = product.colors.find((c) => c.id === colorId) ?? product.colors[0];
@@ -98,20 +121,6 @@ export function ProductPage() {
     if (next) setSizeId(next.id);
   };
 
-  useEffect(() => {
-    const el = priceRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        // sticky bar appears only after the price has scrolled *above* the viewport
-        setPastPrice(!entry.isIntersecting && entry.boundingClientRect.top < 0);
-      },
-      { rootMargin: "-96px 0px 0px 0px", threshold: 0 },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [product?.id]);
-
   const handleAdd = () => {
     if (soldOut) return;
     add([{ product, color, size, lookName: product.lookName }], {
@@ -124,6 +133,7 @@ export function ProductPage() {
 
   return (
     <div className="pb-16">
+      {catalog.status === "offline" && <p role="alert" className="mx-auto max-w-[1500px] p-4 text-sm text-ember">ارتباط با کاتالوگ قطع است؛ موجودی قابل تأیید نیست و خرید موقتاً غیرفعال است.</p>}
       <div className="mx-auto w-full max-w-[1500px] px-4 pt-5 sm:px-6 lg:px-10">
         <Breadcrumbs
           items={[
@@ -349,7 +359,7 @@ export function ProductPage() {
             )}
 
             <p className="mt-2 text-[10.5px] leading-relaxed text-ink-45">
-              مطمئن نیستی؟ <button type="button" className="underline underline-offset-4 hover:text-ink" onClick={() => setSizeGuideOpen(true)}>راهنمای سایز هوشمند</button> با قد، وزن و اندازه‌های بدنت سایز درست را پیدا می‌کند.
+              مطمئن نیستی؟ <button type="button" className="underline underline-offset-4 hover:text-ink" onClick={() => setSizeGuideOpen(true)}>جدول اندازه‌گیری</button> را ببین یا از فروشگاه راهنمایی بگیر.
             </p>
 
             <p className={cn("mt-2.5 text-[11px]", soldOut ? "text-ember" : "text-ink-45")}>
@@ -544,9 +554,9 @@ export function ProductPage() {
       </section>
 
       {/* mobile sticky buy bar */}
-      <div className={cn("product-sticky", pastPrice && "is-on")} aria-hidden={!pastPrice}>
+      <div className={cn("product-sticky", pastPrice && "is-on")} aria-hidden={!pastPrice} inert={!pastPrice}>
         <div className="product-sticky-in">
-          <img src={product.image} alt="" className="product-sticky-img" />
+          {product.image && <img src={product.image} alt="" className="product-sticky-img" />}
           <div className="product-sticky-text">
             <p>{product.name}</p>
             <small>{color.name} · سایز {size.label}</small>
@@ -570,6 +580,9 @@ export function ProductPage() {
         <SmartSizeGuide
           sizes={product.sizes}
           garment={product.garment}
+          measurements={sizeSet?.measurements}
+          measurementBasis={sizeSet?.measurementBasis}
+          availableIds={product.sizes.filter(s => stockOf(product,colorId,s.id) > 0).map(s => s.id)}
           onClose={() => setSizeGuideOpen(false)}
           onPick={(sizeLabel) => {
             const found = product.sizes.find((sz) => sz.label === sizeLabel);

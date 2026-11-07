@@ -1,6 +1,7 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { parse as parseLossless, stringify as stringifyLossless } from "lossless-json";
 import { gzipSync, gunzipSync } from "node:zlib";
 import type pg from "pg";
 import { query, withTransaction } from "./db";
@@ -53,7 +54,7 @@ const BACKUP_COLUMNS = `select id, file, bytes::int as bytes, kind, sha256, tabl
                                created_at, cloud_status, cloud_error from backups`;
 
 async function ensureDir() {
-  await fsp.mkdir(backupDir(), { recursive: true });
+  await fsp.mkdir(backupDir(), { recursive: true, mode: 0o700 });
 }
 
 /** table names in the order the schema creates them (children after parents) */
@@ -65,7 +66,7 @@ async function listTables(client?: pg.PoolClient): Promise<string[]> {
   const res = client ? await client.query(sql) : await query(sql);
   const names = res.rows.map((row) => String(row.name));
   // the backup table itself is bookkeeping, not shop data
-  return names.filter((name) => name !== "backups" && name !== "schema_migrations");
+  return names.filter((name) => name !== "backups" && name !== "schema_migrations" && name !== "sessions");
 }
 
 export async function dumpAll(client?: pg.PoolClient): Promise<BackupPayload> {
@@ -73,9 +74,12 @@ export async function dumpAll(client?: pg.PoolClient): Promise<BackupPayload> {
   const data: Record<string, unknown[]> = {};
   let rowCount = 0;
   for (const table of tables) {
-    const sql = `select coalesce(json_agg(t), '[]'::json) as rows from public."${table}" t`;
+    const quoted = `"${table.replace(/"/g, '""')}"`;
+    // Parse database JSON losslessly: bigint and numeric values must not be
+    // rounded to JavaScript Number while making a financial backup.
+    const sql = `select coalesce(json_agg(t), '[]'::json)::text as rows from public.${quoted} t`;
     const res = client ? await client.query(sql) : await query(sql);
-    const rows = (res.rows[0]?.rows ?? []) as unknown[];
+    const rows = parseLossless(res.rows[0]?.rows ?? "[]") as unknown[];
     data[table] = rows;
     rowCount += rows.length;
   }
@@ -96,6 +100,7 @@ async function pushToCloud(file: string, payload: Buffer): Promise<{ status: Bac
   if (!endpoint) return { status: "not_configured", error: null };
   const url = `${endpoint.replace(/\/$/, "")}/${path.basename(file)}`;
   try {
+    if (config.isProd && (new URL(url).protocol !== "https:" || !process.env.BACKUP_CLOUD_TOKEN)) return {status:"failed",error:"production cloud backups require HTTPS and an authentication token"};
     const res = await fetch(url, {
       method: "PUT",
       headers: {
@@ -103,6 +108,8 @@ async function pushToCloud(file: string, payload: Buffer): Promise<{ status: Bac
         ...(process.env.BACKUP_CLOUD_TOKEN ? { authorization: `Bearer ${process.env.BACKUP_CLOUD_TOKEN}` } : {}),
       },
       body: new Uint8Array(payload),
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) return { status: "failed", error: `HTTP ${res.status}` };
     return { status: "uploaded", error: null };
@@ -113,22 +120,33 @@ async function pushToCloud(file: string, payload: Buffer): Promise<{ status: Bac
 
 export async function createBackup(kind: BackupRow["kind"] = "manual"): Promise<BackupRow> {
   await ensureDir();
-  const payload = await dumpAll();
-  const text = JSON.stringify(payload);
+  // All tables must describe one consistent point in time, not separate
+  // read-committed snapshots from before/after an order or stock update.
+  const payload = await withTransaction(async client => {
+    await client.query("set transaction isolation level repeatable read read only");
+    return dumpAll(client);
+  });
+  const text = stringifyLossless(payload);
+  if (!text) throw new Error("ساخت پشتیبان ناموفق بود.");
   const gz = gzipSync(Buffer.from(text, "utf8"), { level: 9 });
   const stamp = payload.createdAt.replace(/[-:]/g, "").replace(/\..*$/, "").replace("T", "-");
-  const file = path.join(backupDir(), `kv-${kind}-${stamp}.json.gz`);
-  await fsp.writeFile(file, gz);
+  const file = path.join(backupDir(), `kv-${kind}-${stamp}-${randomUUID()}.json.gz`);
+  await fsp.writeFile(file, gz, { mode: 0o600, flag: "wx" });
   const sha256 = createHash("sha256").update(gz).digest("hex");
   const rows = payload.tables.reduce((sum, t) => sum + (payload.data[t]?.length ?? 0), 0);
   const cloud = await pushToCloud(file, gz);
 
-  const id = `bk-${Date.now().toString(36)}`;
-  await query(
-    `insert into backups (id, file, bytes, kind, sha256, tables, rows, cloud_status, cloud_error)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [id, file, gz.byteLength, kind, sha256, payload.tables.length, rows, cloud.status, cloud.error],
-  );
+  const id = `bk-${randomUUID()}`;
+  try {
+    await query(
+      `insert into backups (id, file, bytes, kind, sha256, tables, rows, cloud_status, cloud_error)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, file, gz.byteLength, kind, sha256, payload.tables.length, rows, cloud.status, cloud.error],
+    );
+  } catch (error) {
+    await fsp.rm(file, { force: true }).catch(() => undefined);
+    throw error;
+  }
 
   // keep the newest KEEP files on disk and in the list
   const old = await query<{ id: string; file: string }>(
@@ -155,6 +173,7 @@ export async function readBackup(id: string): Promise<{ meta: BackupRow; buffer:
   if (!meta) return null;
   const buffer = await fsp.readFile(meta.file).catch(() => null);
   if (!buffer) return null;
+  if (createHash("sha256").update(buffer).digest("hex") !== meta.sha256) throw new Error("فایل پشتیبان با اثرانگشت ثبت‌شده مطابقت ندارد.");
   return { meta, buffer };
 }
 
@@ -164,33 +183,78 @@ export async function readBackup(id: string): Promise<{ meta: BackupRow; buffer:
  */
 export async function restoreBackup(
   file: string,
-  options: { client?: pg.PoolClient } = {},
+  options: { client?: pg.PoolClient; allowEmptyJournalFromOlderBackup?: boolean } = {},
 ): Promise<{ tables: number; rows: number }> {
   const raw = await fsp.readFile(file);
   const buffer = file.endsWith(".gz") ? gunzipSync(raw) : raw;
-  const payload = JSON.parse(buffer.toString("utf8")) as BackupPayload;
+  const payload = parseLossless(buffer.toString("utf8")) as BackupPayload;
   if (payload.format !== "kv-logical-backup") throw new Error("این فایل پشتیبان مربوط به این فروشگاه نیست.");
-  if (!payload.tables?.length || !payload.data) throw new Error("فایل پشتیبان ناقص است.");
+  if (String(payload.version) !== "1" || !Array.isArray(payload.tables) || !payload.tables.length || !payload.data || typeof payload.data !== "object") throw new Error("فایل پشتیبان ناقص یا نسخهٔ آن پشتیبانی نمی‌شود.");
 
   const run = async (client: pg.PoolClient) => {
-    // foreign keys must not block a full replace; this needs the cluster owner role
-    await client.query("set local session_replication_role = replica");
-    const existing = (await listTables(client)).filter((t) => payload.tables.includes(t));
-    if (existing.length) {
-      await client.query(`truncate ${existing.map((t) => `public."${t}"`).join(", ")} restart identity cascade`);
+    // Validate names against the current schema before using any identifier or
+    // truncating anything. Older backups may contain sessions, which are always
+    // invalidated on restore rather than reviving bearer tokens.
+    const existing = await listTables(client);
+    const backupTables = payload.tables.filter(t => t !== "sessions");
+    const expected = new Set(existing), supplied = new Set(backupTables);
+    const missing = existing.filter(t => !supplied.has(t));
+    // This opt-in is deliberately specific: an older backup had no journal
+    // table at all. Restore still replaces every target table and empties the
+    // journal; it must never silently accept any other schema mismatch.
+    const allowedMissingJournal = options.allowEmptyJournalFromOlderBackup === true &&
+      missing.length === 1 && missing[0] === "journal_articles" &&
+      !Object.prototype.hasOwnProperty.call(payload.data, "journal_articles");
+    if (supplied.size !== backupTables.length || backupTables.some(t => typeof t !== "string" || !expected.has(t)) ||
+        (missing.length !== 0 && !allowedMissingJournal) || payload.tables.some(t => !Array.isArray(payload.data[t]))) {
+      throw new Error("جدول‌های پشتیبان با نسخهٔ پایگاه داده مطابقت ندارند.");
     }
+    const ident = (name:string) => `"${name.replace(/"/g, '""')}"`;
+    // Foreign keys and append-only triggers must not block a full replace;
+    // this requires an appropriately privileged database maintenance role.
+    await client.query("set local session_replication_role = replica");
+    await client.query(`truncate ${[...existing,"sessions"].map(t => `public.${ident(t)}`).join(", ")} restart identity cascade`);
     let rows = 0;
-    for (const table of payload.tables) {
-      const list = payload.data[table] ?? [];
+    for (const table of backupTables) {
+      const list = payload.data[table];
       if (!list.length) continue;
-      // json_populate_record keeps the column types the schema declared
+      // Backups from before the independent shipping benefit lack this
+      // NOT NULL column. json_populate_recordset supplies NULL, not defaults.
+      // Only an absent field is upgraded; an explicitly corrupt NULL still fails.
+      const restored = table === "price_rules" ? list.map(row => {
+        if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+        return Object.prototype.hasOwnProperty.call(row, "free_shipping") ? row : { ...row, free_shipping: false };
+      }) : list;
+      const json = stringifyLossless(restored);
+      const safeTable = ident(table);
       const res = await client.query(
-        `insert into public."${table}" select * from json_populate_recordset(null::public."${table}", $1::json)`,
-        [JSON.stringify(list)],
+        `insert into public.${safeTable} select * from json_populate_recordset(null::public.${safeTable}, $1::json)`,
+        [json],
       );
       rows += res.rowCount ?? 0;
     }
-    return { tables: payload.tables.length, rows };
+    // Explicit IDs do not advance PostgreSQL sequences. ALTER SEQUENCE RESTART
+    // is transactional (unlike setval), and prevents post-restore collisions.
+    const sequences = await client.query<{table_name:string;column_name:string;sequence_name:string;start_value:string;increment_by:string}>(`
+      select t.relname as table_name, a.attname as column_name,
+             format('%I.%I', ns.nspname, seq.relname) as sequence_name,
+             ps.start_value::text, ps.increment_by::text
+        from pg_class seq
+        join pg_namespace ns on ns.oid=seq.relnamespace
+        join pg_depend dep on dep.objid=seq.oid and dep.deptype in ('a','i')
+        join pg_class t on t.oid=dep.refobjid
+        join pg_namespace tn on tn.oid=t.relnamespace
+        join pg_attribute a on a.attrelid=t.oid and a.attnum=dep.refobjsubid
+        join pg_sequences ps on ps.schemaname=ns.nspname and ps.sequencename=seq.relname
+       where seq.relkind='S' and tn.nspname='public' and t.relname = any($1::text[])`, [backupTables]);
+    for (const seq of sequences.rows) {
+      const increment=BigInt(seq.increment_by);
+      if (increment <= 0n) throw new Error("بازیابی دنبالهٔ کاهشی پشتیبانی نمی‌شود.");
+      const maximum = await client.query<{max:string|null}>(`select max(${ident(seq.column_name)})::text as max from public.${ident(seq.table_name)}`);
+      const next = maximum.rows[0].max === null ? BigInt(seq.start_value) : BigInt(maximum.rows[0].max) + increment;
+      await client.query(`alter sequence ${seq.sequence_name} restart with ${next}`);
+    }
+    return { tables: backupTables.length, rows };
   };
 
   if (options.client) return run(options.client);

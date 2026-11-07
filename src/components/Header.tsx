@@ -8,19 +8,15 @@ import { COLLECTIONS, liveCatalog, productsInCollection } from "@/data/catalog";
 import { formatPrice } from "@/data/looks";
 import { ProductThumb } from "./ProductThumb";
 import { useAuth } from "@/state/auth";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { useOps } from "@/state/ops";
 import { useAdmin } from "@/state/admin";
 import { useEscape, useScrollLock } from "@/hooks/useOverlay";
 import { UserRound } from "lucide-react";
 
-/** The separate Next.js admin V3, not the legacy Vite administration shell. */
+/** The new panel is served under the same origin as the storefront. */
 function adminV3Href() {
-  const configured = import.meta.env.VITE_ADMIN_PANEL_URL as string | undefined;
-  if (configured) return configured;
-  const { protocol, hostname } = window.location;
-  // Arena previews expose each process as `<port>-<sandbox>.e2b.app`.
-  if (/^5173-/.test(hostname)) return `${protocol}//${hostname.replace(/^5173-/, "3000-")}`;
-  return `${protocol}//${hostname}:3000`;
+  return import.meta.env.VITE_ADMIN_PANEL_URL || "/panel";
 }
 
 const NAV = [
@@ -104,7 +100,7 @@ export function Header() {
               onClick={() => setMenuOpen(true)}
               aria-label="باز کردن منو"
               aria-expanded={menuOpen}
-              className="tap -ms-1 flex h-10 w-10 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink lg:hidden"
+              className="tap -ms-1 flex h-10 w-10 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink"
             >
               <Menu className="h-[19px] w-[19px]" />
             </button>
@@ -325,13 +321,14 @@ function SearchOverlay({ open, onClose }: { open: boolean; onClose: () => void }
     };
   }, [open, onClose]);
 
+  const catalog = useLiveCatalog();
   const results = useMemo(() => {
     const q = query.trim();
     if (!q) return [];
     return liveCatalog().filter((p) =>
       [p.name, p.category, p.lookName, ...p.colors.map((c) => c.name)].some((v) => v.includes(q)),
     ).slice(0, 5);
-  }, [query]);
+  }, [query, catalog.products]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -449,7 +446,7 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-[66] lg:hidden">
+        <div className="fixed inset-0 z-[66]">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

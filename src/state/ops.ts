@@ -54,8 +54,9 @@ export interface SizeSet {
   id: string;
   name: string
   sizes: string[];
-  /** optional measurements per size, used by the smart size guide */
+  /** optional category-level measurements; sizes are not predicted automatically */
   measurements?: Record<string, { chest?: number; waist?: number; hip?: number; shoulder?: number; height?: number }>;
+  measurementBasis?: "body" | "garment";
 }
 
 export type MediaMap = Record<string, { hoverImage?: string; hoverVideo?: string }>;
@@ -226,6 +227,8 @@ export interface OpsState {
    * visitor. Shoppers never get their own theme switch.
    */
   siteTheme: ThemeId;
+  /** New stores stay behind a preparation screen until explicitly launched. */
+  siteUnderSetup?: boolean;
   categories: CategoryDef[];
   /** reusable colour definitions available to every product editor */
   colorLibrary: ColorLibraryItem[];

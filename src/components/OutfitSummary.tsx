@@ -1,15 +1,17 @@
 import { useMemo, useState } from "react";
 import { BookmarkCheck, Heart, Layers, Save, ShoppingBag, Sparkles, Trash2, Wallet } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { getProduct } from "@/data/catalog";
+import { liveGetProduct } from "@/data/catalog";
 import { formatPrice, stockOf } from "@/data/looks";
 import { paletteScore, budgetCheck, stylistNote, hexToHsl, type Profile } from "@/lib/stylist";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { useCart } from "@/state/cart";
 import { loadOutfit, patchItem, removeItem, removeOutfit, saveOutfit, useOutfit } from "@/state/outfit";
 import { ProductThumb } from "./ProductThumb";
 
 export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; onEmpty?: () => void }) {
   const { items, saved } = useOutfit();
+  const catalog = useLiveCatalog();
   const { add, notify, toggleWish, isWished } = useCart();
   const [budget, setBudget] = useState(profile?.budget ?? 0);
   const [saving, setSaving] = useState(false);
@@ -19,7 +21,7 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
     () =>
       items
         .map((item) => {
-          const product = getProduct(item.productId);
+          const product = liveGetProduct(item.productId);
           if (!product) return null;
           const color = product.colors.find((c) => c.id === item.colorId) ?? product.colors[0];
           const size = product.sizes.find((s) => s.id === item.sizeId) ?? product.sizes[0];
@@ -28,12 +30,12 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
         })
         .filter(Boolean) as {
         item: (typeof items)[number];
-        product: NonNullable<ReturnType<typeof getProduct>>;
+        product: NonNullable<ReturnType<typeof liveGetProduct>>;
         color: { id: string; name: string; hex: string };
         size: { id: string; label: string };
         stock: number;
       }[],
-    [items],
+    [items, catalog],
   );
 
   const hexes = rows.map((r) => r.color.hex);

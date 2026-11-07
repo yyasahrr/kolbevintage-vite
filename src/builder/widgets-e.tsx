@@ -579,12 +579,11 @@ const darkModeSwitch: WidgetDef = {
     sec("s", "استایل", "style", [clr("on", "رنگ فعال", { "{{WRAPPER}} .ew-dm.is-on": "background-color:{{VALUE}};" }), clr("off", "رنگ غیرفعال", { "{{WRAPPER}} .ew-dm": "background-color:{{VALUE}};" })]),
   ],
   render: ({ s }) => {
-    const { theme, themes, setTheme } = useTheme();
+    const { theme, themes } = useTheme();
     const dark = theme.id === "noir" || theme.id === "cyber";
-    const toggle = () => setTheme(dark ? "soft" : "noir");
     return (
       <div className="ew-dm-wrap">
-        <button type="button" className={`ew-dm ${dark ? "is-on" : ""} ${s.style === "button" ? "is-btn" : ""}`} role="switch" aria-checked={dark} aria-label={s.label || "تم تاریک"} onClick={toggle}>
+        <button type="button" className={`ew-dm ${dark ? "is-on" : ""} ${s.style === "button" ? "is-btn" : ""}`} role="switch" aria-checked={dark} aria-label={s.label || "تم تاریک"} disabled title="ظاهر فروشگاه فقط از پنل مدیریت تغییر می‌کند">
           {s.style === "button" ? (
             <>
               {dark ? <Sun width={15} height={15} /> : <Contrast width={15} height={15} />}

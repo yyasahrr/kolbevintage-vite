@@ -1,3 +1,4 @@
+import { liveLooks } from "@/data/catalog";
 import type { ComponentType, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Clock, Copy, Mail, MapPin, Phone, ShieldCheck, Sparkles, Truck, Undo2 } from "lucide-react";
@@ -384,7 +385,7 @@ export const WIDGETS: WidgetDef[] = [
     Component: ({ title, options }) => {
       const admin = useAdmin();
       const ops = useOps();
-      const looks = LOOKS.filter((l) => !admin.hiddenLooks.includes(l.id)).slice(0, num(options, "count", 3));
+      const looks = liveLooks().filter((l) => !admin.hiddenLooks.includes(l.id)).slice(0, num(options, "count", 3));
       if (!looks.length) return null;
       return (
         <Shell title={title} action={{ to: "/style", label: "همهٔ استایل‌ها" }}>
@@ -412,8 +413,7 @@ export const WIDGETS: WidgetDef[] = [
     defaultTitle: "از ژورنال",
     options: [{ key: "count", label: "تعداد", type: "number", default: 3 }],
     Component: ({ title, options }) => {
-      const ops = useOps();
-      if (!ops.features.journal) return null;
+      if (!POSTS.length) return null;
       const posts = POSTS.slice(0, num(options, "count", 3));
       if (!posts.length) return null;
       return (
@@ -921,8 +921,7 @@ export const WIDGETS: WidgetDef[] = [
     zones: ["article-side", "home-bottom"],
     defaultTitle: "همهٔ مقاله‌ها",
     Component: ({ title }) => {
-      const ops = useOps();
-      if (!ops.features.journal) return null;
+      if (!POSTS.length) return null;
       return (
         <Shell title={title} action={{ to: "/journal", label: "صفحهٔ ژورنال" }}>
           <ul className="divide-y divide-black/[0.07]">
@@ -1306,8 +1305,7 @@ export const WIDGETS: WidgetDef[] = [
     zones: ["article-side", "home-bottom"],
     defaultTitle: "موضوع‌ها",
     Component: ({ title }) => {
-      const ops = useOps();
-      if (!ops.features.journal) return null;
+      if (!POSTS.length) return null;
       const counts = new Map<string, number>();
       for (const post of POSTS) counts.set(post.category, (counts.get(post.category) ?? 0) + 1);
       if (!counts.size) return null;
@@ -1941,8 +1939,7 @@ export const WIDGETS: WidgetDef[] = [
     zones: ["home-bottom", "article-side"],
     defaultTitle: "",
     Component: () => {
-      const ops = useOps();
-      if (!ops.features.journal || !POSTS.length) return null;
+      if (!POSTS.length) return null;
       const minutes = POSTS.reduce((sum, post) => sum + post.readTime, 0);
       return (
         <p className="text-[10.5px] text-ink-45">

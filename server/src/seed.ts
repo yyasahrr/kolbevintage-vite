@@ -1,4 +1,5 @@
 import { query } from "./db";
+import { config } from "./config";
 import { ensureCommerceSettings } from "./commerce/settings";
 import { seed, syncProjection } from "./projection";
 import { hashPassword } from "./security";
@@ -50,6 +51,7 @@ export async function seedDatabase() {
   const existing = await query<{ key: string }>("select key from state_documents");
   const keys = new Set(existing.rows.map((r) => r.key));
 
+  if (config.isProd && (!keys.has("admin") || !keys.has("ops"))) throw new Error("Production store documents must be provisioned before startup; demo seed is disabled.");
   if (!keys.has("admin")) await putDocument("admin", seed.admin);
   if (!keys.has("ops")) await putDocument("ops", seed.ops);
 
@@ -57,9 +59,9 @@ export async function seedDatabase() {
   const ops = ((await getDocument("ops")) ?? seed.ops) as Record<string, never>;
 
   const count = await query<{ n: number }>("select count(*)::int as n from products");
-  if (count.rows[0].n === 0) await syncProjection(admin, ops);
+  if (!config.isProd && count.rows[0].n === 0) await syncProjection(admin, ops);
 
-  await query(
+  if (!config.isProd) await query(
     `insert into customers (email, name, phone, password_hash, size, addresses, created_at)
      values ($1, $2, $3, $4, $5, $6, now() - interval '60 days')
      on conflict (email) do nothing`,

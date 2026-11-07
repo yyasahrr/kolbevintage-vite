@@ -62,7 +62,7 @@ import { Carousel, IconView, faNum, hooks } from "./kit";
 import { resolveImg, PLACEHOLDER } from "./stock";
 import { addSubmission } from "./docs";
 import { POSTS } from "@/data/journal";
-import { CATALOG, COLLECTIONS, filterProducts, productsInCollection, totalStock } from "@/data/catalog";
+import { CATALOG, COLLECTIONS, filterProducts, productsInCollection, totalStock, liveGetProduct } from "@/data/catalog";
 import { LOOKS, formatPrice, stockOf } from "@/data/looks";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductThumb } from "@/components/ProductThumb";
@@ -1383,7 +1383,7 @@ const product: WidgetDef = {
     sec("c", "محصول", "content", [{ key: "productId", label: "محصول", type: "select", options: productOptions }, slider("maxW", "حداکثر عرض", 160, 600, { "{{WRAPPER}} .ew-product": "max-width:{{VALUE}}px;" }, { default: 320 }), alignFlex("align", "{{WRAPPER}} .ew-product-wrap")]),
   ],
   render: ({ s }) => {
-    const p = CATALOG.find((x) => x.id === s.productId) ?? CATALOG[0];
+    const p = liveGetProduct(s.productId);
     if (!p) return <div className="ew-empty">محصولی انتخاب نشده.</div>;
     return (
       <div className="ew-product-wrap">
@@ -1397,7 +1397,7 @@ const product: WidgetDef = {
 
 function AddToCartView({ s, editing }: { s: Record<string, any>; editing: boolean }) {
   const { add } = useCart();
-  const p = CATALOG.find((x) => x.id === s.productId) ?? CATALOG[0];
+  const p = liveGetProduct(s.productId);
   const click = (e: React.MouseEvent) => {
     e.preventDefault();
     if (editing || !p) return;

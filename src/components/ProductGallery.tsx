@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ProductImage } from "./ProductImage";
 import { cn } from "@/utils/cn";
 import { galleryFor, type CatalogProduct } from "@/data/catalog";
-import { IMAGE_ROLE_LABEL, useOps } from "@/state/ops";
+import { IMAGE_ROLE_LABEL } from "@/state/ops";
+import { useLiveCatalog } from "@/state/live-catalog";
 import type { ColorOption, Crop } from "@/types";
 
 interface Slide {
@@ -33,13 +35,13 @@ export function ProductGallery({
   color: ColorOption;
   overlay?: ReactNode;
 }) {
-  const ops = useOps();
+  const catalog = useLiveCatalog();
   const [index, setIndex] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
 
   const slides = useMemo<Slide[]>(() => {
     const out: Slide[] = [];
-    const all = ops.productImages[product.id] ?? [];
+    const all = catalog.products.find(item => item.id === product.id)?.images ?? [];
     const rank = { main: 0, gallery: 1, detail: 2, hover: 9 } as const;
     // hover-only pictures never enter the gallery
     const usable = all.filter((i) => i.role !== "hover").sort((a, b) => rank[a.role] - rank[b.role]);
@@ -65,7 +67,7 @@ export function ProductGallery({
       for (const f of galleryFor(product)) out.push({ kind: "frame", crop: f, label: f.label });
     }
     return out;
-  }, [ops.productImages, product, color]);
+  }, [catalog.products, product, color]);
 
   useEffect(() => {
     setIndex(0);
@@ -78,16 +80,16 @@ export function ProductGallery({
     const el = trackRef.current;
     if (el) {
       const child = el.children[next] as HTMLElement | undefined;
-      child?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+      child?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest", inline: "start" });
     }
   };
 
   const renderSlide = (s: Slide, i: number, small = false) => (
     <div className="pg-frame">
       {s.kind === "image" ? (
-        <img src={s.image} alt={`${product.name} — ${s.label}`} draggable={false} className="pg-img" />
+        <ProductImage src={s.image} alt={`${product.name} — ${s.label}`} className="pg-img" />
       ) : (
-        <FramedCrop image={product.image} aspect={product.aspect} crop={s.crop!} />
+        <FramedCrop image={product.image} name={product.name} aspect={product.aspect} crop={s.crop!} />
       )}
       {!small && s.colorHex && (
         <span className="pg-color-chip">
@@ -110,10 +112,15 @@ export function ProductGallery({
           className="pg-track"
           onScroll={(e) => {
             const el = e.currentTarget;
-            const child = el.firstElementChild as HTMLElement | null;
-            if (!child) return;
-            const w = child.getBoundingClientRect().width + 8;
-            setIndex(Math.round(el.scrollLeft / w));
+            const track = el.getBoundingClientRect();
+            const rtl = getComputedStyle(el).direction === "rtl";
+            const start = rtl ? track.right : track.left;
+            const closest = [...el.children].reduce((best, child, i) => {
+              const rect = child.getBoundingClientRect();
+              const distance = Math.abs((rtl ? rect.right : rect.left) - start);
+              return distance < best.distance ? { index: i, distance } : best;
+            }, { index: 0, distance: Infinity });
+            setIndex(closest.index);
           }}
         >
           {slides.map((s, i) => (
@@ -135,7 +142,7 @@ export function ProductGallery({
             </button>
             <div className="pg-dots">
               {slides.map((_, i) => (
-                <button key={i} type="button" aria-label={`تصویر ${i + 1}`} className={cn(i === index && "is-on")} onClick={() => { setIndex(i); const el = trackRef.current; const child = el?.children[i] as HTMLElement | undefined; child?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" }); }} />
+                <button key={i} type="button" aria-label={`تصویر ${i + 1}`} className={cn(i === index && "is-on")} onClick={() => { setIndex(i); const el = trackRef.current; const child = el?.children[i] as HTMLElement | undefined; child?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", inline: "start", block: "nearest" }); }} />
               ))}
             </div>
           </>
@@ -172,7 +179,7 @@ export function ProductGallery({
   );
 }
 
-function FramedCrop({ image, aspect, crop, tileAspect = 0.82 }: { image: string; aspect: number; crop: Crop; tileAspect?: number }) {
+function FramedCrop({ image, name, aspect, crop, tileAspect = 0.82 }: { image: string; name: string; aspect: number; crop: Crop; tileAspect?: number }) {
   const hFrac = Math.min(1, (crop.zoom * aspect) / tileAspect);
   const cy = Math.min(Math.max(crop.cy, hFrac / 2), 1 - hFrac / 2);
   const widthPct = 100 / crop.zoom;
@@ -180,7 +187,7 @@ function FramedCrop({ image, aspect, crop, tileAspect = 0.82 }: { image: string;
   const topPct = 50 - (cy * 100) / hFrac;
   return (
     <div className="relative h-full w-full overflow-hidden" style={{ aspectRatio: tileAspect }}>
-      <img src={image} alt="" draggable={false} className="pointer-events-none absolute max-w-none select-none" style={{ width: `${widthPct}%`, left: `${leftPct}%`, top: `${topPct}%` }} />
+      <ProductImage src={image} alt={name} className="pointer-events-none absolute max-w-none select-none" style={{ width: `${widthPct}%`, left: `${leftPct}%`, top: `${topPct}%` }} />
     </div>
   );
 }

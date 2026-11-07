@@ -1,10 +1,17 @@
+import { customerLabelRoutes } from "./routes/customer-labels";
+import { journalRoutes } from "./routes/journal";
+import { stylePackRoutes } from "./routes/style-packs";
+import { sizeSetRoutes } from "./routes/size-sets";
+import { categoryRoutes } from "./routes/categories";
 import fs from "node:fs";
 import path from "node:path";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import fastifyProxy from "@fastify/http-proxy";
 import { config } from "./config";
+import { CommerceError } from "./commerce/errors";
 import { closeDb, initDb, query } from "./db";
 import { seedDatabase } from "./seed";
 import { authRoutes } from "./routes/auth";
@@ -20,6 +27,7 @@ import { smsRoutes } from "./routes/sms";
 import { maintenanceRoutes } from "./routes/maintenance";
 import { publicRoutes } from "./routes/public";
 import { galleryRoutes } from "./routes/gallery";
+import { adminLiveRoutes } from "./routes/admin-live";
 import { startBackupScheduler } from "./backup";
 import { recordServerError } from "./errors";
 import { seedRbac } from "./http/rbac";
@@ -37,7 +45,9 @@ export async function buildServer() {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info" },
     bodyLimit: 30 * 1024 * 1024,
-    trustProxy: true,
+    // Only explicitly trusted reverse proxies may supply client IP/protocol.
+    // Never accept an unrestricted boolean trust setting from the network.
+    trustProxy: (process.env.TRUST_PROXY ?? "").split(",").map(v => v.trim()).filter(Boolean),
   });
 
   await app.register(cookie);
@@ -90,8 +100,8 @@ export async function buildServer() {
     const code = (error as { code?: string }).code;
     const details = (error as { details?: unknown }).details;
     reply.code(status).send({
-      error: error instanceof Error ? error.message : "خطای سرور",
-      ...(code ? { code } : {}),
+      error: status >= 500 && config.isProd && !(error instanceof CommerceError) ? "خطای داخلی سرور." : error instanceof Error ? error.message : "خطای سرور",
+      ...(code && !(status >= 500 && config.isProd && !(error instanceof CommerceError)) ? { code } : {}),
       ...(details === undefined ? {} : { details }),
     });
   });
@@ -103,12 +113,19 @@ export async function buildServer() {
     decorateReply: false,
     cacheControl: true,
     maxAge: "7d",
+    setHeaders(res) {
+      res.header("X-Content-Type-Options", "nosniff");
+      // Existing uploaded SVG/HTML must not execute on the storefront origin.
+      res.header("Content-Security-Policy", "default-src 'none'; sandbox");
+    },
   });
 
   await seedRbac();
   await app.register(stateRoutes);
   await app.register(authRoutes);
   await app.register(catalogRoutes);
+  await app.register(categoryRoutes);
+  await app.register(sizeSetRoutes);
   await app.register(uploadRoutes);
   await app.register(commerceRoutes);
   await app.register(rbacRoutes);
@@ -119,6 +136,13 @@ export async function buildServer() {
   await app.register(maintenanceRoutes);
   await app.register(publicRoutes);
   await app.register(galleryRoutes);
+  await app.register(adminLiveRoutes);
+  await app.register(customerLabelRoutes);
+  await app.register(stylePackRoutes);
+  await app.register(journalRoutes);
+
+  // Same-origin entry keeps the storefront session and CSRF protection intact.
+  await app.register(fastifyProxy, { upstream: process.env.ADMIN_PANEL_UPSTREAM ?? "http://127.0.0.1:3000", prefix: "/panel", rewritePrefix: "/panel" });
 
   if (config.serveStatic && fs.existsSync(path.join(config.distDir, "index.html"))) {
     await app.register(fastifyStatic, {

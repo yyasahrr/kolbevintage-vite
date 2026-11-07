@@ -1,6 +1,5 @@
 import type { PoolClient } from "pg";
 import { query, withTransaction } from "../db";
-import { loadCommerceSettings } from "./settings";
 
 /* =====================================================================
    Transactional outbox — side effects (SMS, accounting, webhooks) are
@@ -51,28 +50,10 @@ interface HandlerResult {
   skipped?: string[];
 }
 
-async function handle(type: OutboxType, payload: Record<string, unknown>): Promise<HandlerResult> {
-  const settings = await loadCommerceSettings();
-  const delivered: string[] = [];
-  const skipped: string[] = [];
-
-  if (
-    type === "order.paid" ||
-    type === "order.exception" ||
-    type === "order.cancelled" ||
-    type === "refund.settled" ||
-    type === "cashback.earned"
-  ) {
-    if (settings.smsSimulateDown) {
-      throw new Error("SMS provider unreachable (simulated)");
-    }
-    delivered.push(`sms:${payload.orderId ?? payload.refundId ?? "event"}`);
-    delivered.push(`accounting:${payload.orderId ?? payload.refundId ?? "event"}`);
-    delivered.push(`webhook:${type}`);
-  } else {
-    skipped.push(`no handler for ${type}`);
-  }
-  return { delivered, skipped };
+async function handle(_type: OutboxType, _payload: Record<string, unknown>): Promise<HandlerResult> {
+  // No delivery adapter has been configured or implemented. Never report
+  // SMS/accounting/webhook success for work that was not actually sent.
+  throw new Error("Delivery adapters are not configured; no messages were sent");
 }
 
 /** one worker tick; safe to run from several processes thanks to SKIP LOCKED */

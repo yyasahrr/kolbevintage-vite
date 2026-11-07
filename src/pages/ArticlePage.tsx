@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Copy, Link2 } from "lucide-react";
-import { getPost, POSTS } from "@/data/journal";
-import { CATALOG } from "@/data/catalog";
+import { useArticle, POSTS } from "@/data/journal";
+import { visibleProducts } from "@/data/catalog";
 import { useCart } from "@/state/cart";
 import { ProductCard } from "@/components/ProductCard";
 import { Breadcrumbs, buttonStyles } from "@/components/ui";
@@ -12,21 +12,23 @@ import { WidgetZone } from "@/widgets/WidgetZone";
 
 export function ArticlePage() {
   const { slug } = useParams();
-  const post = getPost(slug);
-  // the owner's block-editor version wins over the shipped article (decision 68)
+  const article = useArticle(slug);
+  const post = article.post;
   const ops = useOps();
-  const edited = ops.journalBlocks ?? {};
-  const lookbookVideo = post ? ops.journalVideos[post.slug] : undefined;
   const { notify } = useCart();
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     if (!post) return;
-    document.title = `${post.title} — ژورنال ولور`;
+    document.title = post.seoTitle || `${post.title} — ژورنال`;
+    const meta = document.querySelector("meta[name=description]") as HTMLMetaElement | null;
+    const previous = meta?.content;
+    if (meta && (post.seoDescription || post.excerpt)) meta.content = post.seoDescription || post.excerpt;
     return () => {
-      document.title = "ولور — خرید بر اساس استایل | رانوی تعاملی";
+      document.title = ops.seo.title || "فروشگاه";
+      if (meta && previous !== undefined) meta.content = previous;
     };
-  }, [post]);
+  }, [post, ops.seo.title]);
 
   useEffect(() => {
     const onScroll = () => {
@@ -39,10 +41,12 @@ export function ArticlePage() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  if (article.status === "loading") return <div className="p-10 text-center">در حال بارگذاری مقاله…</div>;
+  if (article.status === "offline") return <div role="alert" className="p-10 text-center">ارتباط با ژورنال برقرار نشد. لطفاً دوباره تلاش کنید.</div>;
   if (!post) return <NotFoundPage />;
 
-  const next = POSTS.find((p) => p.slug !== post.slug) ?? POSTS[0];
-  const picks = [CATALOG[0], CATALOG[10], CATALOG[19]];
+  const next = POSTS.find((p) => p.slug !== post.slug);
+  const picks = visibleProducts().slice(0, 3);
 
   const copyLink = async () => {
     try {
@@ -95,22 +99,8 @@ export function ArticlePage() {
           </div>
         </div>
 
-        {lookbookVideo && (
-          <div className="mx-auto mt-6 w-full max-w-[1100px] px-4 sm:px-6">
-            <video
-              src={lookbookVideo}
-              controls
-              playsInline
-              preload="metadata"
-              poster={post.image}
-              className="aspect-video w-full rounded-2xl border border-black/[0.07] bg-ink object-cover"
-              aria-label={`لوک‌بوک ویدیویی ${post.title}`}
-            />
-          </div>
-        )}
-
         <div className="mx-auto max-w-[42rem] px-4 pt-9 sm:px-6">
-          {(edited[post.slug] ?? post.blocks).map((block, i) => {
+          {post.blocks.map((block, i) => {
             if (block.type === "h")
               return (
                 <h2 key={i} className="mt-7 font-display text-[22px] leading-snug font-medium text-ink">
@@ -149,7 +139,7 @@ export function ArticlePage() {
           })}
 
           <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-y border-black/[0.08] py-4">
-            <p className="text-[10.5px] text-ink-45">نویسنده: تیم تحریریهٔ ولور</p>
+            <p className="text-[10.5px] text-ink-45">ژورنال</p>
             <div className="flex items-center gap-2">
               <button type="button" onClick={copyLink} className={buttonStyles("outline", "sm")}>
                 <Link2 className="h-3.5 w-3.5" /> کپی لینک
@@ -167,13 +157,13 @@ export function ArticlePage() {
             >
               <ArrowLeft className="h-3.5 w-3.5 rotate-180" /> بازگشت به ژورنال
             </Link>
-            <Link to={`/journal/${next.slug}`} className="group text-end">
+            {next && <Link to={`/journal/${next.slug}`} className="group text-end">
               <span className="block text-[9.5px] text-ink-45">مقالهٔ بعدی</span>
               <span className="mt-0.5 flex items-center gap-1.5 text-[12px] font-medium text-ink">
                 {next.title}
                 <ArrowLeft className="h-3 w-3 transition-transform group-hover:-translate-x-1" />
               </span>
-            </Link>
+            </Link>}
           </div>
         </div>
       </article>

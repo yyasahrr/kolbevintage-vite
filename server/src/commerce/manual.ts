@@ -58,6 +58,12 @@ export async function createManualOrder(input: ManualOrderInput, actor: string) 
     if (!checkout || checkout.status !== "reserved") {
       throw new CommerceError("مهلت رزرو این سفارش تمام شده؛ فرم را دوباره ثبت کن.", 409, "checkout_closed");
     }
+    if (checkout.coupon_code && Number(checkout.quote.couponDiscount)>0) {
+      const claimed=await client.query(`update coupons set used_count=used_count+1,updated_at=now()
+        where code=$1 and active and (starts_at is null or starts_at<=now()) and (ends_at is null or ends_at>=now())
+          and (usage_limit is null or used_count<usage_limit) returning code`,[checkout.coupon_code]);
+      if (!claimed.rowCount) throw new CommerceError("ظرفیت یا اعتبار کد تغییر کرده است؛ سفارش ثبت نشد.",409,"coupon_exhausted");
+    }
     const consumed = await consumeReservations(client, checkoutId);
     if (!consumed.ok) {
       throw new CommerceError("موجودی رزروشده دیگر معتبر نیست؛ سفارش ثبت نشد.", 409, "reservation_expired");

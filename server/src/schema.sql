@@ -85,6 +85,10 @@ create table if not exists customers (
   created_at timestamptz not null default now()
 );
 
+-- Nullable for compatibility with logical backups made before CRM labels existed.
+-- NULL means no manually assigned labels; automatic labels are computed live.
+alter table customers add column if not exists manual_labels jsonb;
+
 create table if not exists sessions (
   token text primary key,
   kind text not null,
@@ -159,6 +163,13 @@ create table if not exists inventory_adjustments (
   decided_at timestamptz
 );
 create index if not exists inventory_adjustments_status_idx on inventory_adjustments (status, created_at);
+alter table inventory_adjustments add column if not exists baseline_on_hand integer;
+alter table inventory_adjustments add column if not exists counted_on_hand integer;
+alter table inventory_adjustments add column if not exists baseline_stock_version text;
+alter table inventory_adjustments add column if not exists decision_note text;
+alter table inventory_adjustments add column if not exists operation_key text;
+alter table inventory_adjustments add column if not exists operation_fingerprint text;
+create unique index if not exists inventory_adjustments_operation_key_idx on inventory_adjustments(operation_key) where operation_key is not null;
 
 -- real hold on stock, created when the customer enters checkout
 create table if not exists stock_reservations (
@@ -234,6 +245,8 @@ alter table coupons add column if not exists max_discount numeric(12, 2);
 
 -- additive: a percent campaign can carry its own ceiling too (decision 33)
 alter table price_rules add column if not exists max_discount numeric(12, 2);
+-- Optional independent delivery benefit on a monetary campaign.
+alter table price_rules add column if not exists free_shipping boolean not null default false;
 
 create table if not exists checkout_sessions (
   id text primary key,
@@ -550,3 +563,22 @@ create table if not exists gallery_items (
   moderated_by text
 );
 create index if not exists gallery_items_status_idx on gallery_items (moderation_status, submitted_at desc);
+
+-- Editorial content lives in the store database, never the prototype panel DB.
+create table if not exists journal_articles (
+  id text primary key,
+  slug text not null unique,
+  title text not null,
+  excerpt text not null default '',
+  category text not null default '',
+  body text not null default '',
+  cover_url text not null default '',
+  seo_title text not null default '',
+  seo_description text not null default '',
+  status text not null default 'draft' check (status in ('draft','published')),
+  published_at timestamptz,
+  version integer not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists journal_articles_public_idx on journal_articles(status,published_at desc);

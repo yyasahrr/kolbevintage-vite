@@ -20,6 +20,38 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install panel dependencies
+        run: npm ci --prefix fashion-e-commerce-admin-development
+
+      - name: Runtime dependency audit
+        run: |
+          npm audit --omit=dev --audit-level=moderate
+          npm audit --prefix fashion-e-commerce-admin-development --omit=dev --audit-level=moderate
+
+      - name: Production preflight refuses incomplete launch
+        run: npm run test:production-check
+
+      - name: Live panel smoke
+        run: npm run test:live-panel
+
+      - name: Live journal smoke
+        run: npm run test:live-journal
+
+      - name: Live catalogue smoke
+        run: npm run test:live-catalog
+
+      - name: Size guide smoke
+        run: npm run test:size-guide
+
+      - name: Store bootstrap safety smoke
+        run: npm run test:store-boot
+
+      - name: Store theme smoke
+        run: npm run test:store-theme
+
+      - name: Build panel
+        run: npm run build:panel
+
       # the API boots its own PostgreSQL cluster (embedded-postgres), so the
       # integration suite runs against a real database with no service container
       - name: Typecheck (client + server)

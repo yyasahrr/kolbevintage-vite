@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { CartLine, ColorOption, Product, SizeOption } from "@/types";
+import { sellableStock, useLiveCatalog } from "@/state/live-catalog";
 import { stockOf, variantKey } from "@/data/looks";
 
 export interface AddPayload {
@@ -104,6 +105,7 @@ interface CartContextValue {
 const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: ReactNode }) {
+  const catalog = useLiveCatalog();
   const [lines, dispatch] = useReducer(reducer, [] as CartLine[]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -169,15 +171,27 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<CartContextValue>(() => {
-    const count = lines.reduce((n, l) => n + l.qty, 0);
-    const subtotal = lines.reduce((n, l) => n + l.qty * l.price, 0);
+    const currentLines = lines.map(line => {
+      const product = catalog.products.find(item => item.id === line.productId);
+      if (!product) return line;
+      const color=product.colors.find(item=>item.id===line.colorId);
+      const size=product.sizes.find(item=>item.id===line.sizeId);
+      return {...line, name:product.name, category:product.category, price:product.price,
+        colorName:color?.name ?? line.colorName, colorHex:color?.hex ?? line.colorHex, sizeLabel:size?.label ?? line.sizeLabel};
+    });
+    const count = currentLines.reduce((n, l) => n + l.qty, 0);
+    const subtotal = currentLines.reduce((n, l) => n + l.qty * l.price, 0);
     return {
-      lines,
+      lines: currentLines,
       count,
       subtotal,
       add,
       remove: (key) => dispatch({ type: "remove", key }),
-      setQty: (key, delta) => dispatch({ type: "qty", key, delta }),
+      setQty: (key, delta) => {
+        const line = lines.find(item => item.key === key);
+        if (!line || (delta > 0 && line.qty + delta > sellableStock(line.productId,line.colorId,line.sizeId))) return;
+        dispatch({ type: "qty", key, delta });
+      },
       clear: () => dispatch({ type: "clear" }),
       toasts,
       dismissToast,
@@ -188,7 +202,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       toggleWish,
       isWished: (id: string) => wishlist.includes(id),
     };
-  }, [lines, toasts, add, dismissToast, notify, cartOpen, wishlist, toggleWish]);
+  }, [lines, catalog, toasts, add, dismissToast, notify, cartOpen, wishlist, toggleWish]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

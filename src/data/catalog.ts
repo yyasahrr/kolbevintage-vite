@@ -1,5 +1,7 @@
 import { LOOKS, stockOf } from "./looks";
-import { getAdmin, type CustomProduct } from "@/state/admin";
+import { belongsToCategory } from "@/utils/category-collection";
+import { getLiveCatalog, type LiveProduct } from "@/state/live-catalog";
+import { getAdmin } from "@/state/admin";
 import { getOps, lookProductIds } from "@/state/ops";
 import type { ColorOption, Crop, GarmentKind, Look, Product } from "@/types";
 
@@ -170,7 +172,7 @@ export const relatedProducts = (product: CatalogProduct, count = 4) => {
 
 /** admin-defined complementary products for a product, in the chosen order */
 export const complementProducts = (productId: string) => {
-  const ids = getAdmin().complements[productId] ?? [];
+  const ids = getLiveCatalog().products.find(product => product.id === productId)?.complements ?? [];
   return ids
     .map((id) => liveGetProduct(id))
     .filter((p): p is CatalogProduct => !!p && p.id !== productId);
@@ -208,57 +210,28 @@ export const COLLECTIONS: Collection[] = [
   { id: "bags", label: "کیف و اکسسوری", short: "کیف", garments: ["bag", "accessory"], group: "accessories" },
 ];
 
-/* live catalogue: base products + admin-added products, minus hidden ones */
-
-const customToCatalog = (cp: CustomProduct): CatalogProduct => {
-  const look = LOOKS.find((l) => l.id === cp.lookId) ?? LOOKS[0];
-  return {
-    id: cp.id,
-    name: cp.name,
-    category: cp.category,
-    garment: cp.garment,
-    price: cp.price,
-    compareAt: cp.compareAt,
-    colors: cp.colors,
-    sizes: cp.sizes,
-    stock: { ...cp.stock },
-    description: cp.description || "محصول جدید فروشگاه ولور؛ ساخته‌شده در آتلیه.",
-    material: "پارچهٔ طبیعی آتلیهٔ ولور",
-    care: "دستورالعمل روی برچسب محصول",
-    fit: "منطبق با راهنمای سایز",
-    origin: "آتلیهٔ ولور",
-    badge: (cp.badges?.[0] as CatalogProduct["badge"] | undefined) ?? (cp.featured ? "پرفروش" : "جدید"),
-    lookId: look.id,
-    lookName: "محصول آتلیه",
-    lookSlug: look.id,
-    lookOrder: 0,
-    crop: cp.crop,
-    image: look.image,
-    aspect: look.aspect,
-  };
-};
-
-/** merge an admin edit over the original catalogue entry */
-const withEdit = (p: CatalogProduct): CatalogProduct => {
-  const edit = getAdmin().productEdits[p.id];
-  if (!edit) return p;
-  const ownerBadge = edit.badges?.[0] as CatalogProduct["badge"] | undefined;
-  return {
-    ...p,
-    ...edit,
-    description: edit.description ?? p.description,
-    stock: edit.stock ? { ...p.stock, ...edit.stock } : p.stock,
-    // an owner-chosen label replaces the automatic one (decision 58)
-    badge: ownerBadge ?? p.badge,
-  };
-};
-
+/* Catalogue rows and prices come from the public API, never from local demo
+ * state. Static runway images are only used for matching legacy product IDs. */
+let mappedSource: LiveProduct[] | null = null;
+let mappedCatalog: CatalogProduct[] = [];
+const supportedBadges = new Set(["جدید","پرفروش","آخرین موجودی","تخفیف","پیشنهاد سردبیر","حراج"]);
 export const liveCatalog = (): CatalogProduct[] => {
-  const admin = getAdmin();
-  return [
-    ...CATALOG.map(withEdit),
-    ...admin.customProducts.filter((c) => c.active).map(customToCatalog),
-  ];
+  const source = getLiveCatalog().products;
+  if (source === mappedSource) return mappedCatalog;
+  mappedSource = source;
+  mappedCatalog = source.map(row => {
+    const legacy = CATALOG.find(item => item.id === row.id);
+    const cover = row.images?.find(image => image.role === "main")?.url ?? row.images?.find(image => image.role !== "hover")?.url;
+    return {
+      id:row.id, name:row.name, category:row.category, garment:row.garment,
+      price:row.price, compareAt:row.compareAt ?? undefined, colors:row.colors, sizes:row.sizes, stock:row.stock ?? {},
+      description:row.description ?? "", material:row.material ?? "", care:row.care ?? "", fit:row.fit ?? "", origin:row.origin ?? "",
+      badge:row.badge && supportedBadges.has(row.badge) ? row.badge as CatalogProduct["badge"] : undefined,
+      lookId:row.lookId ?? "", lookName:row.lookName ?? "", lookSlug:row.lookSlug ?? row.lookId ?? "", lookOrder:row.lookOrder ?? 0,
+      crop:row.crop ?? legacy?.crop ?? {cx:0.5,cy:0.5,zoom:1}, image:cover ?? legacy?.image ?? "", aspect:legacy?.aspect ?? 1,
+    };
+  });
+  return mappedCatalog;
 };
 
 export const liveGetProduct = (id: string | undefined) => (id ? liveCatalog().find((p) => p.id === id) : undefined);
@@ -275,12 +248,12 @@ export const liveLooks = (): Look[] => {
 
   const withProducts = (look: Look): Look => {
     const chosen = lookProductIds(look.id);
-    if (!chosen.length) return look;
-    const products = chosen.map((id) => liveGetProduct(id)).filter((p): p is CatalogProduct => Boolean(p));
-    return products.length ? { ...look, products } : look;
+    const ids = chosen.length ? chosen : look.products.map(product => product.id);
+    const products = ids.map((id) => liveGetProduct(id)).filter((p): p is CatalogProduct => Boolean(p));
+    return { ...look, products };
   };
 
-  const base = LOOKS.filter((l) => !hidden.has(l.id)).map(withProducts);
+  const base = LOOKS.filter((l) => !hidden.has(l.id)).map(withProducts).filter(look => look.products.length > 0);
 
   const custom: Look[] = admin.customLooks
     .filter((l) => l.published && !hidden.has(l.id))
@@ -308,16 +281,9 @@ export const liveLooks = (): Look[] => {
   return all.sort((a, b) => rank(a.id, a.order) - rank(b.id, b.order));
 };
 
-const isHidden = (id: string) => {
-  const admin = getAdmin();
-  return admin.hidden.includes(id) || !!admin.customProducts.find((c) => c.id === id && !c.active);
-};
-const isFeatured = (id: string) => {
-  const admin = getAdmin();
-  return admin.featured.includes(id) || !!admin.customProducts.find((c) => c.id === id && c.featured);
-};
+const isFeatured = (id: string) => getLiveCatalog().products.some(product => product.id === id && product.featured);
 
-export const visibleProducts = () => liveCatalog().filter((p) => !isHidden(p.id));
+export const visibleProducts = () => liveCatalog();
 
 export const productsInCollection = (id: string) => {
   const base = visibleProducts();
@@ -325,10 +291,7 @@ export const productsInCollection = (id: string) => {
   const categoryTree = getOps().categories;
   const dynamic = categoryTree.find((category) => category.id === id);
   if (dynamic) {
-    const children = categoryTree.filter((category) => category.parentId === dynamic.id);
-    const garments = new Set([dynamic, ...children].flatMap((category) => category.garments));
-    const names = new Set([dynamic, ...children].map((category) => category.name));
-    return base.filter((product) => garments.has(product.garment) || names.has(product.category));
+    return base.filter((product) => belongsToCategory(product, dynamic.id, categoryTree));
   }
   const collection = COLLECTIONS.find((c) => c.id === id);
   return collection ? base.filter((p) => collection.garments.includes(p.garment)) : base;
@@ -368,6 +331,12 @@ export interface ProductFilters {
   query?: string;
 }
 
+/** Product color IDs are local to a product (many products use c1). Use a
+ * normalized name and swatch for the cross-catalogue filter, never that ID. */
+export function colorFilterKey(color: Pick<ColorOption,"name"|"hex">): string {
+  return `tone:${JSON.stringify([color.name.normalize("NFKC").trim().toLowerCase(),color.hex.toLowerCase()])}`;
+}
+
 export function filterProducts(filters: ProductFilters): CatalogProduct[] {
   let list = productsInCollection(filters.collection ?? "all");
 
@@ -377,13 +346,12 @@ export function filterProducts(filters: ProductFilters): CatalogProduct[] {
     const accepted = new Set([filters.category, ...categoryTree.filter((category) => category.parentId === parent?.id).map((category) => category.name)]);
     list = list.filter((p) => accepted.has(p.category));
   }
-  if (filters.size) list = list.filter((p) => p.sizes.some((s) => s.label === filters.size));
-  if (filters.color)
-    list = list.filter((p) =>
-      p.colors.some(
-        (c) => c.id === filters.color && p.sizes.some((s) => stockOf(p, c.id, s.id) > 0),
-      ),
-    );
+  if (filters.size || filters.color) {
+    list = list.filter(p => p.colors.some(c =>
+      (!filters.color || (filters.color.startsWith("tone:") ? colorFilterKey(c) === filters.color : c.id === filters.color)) &&
+      p.sizes.some(s => (!filters.size || s.label === filters.size) && stockOf(p, c.id, s.id) > 0),
+    ));
+  }
   if (filters.query) {
     const q = filters.query.trim().toLowerCase();
     if (q) {

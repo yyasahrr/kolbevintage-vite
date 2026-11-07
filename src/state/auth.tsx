@@ -1,15 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ApiError, api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { getAdmin } from "./admin";
 import { addLog, getOps, tryonBalance, cashbackBalance } from "./ops";
 
 /* =====================================================================
    Customer accounts.
 
-   The provider talks to the Fastify/PostgreSQL backend when it is reachable
-   (register, password login, OTP, profile, addresses) and keeps the previous
-   demo behaviour as an offline fallback so the static build still works.
+   Account writes wait for the server. Local state is never treated as proof
+   that a profile, address or credential change was saved.
    ===================================================================== */
 
 export interface Address {
@@ -59,34 +58,14 @@ const KEY = "velours.auth.v1";
 
 const DEMO_SIZE: SizeProfile = { height: 172, weight: 68, age: 30, chest: 92, waist: 74, hip: 98, shoulder: 42, fit: "regular", shoe: 39 };
 
-const DEFAULT: AuthState = {
-  accounts: [
-    {
-      email: "ava@example.com",
-      phone: "09120000000",
-      name: "آوا رادمهر",
-      password: "demo1234",
-      createdAt: Date.now() - 86400000 * 60,
-      loginMethod: "otp",
-      twoFactor: false,
-      size: DEMO_SIZE,
-      addresses: [
-        { id: "a1", label: "خانه", receiver: "آوا رادمهر", phone: "09120000000", province: "تهران", city: "تهران", street: "خیابان ولیعصر، پلاک ۱۲، واحد ۳", postal: "1234567890", default: true },
-        { id: "a2", label: "محل کار", receiver: "آوا رادمهر", phone: "09120000000", province: "تهران", city: "تهران", street: "خیابان جردن، برج آوا، طبقه ۷", postal: "1234567891", default: false },
-      ],
-    },
-  ],
-  email: null,
-  otp: null,
-  lastError: null,
-};
+const DEFAULT: AuthState = { accounts: [], email: null, otp: null, lastError: null };
 
 function read(): AuthState {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return DEFAULT;
     const p = JSON.parse(raw) as Partial<AuthState>;
-    return { ...DEFAULT, ...p, accounts: p.accounts?.length ? p.accounts : DEFAULT.accounts };
+    return { ...DEFAULT, ...p, email: null, otp: null, accounts: (p.accounts ?? []).map(account => ({ ...account, password: "" })) };
   } catch {
     return DEFAULT;
   }
@@ -100,7 +79,6 @@ function persist(s: AuthState) {
   }
 }
 
-const isNetworkError = (error: unknown) => !(error instanceof ApiError);
 
 interface Result {
   ok: boolean;
@@ -115,11 +93,11 @@ interface AuthValue {
   verifyOtp: (code: string) => Promise<Result>;
   loginWithPassword: (email: string, password: string) => Promise<Result>;
   register: (a: { name: string; email: string; phone: string; password: string }) => Promise<Result>;
-  logout: () => void;
-  updateAccount: (patch: Partial<Account>) => void;
-  saveAddress: (a: Address) => void;
-  removeAddress: (id: string) => void;
-  setDefaultAddress: (id: string) => void;
+  logout: () => Promise<Result>;
+  refreshAccount: () => Promise<Result>;
+  savePhone: (phone: string, expectedPhone: string) => Promise<Result>;
+  replaceAddresses: (addresses: Address[], expected: Address[]) => Promise<Result>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<Result>;
   purchaseTryon: (credits: number, price: number) => { ok: boolean; message: string };
   login: (email: string) => void;
   balance: { tryon: number; cashback: number };
@@ -135,12 +113,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => persist(state), [state]);
 
   const account = useMemo(() => state.accounts.find((a) => a.email === state.email) ?? null, [state]);
-  const accountRef = useRef<Account | null>(account);
-  accountRef.current = account;
+  const sessionEpoch = useRef(0);
+  const mutationEpoch = useRef(0);
 
   /** upsert the signed-in account coming from the API */
   const applyCustomer = useCallback((customer: Partial<Account>) => {
     if (!customer.email) return;
+    sessionEpoch.current += 1;
     const email = customer.email;
     setState((s) => {
       const base =
@@ -169,15 +148,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [applyCustomer]);
 
-  /* debounced profile write */
-  const profileTimer = useRef<number | undefined>(undefined);
-  const pushProfile = useCallback((patch: Record<string, unknown>) => {
-    if (profileTimer.current) window.clearTimeout(profileTimer.current);
-    profileTimer.current = window.setTimeout(() => {
-      api.patch("/api/auth/profile", patch).catch(() => undefined);
-    }, 500);
-  }, []);
-
   const requestOtp: AuthValue["requestOtp"] = useCallback(async (email, phone, method) => {
     const e = email.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(e)) return { ok: false, message: "ایمیل معتبر نیست." };
@@ -197,12 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       addLog({ actor: e, action: "درخواست کد ورود", target: method === "sms" ? "پیامک" : "ایمیل" });
       return res;
     } catch (error) {
-      if (!isNetworkError(error)) return { ok: false, message: error instanceof Error ? error.message : "ارسال کد ناموفق بود." };
-      // offline demo
-      const code = String(Math.floor(100000 + Math.random() * 899999));
-      setState((s) => ({ ...s, otp: { email: e, phone: phone.trim(), code, expires: Date.now() + 120000, method }, lastError: null }));
-      addLog({ actor: e, action: "درخواست کد ورود", target: method === "sms" ? "پیامک" : "ایمیل" });
-      return { ok: true, code, message: `کد ${method === "sms" ? "پیامکی" : "ایمیلی"} به ${method === "sms" ? phone : e} ارسال شد (نمایشی).` };
+      return { ok: false, message: error instanceof Error ? error.message : "اتصال به سرور برقرار نشد." };
     }
   }, []);
 
@@ -220,12 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         addLog({ actor: otp.email, action: "ورود موفق", target: "رمز یکبار مصرف" });
         return { ok: true, message: res.message || "خوش آمدی!" };
       } catch (error) {
-        if (!isNetworkError(error)) return { ok: false, message: error instanceof Error ? error.message : "کد درست نیست." };
-        if (Date.now() > otp.expires) return { ok: false, message: "کد منقضی شده؛ کد تازه بگیر." };
-        if (code.trim() !== otp.code) return { ok: false, message: "کد درست نیست." };
-        applyCustomer({ email: otp.email, phone: otp.phone, loginMethod: "otp" });
-        addLog({ actor: otp.email, action: "ورود موفق", target: "رمز یکبار مصرف" });
-        return { ok: true, message: "خوش آمدی!" };
+        return { ok: false, message: error instanceof Error ? error.message : "اتصال به سرور برقرار نشد." };
       }
     },
     [state.otp, applyCustomer],
@@ -244,13 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         addLog({ actor: e, action: "ورود موفق", target: "رمز عبور" });
         return { ok: true, message: res.message || "خوش آمدی!" };
       } catch (error) {
-        if (!isNetworkError(error)) return { ok: false, message: error instanceof Error ? error.message : "ورود ناموفق بود." };
-        const acc = state.accounts.find((a) => a.email === e);
-        if (!acc || !acc.password) return { ok: false, message: "حسابی با این ایمیل و رمز پیدا نشد." };
-        if (acc.password !== password) return { ok: false, message: "رمز عبور درست نیست." };
-        applyCustomer({ ...acc, loginMethod: "password" });
-        addLog({ actor: e, action: "ورود موفق", target: "رمز عبور" });
-        return { ok: true, message: "خوش آمدی!" };
+        return { ok: false, message: error instanceof Error ? error.message : "اتصال به سرور برقرار نشد." };
       }
     },
     [state.accounts, applyCustomer],
@@ -275,112 +229,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         addLog({ actor: e, action: "ثبت‌نام", target: "حساب مشتری" });
         return { ok: true, message: res.message || "حساب ساخته شد." };
       } catch (error) {
-        if (!isNetworkError(error)) return { ok: false, message: error instanceof Error ? error.message : "ثبت‌نام ناموفق بود." };
-        if (state.accounts.some((a) => a.email === e)) return { ok: false, message: "این ایمیل قبلاً ثبت شده؛ وارد شو." };
-        const acc: Account = {
-          email: e,
-          phone,
-          name: name.trim() || e,
-          password,
-          addresses: [],
-          size: DEMO_SIZE,
-          createdAt: Date.now(),
-          loginMethod: "password",
-          twoFactor: false,
-        };
-        setState((s) => ({ ...s, accounts: [...s.accounts, acc], email: e, otp: null }));
-        addLog({ actor: e, action: "ثبت‌نام", target: "حساب مشتری" });
-        return { ok: true, message: "حساب ساخته شد." };
+        return { ok: false, message: error instanceof Error ? error.message : "اتصال به سرور برقرار نشد." };
       }
     },
     [state.accounts, applyCustomer],
   );
 
-  const logout = useCallback(() => {
-    setState((s) => ({ ...s, email: null, otp: null }));
-    api.post("/api/auth/logout").catch(() => undefined);
+  const logout = useCallback(async ():Promise<Result> => {
+    try {
+      await api.post("/api/auth/logout");
+      sessionEpoch.current += 1;
+      setState(s=>({...s,email:null,otp:null}));
+      return {ok:true,message:"خروج انجام شد."};
+    } catch {
+      return {ok:false,message:"خروج از حساب تأیید نشد. اتصال را بررسی و دوباره تلاش کنید؛ ممکن است نشست هنوز فعال باشد."};
+    }
   }, []);
 
-  const updateAccount = useCallback(
-    (patch: Partial<Account>) => {
-      setState((s) => ({
-        ...s,
-        accounts: s.accounts.map((a) => (a.email === s.email ? { ...a, ...patch } : a)),
-      }));
-      const serverPatch: Record<string, unknown> = {};
-      if (patch.name !== undefined) serverPatch.name = patch.name;
-      if (patch.phone !== undefined) serverPatch.phone = patch.phone;
-      if (patch.size !== undefined) serverPatch.size = patch.size;
-      if (patch.twoFactor !== undefined) serverPatch.twoFactor = patch.twoFactor;
-      if (patch.password) serverPatch.password = patch.password;
-      if (Object.keys(serverPatch).length) pushProfile(serverPatch);
-    },
-    [pushProfile],
-  );
-
-  const saveAddress = useCallback(
-    (addr: Address) => {
-      setState((s) => {
-        const accounts = s.accounts.map((a) => {
-          if (a.email !== s.email) return a;
-          const exists = a.addresses.some((x) => x.id === addr.id);
-          const addresses = exists ? a.addresses.map((x) => (x.id === addr.id ? addr : x)) : [...a.addresses, addr];
-          const normalized = addr.default ? addresses.map((x) => ({ ...x, default: x.id === addr.id })) : addresses;
-          pushProfile({ addresses: normalized });
-          return { ...a, addresses: normalized };
-        });
-        return { ...s, accounts };
-      });
-    },
-    [pushProfile],
-  );
-
-  const removeAddress = useCallback(
-    (id: string) => {
-      setState((s) => {
-        const accounts = s.accounts.map((a) => {
-          if (a.email !== s.email) return a;
-          const addresses = a.addresses.filter((x) => x.id !== id);
-          pushProfile({ addresses });
-          return { ...a, addresses };
-        });
-        return { ...s, accounts };
-      });
-    },
-    [pushProfile],
-  );
-
-  const setDefaultAddress = useCallback(
-    (id: string) => {
-      setState((s) => {
-        const accounts = s.accounts.map((a) => {
-          if (a.email !== s.email) return a;
-          const addresses = a.addresses.map((x) => ({ ...x, default: x.id === id }));
-          pushProfile({ addresses });
-          return { ...a, addresses };
-        });
-        return { ...s, accounts };
-      });
-    },
-    [pushProfile],
-  );
-
-  const purchaseTryon = useCallback(
-    (credits: number, price: number) => {
-      if (!state.email) return { ok: false, message: "اول وارد شو." };
-      import("./ops").then((m) => m.grantTryon(state.email!, credits));
-      addLog({ actor: state.email, action: "خرید بستهٔ پرو آنلاین", target: `${credits} پرو`, meta: `${price.toLocaleString("fa-IR")} تومان` });
-      return { ok: true, message: `${credits} پرو به حسابت اضافه شد.` };
-    },
-    [state.email],
-  );
-
-  const login = useCallback((email: string) => {
-    setState((s) => {
-      const exists = s.accounts.some((a) => a.email === email);
-      return { ...s, email, accounts: exists ? s.accounts : [...s.accounts, { ...DEFAULT.accounts[0], email }] };
+  /** Only apply a response to the same still-active UI session. */
+  const acceptUpdate = useCallback((customer:Partial<Account>,subject:string,epoch:number,fields?: ("phone" | "addresses")[],expectedMutation?:number) => {
+    if (!customer.email || customer.email !== subject || sessionEpoch.current !== epoch || (expectedMutation !== undefined && mutationEpoch.current !== expectedMutation)) return false;
+    setState(s => {
+      if (s.email !== subject || sessionEpoch.current !== epoch || (expectedMutation !== undefined && mutationEpoch.current !== expectedMutation)) return s;
+      const patch = fields ? Object.fromEntries(fields.filter(key => customer[key] !== undefined).map(key => [key,customer[key]])) : customer;
+      return {...s,accounts:s.accounts.map(a=>a.email === subject ? {...a,...patch,password:""} : a)};
     });
+    return true;
   }, []);
+  const writeError = (error:unknown):Result => {
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500) return {ok:false,message:error.message,code:error.code};
+    return {ok:false,message:"نتیجه ذخیره مشخص نیست. اتصال را بررسی کنید و پیش از تلاش دوباره اطلاعات حساب را تازه‌سازی کنید.",code:"uncertain"};
+  };
+  const refreshAccount = useCallback(async ():Promise<Result> => {
+    const subject=account?.email, epoch=sessionEpoch.current, generation=mutationEpoch.current;
+    if (!subject) return {ok:false,message:"ابتدا وارد حساب شوید."};
+    try {
+      const res=await api.get<{customer:Partial<Account>|null}>("/api/auth/me");
+      if (!res.customer || !acceptUpdate(res.customer,subject,epoch,undefined,generation)) return {ok:false,message:"اطلاعات حساب هم‌زمان تغییر کرد یا نشست معتبر نیست؛ دوباره تلاش کنید."};
+      return {ok:true,message:"اطلاعات حساب تازه شد."};
+    } catch { return {ok:false,message:"دریافت اطلاعات حساب ناموفق بود؛ دوباره تلاش کنید."}; }
+  }, [account?.email,acceptUpdate]);
+  const savePhone = useCallback(async (phone:string,expectedPhone:string):Promise<Result> => {
+    const subject=account?.email, epoch=sessionEpoch.current;
+    if (!subject) return {ok:false,message:"ابتدا وارد حساب شوید."};
+    try {
+      mutationEpoch.current += 1;
+      const res=await api.patch<{ok:boolean;customer:Partial<Account>}>("/api/auth/profile",{phone,expectedPhone});
+      if (!res.ok || !acceptUpdate(res.customer,subject,epoch,["phone"])) return {ok:false,message:"نشست تغییر کرده است؛ دوباره وارد شوید."};
+      return {ok:true,message:"شماره تماس ذخیره شد."};
+    } catch(error) { return writeError(error); }
+  }, [account?.email,acceptUpdate]);
+  const replaceAddresses = useCallback(async (addresses:Address[],expected:Address[]):Promise<Result> => {
+    const subject=account?.email, epoch=sessionEpoch.current;
+    if (!subject) return {ok:false,message:"ابتدا وارد حساب شوید."};
+    try {
+      mutationEpoch.current += 1;
+      const res=await api.put<{ok:boolean;customer:Partial<Account>}>("/api/auth/addresses",{addresses,expected});
+      if (!res.ok || !acceptUpdate(res.customer,subject,epoch,["addresses"])) return {ok:false,message:"نشست تغییر کرده است؛ دوباره وارد شوید."};
+      return {ok:true,message:"تغییر آدرس ذخیره شد."};
+    } catch(error) { return writeError(error); }
+  }, [account?.email,acceptUpdate]);
+  const changePassword = useCallback(async (currentPassword:string,newPassword:string):Promise<Result> => {
+    try { await api.post("/api/auth/password",{currentPassword,newPassword}); return {ok:true,message:"رمز تغییر کرد؛ نشست‌های دیگر حساب بسته شدند."}; }
+    catch(error) { const result=writeError(error); return result.code === "uncertain" ? {...result,message:"نتیجه تغییر رمز مشخص نیست. برای اطمینان دوباره وارد حساب شوید."} : result; }
+  }, []);
+
+  // Do not grant an unpaid, local-only try-on credit.
+  const purchaseTryon = useCallback((_credits: number, _price: number) => ({ ok: false, message: "خرید پرو مجازی هنوز به پرداخت و سرویس واقعی متصل نشده است." }), []);
+
+  // A local action cannot create an authenticated customer session.
+  const login = useCallback((_email: string) => {}, []);
 
   const balance = useMemo(
     () => ({ tryon: state.email ? tryonBalance(state.email) : 0, cashback: state.email ? cashbackBalance(state.email) : 0 }),
@@ -396,16 +314,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loginWithPassword,
       register,
       logout,
-      updateAccount,
-      saveAddress,
-      removeAddress,
-      setDefaultAddress,
+      refreshAccount,
+      savePhone,
+      replaceAddresses,
+      changePassword,
       purchaseTryon,
       login,
       balance,
       accountLoading,
     }),
-    [state, account, requestOtp, verifyOtp, loginWithPassword, register, logout, updateAccount, saveAddress, removeAddress, setDefaultAddress, purchaseTryon, login, balance, accountLoading],
+    [state, account, requestOtp, verifyOtp, loginWithPassword, register, logout, refreshAccount, savePhone, replaceAddresses, changePassword, purchaseTryon, login, balance, accountLoading],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

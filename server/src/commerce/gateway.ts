@@ -38,7 +38,6 @@ const env = (key: string) => (process.env[key] ?? "").trim();
 
 export const gatewayConfigured = () => Boolean(env("PAYMENT_GATEWAY_URL"));
 
-const refundsEnabled = () => env("PAYMENT_GATEWAY_REFUNDS") === "1";
 
 /** token or HMAC secret; at least one is needed to talk to a real provider */
 const authHeaders = (body: string): Record<string, string> => {
@@ -99,12 +98,9 @@ function signatureValid(expected: string, provided: string): boolean {
 export const gatewayProvider: PaymentProvider = {
   id: "gateway",
   method: "online",
-  // read on every access: whether this gateway can reverse a payment is a
-  // property of how it was configured, not of when the module was imported
-  get capabilities() {
-    const refund = refundsEnabled();
-    return { bnpl4: false, refund, partialRefund: refund, signedCallbacks: true };
-  },
+  // No refund adapter is implemented yet. An environment flag cannot make
+  // a reversal real; keep it disabled until a verified provider call exists.
+  capabilities: { bnpl4: false, refund: false, partialRefund: false, signedCallbacks: true },
 
   async initiate(attempt: PaymentAttemptRow) {
     const publicBase = env("PUBLIC_BASE_URL").replace(/\/$/, "");

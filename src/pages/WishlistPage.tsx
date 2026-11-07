@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Heart } from "lucide-react";
-import { CATALOG } from "@/data/catalog";
+import { visibleProducts } from "@/data/catalog";
 import { useCart } from "@/state/cart";
 import { ProductCard } from "@/components/ProductCard";
 import { EmptyState, PageIntro, buttonStyles } from "@/components/ui";
@@ -9,7 +9,7 @@ import { useOps } from "@/state/ops";
 export function WishlistPage() {
   const { wishlist } = useCart();
   const features = useOps().features ?? { tryon: true, reviews: true, journal: true, wishlist: true };
-  const items = CATALOG.filter((p) => wishlist.includes(p.id));
+  const items = visibleProducts().filter((p) => wishlist.includes(p.id));
 
   if (!features.wishlist) {
     return (

@@ -89,7 +89,7 @@ export function HomePage() {
               description="چهار مسیر کوتاه به کمد پاییزی؛ هر دسته از قطعه‌های واقعی کالکشن ساخته شده است."
               action={{ to: "/products", label: "همهٔ محصولات" }}
             />
-            <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+            <div className="home-collections-grid mt-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
               {FEATURED_COLLECTIONS.map((c, i) => {
                 const sample = productsInCollection(c.id)[0];
                 if (!sample) return null;
@@ -306,7 +306,7 @@ export function HomePage() {
               </div>
             </Reveal>
 
-            <div className="flex flex-col rounded-xl border border-black/[0.06] bg-paper px-5 py-5 sm:px-6">
+            {POSTS.length > 0 && <div className="flex flex-col rounded-xl border border-black/[0.06] bg-paper px-5 py-5 sm:px-6">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-[10px] text-ink-45">از ژورنال</p>
                 <ArrowLink to="/journal" className="text-[11px]">
@@ -346,7 +346,7 @@ export function HomePage() {
                   </li>
                 ))}
               </ul>
-            </div>
+            </div>}
           </section>
       </>
     ),

@@ -121,14 +121,11 @@ async function recordMovement(
  * an unchanged admin document.
  */
 export async function syncVariants() {
-  const products = await query<CatalogProduct>(
-    "select id, colors, sizes, stock, active from products",
-  );
-  const desired = expand(products.rows);
-  const desiredIds = desired.map((v) => v.id);
-
   await withTransaction(async (client) => {
     await client.query("select pg_advisory_xact_lock(hashtext('kv-commerce-catalog-sync'))");
+    const products = await client.query<CatalogProduct>("select id, colors, sizes, stock, active from products");
+    const desired = expand(products.rows);
+    const desiredIds = desired.map((v) => v.id);
     const existing = await client.query<Pick<VariantRow, "id" | "on_hand" | "last_catalog_qty">>(
       "select id, on_hand, last_catalog_qty from product_variants for update",
     );

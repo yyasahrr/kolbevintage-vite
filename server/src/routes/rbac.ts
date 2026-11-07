@@ -62,12 +62,13 @@ export async function rbacRoutes(app: FastifyInstance) {
       [session.subject],
     );
     const me = staffRow.rows[0];
+    const permissions = await permissionsFor(session.subject);
     return {
       authenticated: true,
       subject: session.subject,
       staff: me ? { id: me.id, name: me.name, roleId: me.role_id, roleName: me.role_name } : null,
-      role: config.panelOpenAccess ? "owner" : me?.role_id ?? null,
-      permissions: config.panelOpenAccess ? [...PERMISSIONS] : cleanPermissions(me?.permissions),
+      role: config.panelOpenAccess ? "owner" : session.subject === "superadmin" ? "superadmin" : me?.role_id ?? null,
+      permissions,
       catalogue: PERMISSIONS,
       groups: PERMISSION_GROUPS,
       // review mode: the panel says so and opens without a passcode

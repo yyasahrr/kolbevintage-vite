@@ -73,3 +73,12 @@
     break-after: page;
   }
 }
+
+/* A print job is rendered separately only after the order is re-fetched. */
+@media print {
+  body.kv-printing > :not(#kv-print-document) { display: none !important; }
+  #kv-print-document { display: block !important; width: 100%; }
+  #kv-print-document .kv-print-sheet { border: 0 !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
+  #kv-print-document .overflow-x-auto { overflow: visible !important; }
+}
+@media screen { #kv-print-document { display: none; } }

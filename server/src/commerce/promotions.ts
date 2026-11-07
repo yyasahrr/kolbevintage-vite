@@ -5,11 +5,8 @@ import { withTransaction } from "../db";
    state document; this mirrors them into `price_rules` + `coupons` so the
    server can price a cart without trusting the browser.
 
-   Selection rules (owner-approved):
-   1. highest numeric priority wins,
-   2. equal priority → the older rule wins,
-   3. still equal → the stable id decides.
-   It is deliberately *not* "the biggest discount wins".
+   Monetary promotions are compared in pricing.ts as a single order-wide
+   benefit. Priority, age and id are deterministic tie-breakers only.
    ===================================================================== */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -22,6 +19,14 @@ const num = (value: unknown, fallback = 0) => {
 
 const dayStart = (value: string | undefined) => (value ? new Date(`${value}T00:00:00.000Z`) : null);
 const dayEnd = (value: string | undefined) => (value ? new Date(`${value}T23:59:59.999Z`) : null);
+
+// Reserved for the not-yet-supported audience / early-access contract. Never
+// silently turn such a document into an unrestricted, active promotion.
+export function hasUnsupportedCampaignRestrictions(rule: Doc): boolean {
+  return ["audience", "audienceLabels", "audienceMode", "customerLabels", "targetLabels",
+    "access", "accessMode", "earlyAccess", "earlyAccessMode", "earlyStartAt"]
+    .some(key => Object.prototype.hasOwnProperty.call(rule, key) && rule[key] != null);
+}
 
 const RULE_KIND: Record<string, string> = {
   percent: "percent",
@@ -45,6 +50,7 @@ interface RuleRow {
   endsAt: Date | null;
   active: boolean;
   createdAt: Date;
+  freeShipping: boolean;
 }
 
 export async function syncPromotions(admin: Doc) {
@@ -66,8 +72,9 @@ export async function syncPromotions(admin: Doc) {
       stackable: !!campaign.stackable,
       startsAt: dayStart(campaign.start),
       endsAt: dayEnd(campaign.end),
-      active: campaign.active !== false,
+      active: campaign.active !== false && !hasUnsupportedCampaignRestrictions(campaign),
       createdAt: campaign.createdAt ? new Date(campaign.createdAt) : new Date(0),
+      freeShipping: campaign.freeShipping === true,
     });
   }
 
@@ -89,8 +96,9 @@ export async function syncPromotions(admin: Doc) {
       stackable: !!rule.stackable,
       startsAt: dayStart(rule.from),
       endsAt: dayEnd(rule.to),
-      active: rule.active !== false,
+      active: rule.active !== false && !hasUnsupportedCampaignRestrictions(rule),
       createdAt: rule.createdAt ? new Date(rule.createdAt) : new Date(0),
+      freeShipping: rule.freeShipping === true,
     });
   }
 
@@ -106,17 +114,17 @@ export async function syncPromotions(admin: Doc) {
     for (const rule of rules.values()) {
       await client.query(
         `insert into price_rules (id, name, kind, value, scope, scope_id, min_subtotal, max_discount, priority, stackable,
-                                  starts_at, ends_at, active, created_at, updated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,coalesce($14, now()), now())
+                                  starts_at, ends_at, active, created_at, free_shipping, updated_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,coalesce($14, now()),$15, now())
          on conflict (id) do update set
            name = excluded.name, kind = excluded.kind, value = excluded.value, scope = excluded.scope,
            scope_id = excluded.scope_id, min_subtotal = excluded.min_subtotal,
            max_discount = excluded.max_discount, priority = excluded.priority,
            stackable = excluded.stackable, starts_at = excluded.starts_at, ends_at = excluded.ends_at,
-           active = excluded.active, updated_at = now()`,
+           active = excluded.active, free_shipping = excluded.free_shipping, updated_at = now()`,
         [
           rule.id, rule.name, rule.kind, rule.value, rule.scope, rule.scopeId, rule.minSubtotal,
-          rule.maxDiscount, rule.priority, rule.stackable, rule.startsAt, rule.endsAt, rule.active, rule.createdAt,
+          rule.maxDiscount, rule.priority, rule.stackable, rule.startsAt, rule.endsAt, rule.active, rule.createdAt, rule.freeShipping,
         ],
       );
     }
@@ -131,7 +139,7 @@ export async function syncPromotions(admin: Doc) {
            kind = excluded.kind, value = excluded.value, min_subtotal = excluded.min_subtotal,
            max_discount = excluded.max_discount,
            combinable = excluded.combinable, usage_limit = excluded.usage_limit,
-           used_count = excluded.used_count, starts_at = excluded.starts_at, ends_at = excluded.ends_at,
+           starts_at = excluded.starts_at, ends_at = excluded.ends_at,
            active = excluded.active, updated_at = now()`,
         [
           code,

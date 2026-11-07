@@ -143,7 +143,7 @@ html[data-theme="neo-brutalism"] :where(input, select, textarea) {
 /* ================================================================== */
 /* 5. GLASSMORPHISM (LIQUID GLASS & AURORA)                           */
 /* ================================================================== */
-html[data-theme="glassmorphism"] body {
+:is(html[data-theme="glassmorphism"], html[data-theme="liquid-glass"]) body {
   background-color: #f2edf7;
   background-image:
     radial-gradient(at 10% 15%, rgba(224, 194, 255, 0.55) 0px, transparent 48%),
@@ -153,7 +153,7 @@ html[data-theme="glassmorphism"] body {
 }
 
 /* Frosted glass surface treatment */
-html[data-theme="glassmorphism"] :where(.bg-paper, .rounded-xl.border, .rounded-2xl.border) {
+:is(html[data-theme="glassmorphism"], html[data-theme="liquid-glass"]) :where(.bg-paper, .rounded-xl.border, .rounded-2xl.border) {
   background-color: rgba(255, 255, 255, 0.9) !important;
   backdrop-filter: blur(18px) saturate(160%) !important;
   -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
@@ -161,20 +161,20 @@ html[data-theme="glassmorphism"] :where(.bg-paper, .rounded-xl.border, .rounded-
   box-shadow: 0 16px 40px -18px rgba(110, 70, 170, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.95) !important;
 }
 
-html[data-theme="glassmorphism"] header.sticky {
+:is(html[data-theme="glassmorphism"], html[data-theme="liquid-glass"]) header.sticky {
   background-color: rgba(255, 255, 255, 0.92) !important;
   backdrop-filter: blur(24px) saturate(190%) !important;
   -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
   border-bottom-color: rgba(255, 255, 255, 0.6) !important;
 }
 
-html[data-theme="glassmorphism"] :where([class*="bg-[#"]) {
+:is(html[data-theme="glassmorphism"], html[data-theme="liquid-glass"]) :where([class*="bg-[#"]) {
   background-color: rgba(255, 255, 255, 0.78) !important;
   backdrop-filter: blur(14px) !important;
   -webkit-backdrop-filter: blur(14px) !important;
 }
 
-html[data-theme="glassmorphism"] :where(input, select, textarea) {
+:is(html[data-theme="glassmorphism"], html[data-theme="liquid-glass"]) :where(input, select, textarea) {
   background-color: rgba(255, 255, 255, 0.92) !important;
   backdrop-filter: blur(10px) !important;
   -webkit-backdrop-filter: blur(10px) !important;
@@ -285,3 +285,14 @@ html[data-theme="cyber"] .font-display {
   font-weight: 500;
   letter-spacing: 0.01em;
 }
+
+/* Additional storefront packs from the panel. These do not affect the admin. */
+html[data-theme="editorial"] .font-display { font-weight: 500; }
+html[data-theme="editorial"] :where(article, section) { border-color: var(--line); }
+html[data-theme="liquid-glass"] body { background-image: radial-gradient(at 12% 10%, #cde6fb 0, transparent 50%), radial-gradient(at 85% 15%, #dfdcff 0, transparent 50%), radial-gradient(at 50% 85%, #cfe9f5 0, transparent 55%); }
+html[data-theme="bento"] :where(.rounded-xl.border, .rounded-2xl.border) { border-radius: 22px; box-shadow: 0 12px 28px -20px rgba(70,55,110,.32); }
+@media (min-width: 1024px) { html[data-theme="bento"] .home-collections-grid > :first-child { grid-column: span 2; } }
+html[data-theme="neumorphism"] :where(.bg-paper, .rounded-xl.border, .rounded-2xl.border) { background: var(--color-paper); box-shadow: var(--card-shadow); border-color: var(--line); }
+html[data-theme="neumorphism"] :where(button.rounded-full, a.rounded-full) { box-shadow: var(--btn-shadow); }
+html[data-theme="brutalism"] :where(.bg-paper, .rounded-xl.border, .rounded-2xl.border, article.group) { border: 2px solid #111 !important; border-radius: 0 !important; box-shadow: none !important; }
+html[data-theme="brutalism"] :where(button.rounded-full, a.rounded-full, input, select, textarea) { border-radius: 0 !important; border: 2px solid #111; }

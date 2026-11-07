@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 import { BACKDROPS, firstAvailable, stockOf } from "@/data/looks";
 import { liveLooks } from "@/data/catalog";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { useAdmin } from "@/state/admin";
 import type { Look } from "@/types";
 import { useCart } from "@/state/cart";
@@ -36,7 +37,8 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
 
   // the runway is fed by the live catalogue so owner-built looks appear here
   const admin = useAdmin();
-  const looks = useMemo(() => liveLooks(), [admin]);
+  const catalog = useLiveCatalog();
+  const looks = useMemo(() => liveLooks(), [admin, catalog.products]);
 
   const [activeIndex, setActiveIndex] = useState(() => {
     const i = looks.findIndex((l) => l.id === initialLookId);
@@ -46,6 +48,14 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<SceneSettings>(DEFAULT_SETTINGS);
   const [selections, setSelections] = useState<SelectionMap>(() => initialSelections(looks));
+  useEffect(() => {
+    const defaults = initialSelections(looks);
+    setSelections(previous => {
+      const missing = Object.keys(defaults).filter(id => !previous[id]);
+      if (!missing.length) return previous;
+      return {...defaults,...previous};
+    });
+  }, [looks]);
 
   useEffect(() => {
     if (!initialLookId) return;
@@ -73,7 +83,7 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
     if (now - lastStep.current < 110) return; // guard against animation pile-up
     lastStep.current = now;
     setActiveIndex((i) => (i + dir + looks.length) % Math.max(1, looks.length));
-  }, []);
+  }, [looks.length]);
 
   const selectModel = useCallback(
     (index: number) => {
@@ -135,7 +145,7 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
       }
       return { ...prev, [productId]: next };
     });
-  }, []);
+  }, [looks]);
 
   const addProduct = useCallback(
     (productId: string) => {
@@ -171,6 +181,7 @@ export function RunwaySection({ initialLookId }: RunwaySectionProps = {}) {
   }, [activeLook, selections, add]);
 
   /* ---------------- render ---------------- */
+  if (!activeLook) return <section className="mx-auto max-w-[1500px] px-4 py-16" role="status">{catalog.status === "loading" ? "در حال دریافت استایل‌ها…" : catalog.status === "offline" ? "اتصال به فروشگاه برقرار نیست." : "استایلی با محصول منتشرشده وجود ندارد."}</section>;
 
   return (
     <section id="runway" className="relative mx-auto w-full max-w-[1500px] px-4 pt-6 pb-16 sm:px-6 lg:px-10">

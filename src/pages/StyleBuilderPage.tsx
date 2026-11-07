@@ -5,6 +5,7 @@ import { cn } from "@/utils/cn";
 import { COLLECTIONS, liveGetProduct, productsInCollection, visibleProducts } from "@/data/catalog";
 import { firstAvailable, formatPrice } from "@/data/looks";
 import { useCart } from "@/state/cart";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { useAdmin } from "@/state/admin";
 import { addItem, clearBoard, setItems, useOutfit } from "@/state/outfit";
 import { uid } from "@/builder/tree";
@@ -26,6 +27,7 @@ const GROUPS = [
 export function StyleBuilderPage() {
   // re-render when the admin edits or adds products
   useAdmin();
+  const catalog = useLiveCatalog();
   const [mode, setMode] = useState<Mode>("canvas");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [group, setGroup] = useState("all");
@@ -39,7 +41,7 @@ export function StyleBuilderPage() {
     const base = group === "all" ? visibleProducts() : productsInCollection(group);
     const q = query.trim();
     return q ? base.filter((p) => `${p.name} ${p.category} ${p.lookName}`.includes(q)) : base;
-  }, [group, query]);
+  }, [group, query, catalog.products]);
 
   const addProduct = (productId: string, at?: { x: number; y: number }, slot?: string, colorId?: string, sizeId?: string) => {
     const product = liveGetProduct(productId);
