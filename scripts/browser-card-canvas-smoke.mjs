@@ -166,11 +166,9 @@ try {
       `${base}/#/products?q=${encodeURIComponent(fixture.name)}`,
       { waitUntil: "networkidle" },
     );
-    const fixtureCard = page
-      .locator("article")
-      .filter({
-        has: page.getByRole("heading", { name: fixture.name, exact: true }),
-      });
+    const fixtureCard = page.locator("article").filter({
+      has: page.getByRole("heading", { name: fixture.name, exact: true }),
+    });
     await fixtureCard.waitFor();
     assert.equal(
       await fixtureCard.locator(".card-gallery-arrow").count(),
@@ -184,6 +182,45 @@ try {
   await page.goto(`${base}/#/style-builder`, { waitUntil: "networkidle" });
   const board = page.getByRole("region", { name: "بوم چیدمان استایل" });
   await board.waitFor();
+  const layout = await page.evaluate(() => {
+    const products = document.querySelector(".sb-tray").getBoundingClientRect();
+    const canvas = document.querySelector(".sb-main").getBoundingClientRect();
+    const score = document.querySelector(".sb-side").getBoundingClientRect();
+    const style = getComputedStyle(document.querySelector(".sb-board"));
+    return {
+      products: products.toJSON(),
+      canvas: canvas.toJSON(),
+      score: score.toJSON(),
+      background: style.backgroundColor,
+      grid: style.backgroundImage,
+    };
+  });
+  assert.ok(
+    layout.products.left >= layout.canvas.right &&
+      layout.score.right <= layout.canvas.left,
+    "products must be right of canvas and score to its left",
+  );
+  assert.equal(layout.background, "rgb(255, 255, 255)");
+  assert.match(layout.grid, /linear-gradient/);
+  await page
+    .getByText(
+      "با افزودن قطعه به بوم، امتیاز هماهنگی رنگ اینجا نمایش داده می‌شود.",
+    )
+    .waitFor();
+  const boardBox = await board.boundingBox();
+  const productTile = page
+    .locator(".sb-tray-card")
+    .filter({
+      has: page.getByRole("button", { name: `افزودن ${name} به بوم` }),
+    });
+  await productTile.dragTo(board, {
+    targetPosition: { x: boardBox.width * 0.45, y: boardBox.height * 0.45 },
+  });
+  assert.equal(
+    await board.getByRole("button", { name: `قطعه ${name} روی بوم` }).count(),
+    1,
+    "drag from right panel onto board",
+  );
   await page.getByRole("button", { name: `افزودن ${name} به بوم` }).click();
   let item = board.getByRole("button", { name: `قطعه ${name} روی بوم` });
   await item.waitFor();
@@ -343,7 +380,7 @@ try {
     await page.keyboard.press("Shift+ArrowRight");
     await page.keyboard.press("Shift+ArrowUp");
   }
-  for (const width of [320, 390, 768, 1440]) {
+  for (const width of [320, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     assert.ok(
       await page.evaluate(
@@ -351,6 +388,24 @@ try {
       ),
       `page overflow at ${width}`,
     );
+    if (width >= 900) {
+      const sides = await page.evaluate(() => {
+        const tray = document.querySelector(".sb-tray").getBoundingClientRect();
+        const canvas = document
+          .querySelector(".sb-main")
+          .getBoundingClientRect();
+        const side = document.querySelector(".sb-side").getBoundingClientRect();
+        return {
+          right: tray.left >= canvas.right,
+          left: side.right <= canvas.left,
+        };
+      });
+      assert.deepEqual(
+        sides,
+        { right: true, left: true },
+        `side placement at ${width}`,
+      );
+    }
     const rects = await board.evaluate((el) => {
       const b = el.getBoundingClientRect();
       const i = el.querySelector(".sb-canvas-item").getBoundingClientRect();
@@ -381,6 +436,42 @@ try {
       ),
   );
   assert.deepEqual(issues, []);
+  const productsToggle = page.getByRole("button", {
+    name: "محصولات",
+    exact: true,
+  });
+  const scoreToggle = page.getByRole("button", { name: "امتیاز و ست" });
+  await productsToggle.click();
+  assert.equal(await productsToggle.getAttribute("aria-expanded"), "true");
+  assert.equal(
+    await page.getByRole("region", { name: "محصولات برای بوم" }).isVisible(),
+    true,
+  );
+  await page.keyboard.press("Escape");
+  assert.equal(await productsToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(
+    await productsToggle.evaluate((el) => document.activeElement === el),
+    true,
+  );
+  await scoreToggle.click();
+  assert.equal(await scoreToggle.getAttribute("aria-expanded"), "true");
+  await page
+    .getByRole("complementary", { name: "امتیاز و خلاصه استایل" })
+    .getByText("هماهنگی رنگ")
+    .waitFor();
+  const panelIssues = await page.evaluate(() =>
+    window.axe
+      .run(document, {
+        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] },
+      })
+      .then((r) =>
+        r.violations
+          .filter((v) => v.impact === "serious" || v.impact === "critical")
+          .map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })),
+      ),
+  );
+  assert.deepEqual(panelIssues, []);
+  await scoreToggle.click();
   assert.deepEqual(errors, []);
   await page.goto(`${base}/?themePreview=neo-brutalism#/style-builder`, {
     waitUntil: "networkidle",
@@ -509,7 +600,14 @@ try {
   );
   await gesture.detach();
   await touch.goto(`${base}/#/style-builder`, { waitUntil: "networkidle" });
+  await touch.getByRole("button", { name: "محصولات", exact: true }).click();
   await touch.getByRole("button", { name: `افزودن ${name} به بوم` }).click();
+  assert.equal(
+    await touch
+      .getByRole("button", { name: "محصولات", exact: true })
+      .getAttribute("aria-expanded"),
+    "false",
+  );
   const touchBoard = touch.getByRole("region", { name: "بوم چیدمان استایل" });
   await touchBoard.scrollIntoViewIfNeeded();
   const touchItem = touchBoard.getByRole("button", {
@@ -542,7 +640,7 @@ try {
   await mobile.close();
   assert.deepEqual(errors, []);
   console.log(
-    "Product cards and canvas: hover, gallery, keyboard and swipe; mouse/touch drag, zoom, variants, stock-safe duplicate, persistence, four widths and axe passed.",
+    "Product cards and canvas: hover, gallery, keyboard and swipe; mouse/touch drag, zoom, variants, stock-safe duplicate, persistence, five widths, side panels and axe passed.",
   );
 } finally {
   await browser.close();

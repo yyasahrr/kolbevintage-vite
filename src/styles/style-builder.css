@@ -1657,3 +1657,32 @@
 /* Centering is part of the board's coordinate system; theme press/hover effects must not override it. */
 html[data-theme] button.sb-canvas-item:not(:disabled):is(:hover,:active) { transform:translate(-50%,-50%) !important; }
 .sb-saved-list small { color:#5f5448; }
+
+/* Side-by-side workspace; the page direction puts products on the right. */
+.sb-shell { position:relative; grid-template-areas:"controls" "main"; grid-template-columns:minmax(0,1fr); align-items:start; }
+.sb-mobile-panel-toggles { grid-area:controls; display:flex; justify-content:space-between; gap:10px; }
+.sb-mobile-panel-toggles button { display:inline-flex; align-items:center; gap:6px; min-height:42px; padding:8px 12px; border:1px solid #d8cfc4; border-radius:11px; background:#fffdfa; color:#29211b; font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+.sb-mobile-panel-toggles button[aria-expanded="true"] { background:#201b16; color:#fff; border-color:#201b16; }
+.sb-main { grid-area:main; }
+.sb-tray, .sb-side { display:none; position:absolute; top:54px; z-index:30; width:min(320px, calc(100% - 24px)); max-height:min(70dvh, 660px); overflow-y:auto; box-shadow:0 18px 50px rgba(34,26,19,.22); }
+.sb-tray { right:12px; }
+.sb-side { left:12px; }
+.sb-tray.is-mobile-open, .sb-side.is-mobile-open { display:block; }
+.sb-tray-scroll { grid-auto-flow:row; grid-auto-columns:auto; grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-rows:min-content; overflow-x:hidden; overflow-y:visible; max-height:none; scroll-snap-type:none; }
+.sb-tray-card { width:auto; }
+.sb-harmony-empty { margin-top:12px; }
+@media (min-width:900px) {
+  .sb-shell { grid-template-areas:"tray main side"; grid-template-columns:minmax(190px,240px) minmax(0,1fr) minmax(245px,300px); gap:14px; }
+  .sb-shell.is-wizard { grid-template-areas:"main side"; grid-template-columns:minmax(0,1fr) minmax(245px,300px); }
+  .sb-mobile-panel-toggles { display:none; }
+  .sb-tray, .sb-side { display:block; position:sticky; top:76px; width:auto; max-height:calc(100dvh - 92px); overflow-y:auto; box-shadow:none; }
+  .sb-tray { grid-area:tray; right:auto; order:initial; }
+  .sb-side { grid-area:side; left:auto; }
+  .sb-tray-scroll { grid-auto-flow:row; grid-auto-columns:auto; grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-rows:min-content; overflow-x:hidden; overflow-y:visible; max-height:none; }
+  .sb-tray-card { width:auto; }
+}
+/* Default studio surface is white with a subtle square grid. Other swatches remain available. */
+.sb-board { background-color:#fff; background-image:linear-gradient(#e5e7eb 1px,transparent 1px),linear-gradient(90deg,#e5e7eb 1px,transparent 1px); background-size:24px 24px; }
+.sb-board-swatch[data-board="studio"] { background-color:#fff; background-image:linear-gradient(#d9dde1 1px,transparent 1px),linear-gradient(90deg,#d9dde1 1px,transparent 1px); background-size:8px 8px; }
+.sb-tray-head .sb-tray-search { flex:1 1 100%; max-width:none; }
+.sb-shell.is-wizard .sb-mobile-panel-toggles { justify-content:flex-end; }

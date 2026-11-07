@@ -115,6 +115,13 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
         </div>
       )}
 
+      {rows.length === 0 && (
+        <div className="sb-harmony sb-harmony-empty">
+          <span className="sb-harm-label"><Sparkles width={13} height={13} /> هماهنگی رنگ</span>
+          <p className="sb-empty-note">با افزودن قطعه به بوم، امتیاز هماهنگی رنگ اینجا نمایش داده می‌شود.</p>
+        </div>
+      )}
+
       {/* items */}
       <ul className="sb-items">
         {rows.map(({ item, product, color, size, stock }) => (

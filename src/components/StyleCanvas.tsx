@@ -204,7 +204,7 @@ export function StyleCanvas({
           <div className="sb-bar-group" role="group" aria-label="پس‌زمینهٔ بوم">
             {(
               [
-                ["studio", "استودیو"],
+                ["studio", "شبکه سفید"],
                 ["floor", "کف و دیوار"],
                 ["dark", "تیره"],
                 ["grid", "شبکه"],
@@ -320,7 +320,7 @@ export function StyleCanvas({
               </div>
               <h3>استایل خودت را بساز</h3>
               <p>
-                از فهرست محصولات پایین بوم، قطعه‌ای را اضافه کن یا با ماوس آن را
+                از پنل محصولات کنار بوم، قطعه‌ای را اضافه کن یا با ماوس آن را
                 اینجا بکش.
               </p>
               <small>
