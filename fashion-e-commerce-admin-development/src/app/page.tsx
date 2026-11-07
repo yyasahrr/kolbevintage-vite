@@ -68,6 +68,7 @@ export default function DashboardPage() {
   const [products, setProducts] = useState<Product[] | null>(null);
   const [stock, setStock] = useState<InventoryStock[] | null>(null);
   const [orders, setOrders] = useState<Order[] | null>(null);
+  const [loadRevision, setLoadRevision] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [passcode, setPasscode] = useState("");
@@ -82,6 +83,7 @@ export default function DashboardPage() {
   const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
+    setLoadRevision(n => n + 1);
     setError("");
     try {
       const identity = await json<Identity>("/api/admin/me");
@@ -166,7 +168,7 @@ export default function DashboardPage() {
         {section === "products" && <LiveProducts products={products} stock={stock} can={can} create={() => setCreating(true)} edit={setEditing}/>}
         {section === "inventory" && <LiveInventory stock={stock} products={products} can={can} activity={() => navigate("inventoryActivity")} adjust={item => { setError(""); setAdjusting(item); }}/>}
         {section === "inventoryLabels" && <LiveInventory openLabels stock={stock} products={products} can={can} activity={() => navigate("inventoryActivity")} adjust={item => { setError(""); setAdjusting(item); }}/>}
-        {section === "orders" && <LiveOrders orders={orders} can={can} navigate={navigate} api={liveApi} onChange={load}/>}
+        {section === "orders" && <LiveOrders refreshKey={loadRevision} can={can} navigate={navigate} api={liveApi} onChange={load}/>}
         {section === "inventoryActivity" && stock && <InventoryOperations api={liveApi} can={can} stock={stock} onChange={load}/>}
         {section === "manual" && stock && <ManualOrder api={liveApi} can={can} stock={stock} onChange={load}/>}
         {section === "fulfillment" && orders && <Fulfillment api={liveApi} can={can} orders={orders} onChange={load}/>}

@@ -32,7 +32,7 @@ import {
 } from "./checkout";
 import { CommerceError, forbidden, notFound, unauthorized } from "./errors";
 import { expireReservations } from "./inventory";
-import { advanceOrder, cancelOrder, getOrder, listOrders, publicOrder } from "./orders";
+import { advanceOrder, cancelOrder, getOrder, listAdminOrderPage, listOrders, publicOrder } from "./orders";
 import { outboxStats, processOutbox } from "./outbox";
 import {
   expirePaymentAttempts,
@@ -323,6 +323,14 @@ export async function commerceRoutes(app: FastifyInstance) {
   /* ---------------------------------------------------------------
      Orders (customer + admin)
      --------------------------------------------------------------- */
+
+  app.get<{ Querystring: { before?: string; search?: string; stage?: string; limit?: string } }>("/api/commerce/admin/order-page", async (req, reply) => {
+    reply.header("cache-control", "private, no-store");
+    await requirePermission(req, "orders:view");
+    const { before, search = "", stage = "all", limit: rawLimit = "40" } = req.query;
+    if ((before !== undefined && (typeof before !== "string" || !before || before.length > 200)) || typeof search !== "string" || search.length > 120 || typeof stage !== "string" || !["all","awaiting","picking","packed","shipped","exception"].includes(stage) || typeof rawLimit !== "string" || !/^(?:[1-9]|[1-9][0-9]|100)$/.test(rawLimit)) throw new CommerceError("فیلتر یا نشانگر صفحه معتبر نیست.", 422, "validation_error");
+    return listAdminOrderPage({ before, search: search.trim(), stage, limit: Number(rawLimit) });
+  });
 
   app.get<{ Querystring: { status?: string; limit?: string; all?: string } }>("/api/commerce/orders", async (req, reply) => {
     reply.header("cache-control", "private, no-store");

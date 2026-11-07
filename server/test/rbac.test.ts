@@ -157,6 +157,26 @@ test("style packs use real storefront settings, authorization, concurrency and r
   } finally {await query("update state_documents set value=$1 where key='ops'",[JSON.stringify(original)]);}
 });
 
+test("admin order pages cover older orders, filters, access and stable timestamp ties", async () => {
+  const {admin,client:reader}=await staffWith(["orders:view"],"order-pages-reader","order-pages-user","order-pages-pass");
+  const {client:denied}=await staffWith(["catalog:view"],"order-pages-denied","order-pages-denied-user","order-pages-denied-pass");
+  const guest=makeClient();const prefix="test-order-pages-";
+  try {
+    await query(`insert into orders(id,created_at,customer,status,total,data,fulfillment_status,tracking_code) select $1 || lpad(n::text,4,'0'), '2099-01-01 00:00:00.123456+00'::timestamptz, 'Pagination customer', case when n=3 then 'exception' else 'paid' end, 10, jsonb_build_object('phone',case when n=2 then '09120001122' else '' end), case when n=1 then 'packed' else 'unfulfilled' end, case when n=1 then 'TRACK-123' else null end from generate_series(1,215) n`,[prefix]);
+    const path="/api/commerce/admin/order-page";
+    assert.equal((await guest.get(path)).status,401);assert.equal((await denied.get(path)).status,403);
+    assert.equal((await reader.get(path+"?stage=bogus")).status,422);assert.equal((await reader.get(path+"?limit=0")).status,422);assert.equal((await reader.get(path+"?before=missing")).status,422);
+    let cursor="";const ids:string[]=[];
+    do {const result=await reader.get(path+"?limit=40&search="+prefix+(cursor?"&before="+encodeURIComponent(cursor):""));assert.equal(result.status,200,JSON.stringify(result.body));ids.push(...result.body.items.map((o:any)=>o.id));cursor=result.body.nextCursor??"";}while(cursor);
+    assert.equal(ids.length,215);assert.equal(new Set(ids).size,215);assert.equal(ids[0],prefix+"0215");assert.equal(ids[214],prefix+"0001");
+    const search=await admin.get(path+"?search=TRACK-123&stage=packed");assert.deepEqual(search.body.items.map((o:any)=>o.id),[prefix+"0001"]);
+    const phone=await admin.get(path+"?search=09120001122");assert.deepEqual(phone.body.items.map((o:any)=>o.id),[prefix+"0002"]);
+    const exception=await admin.get(path+"?search="+prefix+"&stage=exception");assert.deepEqual(exception.body.items.map((o:any)=>o.id),[prefix+"0003"]);
+    assert.equal((await admin.get(path+"?search=%25%5F")).body.items.length,0);
+    const response=await fetch(base+path,{headers:{cookie:reader.cookie()}});assert.match(response.headers.get("cache-control")||"",/no-store/);
+  } finally {await query("delete from orders where id like $1",[prefix+"%"]);}
+});
+
 test("home categories and category edits are authorized, version checked and preserved", async () => {
   const {admin,client:viewer}=await staffWith(["catalog:view"],"home-categories-viewer","home-categories-user","home-categories-pass");
   const guest=makeClient();

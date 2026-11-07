@@ -274,6 +274,42 @@ export async function listOrders(filter: { email?: string | null; status?: strin
   return res.rows.map((order) => publicOrder(order, byOrder.get(order.id) ?? []));
 }
 
+
+/** Admin-only keyset page. The cursor is an existing order id: PostgreSQL uses
+ * its exact timestamp (including microseconds) and id as the stable boundary. */
+export async function listAdminOrderPage(filter: { before?: string; search: string; stage: string; limit: number }) {
+  const params: unknown[] = [];
+  const where: string[] = [];
+  if (filter.before) {
+    const anchor = await query<{ id: string }>("select id from orders where id=$1", [filter.before]);
+    if (!anchor.rows.length) throw new CommerceError("نشانگر صفحه دیگر موجود نیست؛ فهرست را تازه کنید.", 422, "invalid_cursor");
+    params.push(filter.before);
+    where.push(`(orders.created_at, orders.id) < (select created_at, id from orders where id=$${params.length})`);
+  }
+  const stageFilters: Record<string, string> = {
+    awaiting: "orders.fulfillment_status in ('unfulfilled','preparing')",
+    picking: "orders.fulfillment_status='picking'",
+    packed: "orders.fulfillment_status='packed'",
+    shipped: "orders.fulfillment_status in ('shipped','delivered')",
+    exception: "orders.status='exception'",
+  };
+  if (filter.stage !== "all") where.push(stageFilters[filter.stage]);
+  if (filter.search) {
+    params.push(filter.search);
+    const needle = `$${params.length}`;
+    where.push(`(strpos(lower(orders.id),lower(${needle}))>0 or strpos(lower(coalesce(orders.customer,'')),lower(${needle}))>0 or strpos(lower(coalesce(orders.data->>'phone','')),lower(${needle}))>0 or strpos(lower(coalesce(orders.tracking_code,orders.data->>'tracking','')),lower(${needle}))>0)`);
+  }
+  params.push(filter.limit + 1);
+  const res = await query<OrderRow>(`select orders.*, (select provider from payment_attempts where id=orders.data->'commerce'->>'paymentAttemptId') as payment_provider from orders ${where.length ? `where ${where.join(' and ')}` : ''} order by orders.created_at desc, orders.id desc limit $${params.length}`, params);
+  const hasMore = res.rows.length > filter.limit;
+  const rows = res.rows.slice(0, filter.limit);
+  const ids = rows.map(r => r.id);
+  const lines = ids.length ? await query<OrderLineRow>("select order_lines.*, coalesce((select sum(case when e.stage='picking_scan' then 1 else -1 end)::int from fulfillment_events e where e.order_id=order_lines.order_id and upper(e.sku)=upper(order_lines.sku) and e.accepted and e.stage in ('picking_scan','picking_undo')),0)::int as picked_quantity from order_lines where order_id=any($1::text[]) order by position", [ids]) : {rows: [] as OrderLineRow[]};
+  const byOrder = new Map<string, OrderLineRow[]>();
+  for (const line of lines.rows) byOrder.set(line.order_id, [...(byOrder.get(line.order_id) ?? []), line]);
+  return { items: rows.map(row => publicOrder(row, byOrder.get(row.id) ?? [])), nextCursor: hasMore ? rows[rows.length - 1].id : null };
+}
+
 const LIFECYCLE: Record<string, { from: string[]; to: OrderStatus; fulfillment: string }> = {
   picking: { from: ["paid", "preparing"], to: "preparing", fulfillment: "picking" },
   packing: { from: ["paid", "preparing"], to: "preparing", fulfillment: "packed" },

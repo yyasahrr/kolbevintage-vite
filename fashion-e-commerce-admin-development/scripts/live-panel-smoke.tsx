@@ -50,6 +50,11 @@ const fixtures: Record<string, unknown> = {
 globalThis.fetch = async (request, init) => {
   const path = String(request); const method = init?.method || "GET"; const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   requests.push({ path, method, body });
+  if (method === "GET" && path.startsWith("/api/commerce/admin/order-page?")) {
+    const q=new URLSearchParams(path.split("?")[1]);
+    const order=(fixtures["/api/commerce/orders?all=1&limit=200"] as any[])[0];
+    return new Response(JSON.stringify(q.has("before")?{items:[{...order,id:"VL-OLD",customer:"مشتری قدیمی"}],nextCursor:null}:{items:[order],nextCursor:"VL-1"}));
+  }
   if (method === "POST" && path === "/api/admin/studio/drafts") {const draft={id:"draft-smoke",title:body.title,version:0,blocks:[],updatedAt:new Date().toISOString()};(fixtures["/api/admin/studio/drafts"] as any[]).push(draft);return new Response(JSON.stringify(draft),{status:201})}
   if (method === "PATCH" && path === "/api/admin/studio/drafts/draft-smoke") {const list=fixtures["/api/admin/studio/drafts"] as any[];const i=list.findIndex(v=>v.id==="draft-smoke");const draft={...list[i],title:body.title,blocks:body.blocks,version:list[i].version+1};list[i]=draft;return new Response(JSON.stringify(draft))}
   if (method === "GET" && path === "/api/admin/style-packs") return new Response(JSON.stringify({active:activeTheme,previous:previousTheme,packs}),{status:200});
@@ -110,6 +115,9 @@ for (const [button, expected] of [
   assert.ok(document.body.textContent?.includes(expected), `${button}: missing ${expected}`);
   console.log(`OK ${button}`);
 }
+await click("سفارش‌ها");assert.ok(requests.some(r=>r.path.startsWith("/api/commerce/admin/order-page?stage=all")));
+await click("سفارش‌های قدیمی‌تر");assert.match(document.body.textContent||"",/مشتری قدیمی/);await click("صفحه جدیدتر");assert.match(document.body.textContent||"",/VL-1/);
+await click("آماده ارسال");assert.ok(requests.some(r=>r.path.includes("stage=packed")));
 await click("استودیو طراحی (Site Studio)");const studio=document.querySelector<HTMLElement>('section[aria-label="استودیو پیش‌نویس"]')!;const studioName=[...studio.querySelectorAll("label")].find(l=>l.textContent?.startsWith("عنوان پیش‌نویس جدید"))!.querySelector("input")!;await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,"value")!.set!.call(studioName,"صفحه آزمایشی");studioName.dispatchEvent(new dom.window.Event("input",{bubbles:true}))});await click("ساخت پیش‌نویس");await click("افزودن هیرو");await click("افزودن بنر");assert.match(studio.textContent||"",/پیش‌نمایش لحظه‌ای بلوک‌ها/);await click("ذخیره پیش‌نویس");assert.ok(requests.some(r=>r.path==="/api/admin/studio/drafts/draft-smoke"&&r.body.expectedVersion===0&&r.body.blocks.map((b:any)=>b.type).join(',')==='hero,banner'));
 await click("استایل‌ها و ست‌های لباس");
 assert.match(document.body.textContent||"",/استایل اختصاصی ثبت نشده/);
@@ -201,6 +209,8 @@ assert.match(document.body.textContent||"",/refund-1/);assert.match(document.bod
 let printed="";let prints=0;dom.window.print=()=>{assert.ok(document.body.classList.contains("kv-printing"));prints++;printed=document.querySelector("#kv-print-document")?.textContent||"";dom.window.dispatchEvent(new dom.window.Event("afterprint"));};
 const reads=requests.filter(r=>r.path==="/api/commerce/orders/VL-1/invoice").length;
 await click("بررسی مجدد و چاپ");assert.equal(prints,1);assert.ok(!document.body.classList.contains("kv-printing"));assert.match(printed,/نشانی ثبت‌شده/);assert.match(printed,/refund-1/);assert.equal(requests.filter(r=>r.path==="/api/commerce/orders/VL-1/invoice").length,reads+1);
+const printInput=document.querySelector<HTMLInputElement>('input[aria-label="شماره سفارش برای چاپ"]');assert.ok(printInput);
+await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,"value")!.set!.call(printInput,"VL-1");printInput.dispatchEvent(new dom.window.Event("input",{bubbles:true}));});
 printOrder.status="exception";await click("بررسی مجدد و چاپ");assert.equal(prints,1,"a status change after preview must stop printing");assert.match(document.body.textContent||"",/نیازمند بررسی است/);assert.ok([...document.querySelectorAll("button")].some(b=>b.textContent?.trim()==="بررسی مجدد و چاپ"&&b.disabled));assert.equal(prints,1);printOrder.status="paid";
 await click("سفارش‌ها");
 const trackingInput=document.querySelector<HTMLInputElement>('input[aria-label="کد رهگیری VL-1"]');
