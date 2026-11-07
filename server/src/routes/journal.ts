@@ -40,10 +40,17 @@ export async function journalRoutes(app:FastifyInstance) {
     if(!rows.rows[0]) throw notFound("مقاله پیدا نشد.");
     return dto(rows.rows[0]);
   });
-  app.get("/api/admin/journal",async (req,reply)=>{
+  app.get<{Querystring:{before?:unknown}}>("/api/admin/journal",async (req,reply)=>{
     await requirePermission(req,"content:view");reply.header("cache-control","no-store");
-    const rows=await query<Article>(`select ${fields} from journal_articles order by updated_at desc,id desc limit 200`);
-    return {items:rows.rows.map(dto),enabled:await isEnabled()};
+    const before=req.query.before;
+    if(before!==undefined && (typeof before!=="string" || !/^article-[a-f0-9-]{36}$/.test(before))) throw validation("نشانگر صفحه معتبر نیست.");
+    // Stable creation order keeps edits from silently shifting articles between
+    // pages. Compare inside Postgres so timestamps keep microsecond precision.
+    const rows=await query<Article>(`select ${fields} from journal_articles
+      where ($1::text is null or (created_at,id)<(select created_at,id from journal_articles where id=$1))
+      order by created_at desc,id desc limit 201`,[before ?? null]);
+    const page=rows.rows.slice(0,200);
+    return {items:page.map(dto),enabled:await isEnabled(),nextCursor:rows.rows.length>200?page[page.length-1].id:null};
   });
   app.post<{Body:Record<string,unknown>}>("/api/admin/journal",async (req,reply)=>{
     const actor=await requirePermission(req,"content:edit");const b=req.body;

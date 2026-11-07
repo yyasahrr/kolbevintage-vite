@@ -1272,3 +1272,24 @@ test('current backups retain personal measurements when restored inside an isola
     if(file)await fs.unlink(file).catch(()=>undefined);
   }
 });
+
+test('journal admin pagination retains older drafts across edits with server permissions', async () => {
+  const {client:viewer}=await staffWith(['content:view'],'journal-pages','journal-pages-user','journal-pages-pass');
+  const {client:outsider}=await staffWith(['catalog:view'],'journal-no-pages','journal-no-pages-user','journal-no-pages-pass');
+  const guest=makeClient();
+  await query(`insert into journal_articles(id,slug,title,category,created_at,updated_at)
+    select 'article-'||gen_random_uuid(), 'page-fixture-'||g, 'مقاله آزمون '||g, 'test', now()+interval '2 days', now() from generate_series(1,205) g`);
+  try {
+    assert.equal((await guest.get('/api/admin/journal')).status,401);
+    assert.equal((await outsider.get('/api/admin/journal')).status,403);
+    assert.equal((await viewer.get('/api/admin/journal?before=bad!')).status,422);
+    const first=await viewer.get('/api/admin/journal');assert.equal(first.status,200);assert.equal(first.body.items.length,200);assert.ok(first.body.nextCursor);
+    const chosen=first.body.items[0].id;
+    await query("update journal_articles set updated_at=now()+interval '20 years' where id=$1",[chosen]);
+    const second=await viewer.get(`/api/admin/journal?before=${encodeURIComponent(first.body.nextCursor)}`);assert.equal(second.status,200);
+    const all=[...first.body.items,...second.body.items].filter((a:any)=>a.slug.startsWith('page-fixture-'));
+    assert.equal(all.length,205);assert.equal(new Set(all.map((a:any)=>a.id)).size,205);
+    assert.ok(!second.body.items.some((a:any)=>a.id===chosen));
+    assert.ok(!(await guest.get('/api/public/journal')).body.items.some((a:any)=>a.slug.startsWith('page-fixture-')),'drafts never become public through pagination');
+  } finally {await query("delete from journal_articles where slug like 'page-fixture-%'");}
+});
