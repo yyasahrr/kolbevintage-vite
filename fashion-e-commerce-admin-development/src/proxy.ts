@@ -10,7 +10,7 @@ export function proxy(req: NextRequest) {
   }
   const url = req.nextUrl.clone();
   url.pathname = "/";
-  url.search = path === "/catalog/colors" ? "?view=color-library" : "?unavailable=1";
+  url.search = path === "/catalog/colors" ? "?view=color-library" : path === "/appearance/studio" ? "?view=studio" : "?unavailable=1";
   return NextResponse.redirect(url);
 }
 

@@ -1504,3 +1504,21 @@ test('panel proxy never shared-caches the shell or RSC but keeps hashed static a
     const asset=await fetch(url+'/panel/_next/static/chunks/test.js');assert.equal(asset.status,200);assert.equal(asset.headers.get('cache-control'),'s-maxage=31536000');
   }finally{if(proxy)await proxy.close();if(prev===undefined)delete process.env.ADMIN_PANEL_UPSTREAM;else process.env.ADMIN_PANEL_UPSTREAM=prev;await new Promise<void>((resolve,reject)=>server.close(err=>err?reject(err):resolve()))}
 });
+
+test('studio drafts are private, versioned, validated and cannot publish to the storefront', async () => {
+  const {admin,client:viewer}=await staffWith(['design:view'],'studio-viewer','studio-viewer-user','studio-viewer-pass');const guest=makeClient();const path='/api/admin/studio/drafts';const before=(await query("select value from state_documents where key='ops'")).rows[0].value;
+  assert.equal((await guest.get(path)).status,401);assert.equal((await viewer.post(path,{title:'unauthorized'})).status,403);
+  assert.equal((await admin.post(path,{title:'x',published:true})).status,422);
+  const created=await admin.post(path,{title:'طرح آزمایش'});assert.equal(created.status,201,JSON.stringify(created.body));const draft=created.body;assert.equal(draft.version,0);
+  const p=`${path}/${draft.id}`;const hero={id:'block-1',type:'hero',heading:'عنوان',text:'متن',buttonText:'خرید',href:'/products',image:'https://example.com/test.jpg'};
+  assert.equal((await viewer.patch(p,{title:'no',blocks:[hero],expectedVersion:0})).status,403);
+  for(const bad of [{...hero,href:'javascript:alert(1)'},{...hero,image:'http://localhost/private'},{...hero,type:['hero']},{...hero,extra:'x'}])assert.equal((await admin.patch(p,{title:'آزمون',blocks:[bad],expectedVersion:0})).status,422);
+  assert.equal((await admin.patch(p,{title:'آزمون',blocks:[hero,hero],expectedVersion:0})).status,422);
+  const [a,b]=await Promise.all([admin.patch(p,{title:'الف',blocks:[hero],expectedVersion:0}),admin.patch(p,{title:'ب',blocks:[hero],expectedVersion:0})]);assert.deepEqual([a.status,b.status].sort(),[200,409]);
+  const current=(await viewer.get(path)).body.find((d:any)=>d.id===draft.id);assert.equal(current.version,1);assert.deepEqual(current.blocks,[hero]);assert.equal((await admin.patch(p,{title:'قدیمی',blocks:[],expectedVersion:0})).status,409);
+  const publicDoc=(await guest.get('/api/bootstrap')).body;assert.ok(!JSON.stringify(publicDoc).includes('طرح آزمایش'));assert.deepEqual((await query("select value from state_documents where key='ops'")).rows[0].value,before);
+  const events=await query("select action,before,after from audit_events where target_id=$1",[draft.id]);assert.ok(events.rows.some(v=>v.action==='design.studio_draft_created'));assert.ok(events.rows.some(v=>v.action==='design.studio_draft_updated'));assert.ok(!JSON.stringify(events.rows).includes('example.com'));
+  const {createBackup,restoreBackup}=await import('../src/backup');const {withTransaction}=await import('../src/db');const fs=await import('node:fs/promises');const file=(await createBackup('manual')).file;
+  try{await withTransaction(async tx=>{await tx.query("delete from state_documents where key='studio_drafts'");await restoreBackup(file,{client:tx});const restored=(await tx.query("select value from state_documents where key='studio_drafts'")).rows[0].value.drafts.find((d:any)=>d.id===draft.id);assert.equal(restored.version,1);assert.deepEqual(restored.blocks,[hero]);throw new Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'))}finally{await fs.unlink(file).catch(()=>undefined)}
+  const noCsrf=await fetch(base+p,{method:'PATCH',headers:{'content-type':'application/json',cookie:admin.cookie()},body:JSON.stringify({title:'x',blocks:[],expectedVersion:1})});assert.equal(noCsrf.status,403);
+});

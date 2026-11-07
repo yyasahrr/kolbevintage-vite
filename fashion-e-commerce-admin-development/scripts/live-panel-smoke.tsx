@@ -35,6 +35,7 @@ const fixtures: Record<string, unknown> = {
   "/api/commerce/admin/audit?limit=200": [],
   "/api/commerce/admin/refunds": [{ id: "rfd-1", orderId: "KV-1", orderLineId: "line-1", quantity: 1, amount: 100, kind: "return", status: "received", reason: "سایز", requestedBy: "admin", note: "", createdAt: new Date().toISOString() }],
   "/api/admin/marketing": { rules: [], coupons: [] },
+  "/api/admin/studio/drafts": [],
   "/api/admin/store-brand": { name:"نام فروشگاه", logoText:"لوگو", tagline:"شعار", announcement:"اعلان", announcementActive:true, footerNote:"فوتر" },
   "/api/commerce/admin/settings": {shippingFlat:10,shippingExpress:20,freeShippingThreshold:100,reservationHoldMinutes:10,paymentWindowMinutes:10,quoteTtlMinutes:10,currency:"EUR"},
   "/api/admin/finance/summary": { groups: [], note:"مبالغ ثبت‌شده" },
@@ -45,6 +46,8 @@ const fixtures: Record<string, unknown> = {
 globalThis.fetch = async (request, init) => {
   const path = String(request); const method = init?.method || "GET"; const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   requests.push({ path, method, body });
+  if (method === "POST" && path === "/api/admin/studio/drafts") {const draft={id:"draft-smoke",title:body.title,version:0,blocks:[],updatedAt:new Date().toISOString()};(fixtures["/api/admin/studio/drafts"] as any[]).push(draft);return new Response(JSON.stringify(draft),{status:201})}
+  if (method === "PATCH" && path === "/api/admin/studio/drafts/draft-smoke") {const list=fixtures["/api/admin/studio/drafts"] as any[];const i=list.findIndex(v=>v.id==="draft-smoke");const draft={...list[i],title:body.title,blocks:body.blocks,version:list[i].version+1};list[i]=draft;return new Response(JSON.stringify(draft))}
   if (method === "GET" && path === "/api/admin/style-packs") return new Response(JSON.stringify({active:activeTheme,previous:previousTheme,packs}),{status:200});
   if (method === "PATCH" && path === "/api/admin/style-packs") { if(body.expectedTheme!==activeTheme) return new Response(JSON.stringify({error:"ظاهر تغییر کرده است"}),{status:409}); previousTheme=activeTheme;activeTheme=body.theme;return new Response(JSON.stringify({ok:true,active:activeTheme,previous:previousTheme}),{status:200}); }
   if (method === "POST" && path === "/api/admin/products/p-1/options") {
@@ -99,6 +102,8 @@ for (const [button, expected] of [
   assert.ok(document.body.textContent?.includes(expected), `${button}: missing ${expected}`);
   console.log(`OK ${button}`);
 }
+await click("استودیو طراحی (Site Studio)");const studio=document.querySelector<HTMLElement>('section[aria-label="استودیو پیش‌نویس"]')!;const studioName=[...studio.querySelectorAll("label")].find(l=>l.textContent?.startsWith("عنوان پیش‌نویس جدید"))!.querySelector("input")!;await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,"value")!.set!.call(studioName,"صفحه آزمایشی");studioName.dispatchEvent(new dom.window.Event("input",{bubbles:true}))});await click("ساخت پیش‌نویس");await click("افزودن هیرو");await click("افزودن بنر");assert.match(studio.textContent||"",/پیش‌نمایش لحظه‌ای بلوک‌ها/);await click("ذخیره پیش‌نویس");assert.ok(requests.some(r=>r.path==="/api/admin/studio/drafts/draft-smoke"&&r.body.expectedVersion===0&&r.body.blocks.map((b:any)=>b.type).join(',')==='hero,banner'));
+await click("مشتریان و گروه‌بندی CRM");assert.match(document.body.textContent||"",/هنگام تعریف مخاطب کمپین/);assert.match(document.body.textContent||"",/خودکار ذخیره یا به کمپین منتقل نمی‌شود/);assert.doesNotMatch(document.body.textContent||"",/هنوز به قیمت، دسترسی زودهنگام/);
 await click("بلاگ و محتوای ویدیویی");
 assert.ok(document.body.textContent?.includes("هنوز مقاله‌ای ثبت نشده است"));
 await click("فعال کردن ژورنال");

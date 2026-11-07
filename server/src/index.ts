@@ -1,3 +1,4 @@
+import { studioDraftRoutes } from "./routes/studio-drafts";
 import { colorLibraryRoutes } from "./routes/color-library";
 import { measurementRoutes } from "./routes/measurements";
 import { supportRoutes } from "./routes/support";
@@ -145,6 +146,7 @@ export async function buildServer() {
   await app.register(customerLabelRoutes);
   await app.register(supportRoutes);
   await app.register(stylePackRoutes);
+  await app.register(studioDraftRoutes);
   await app.register(journalRoutes);
 
   // Same-origin entry keeps the storefront session and CSRF protection intact.
