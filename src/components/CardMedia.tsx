@@ -103,15 +103,14 @@ export function CardMedia({
       }
     }
   }, [hoverVideo]);
-  const displayed = manual
-    ? images[index]
-    : activeHover && hoverUrl
-      ? hoverUrl
-      : images[0];
+  // A browsable gallery starts on its cover even on hover/focus. Otherwise the
+  // first arrow press could silently skip the second photograph on desktop.
+  const previewHover = !interactive && activeHover && hoverUrl;
+  const displayed = manual ? images[index] : previewHover || images[0];
   const shownIndex = manual
     ? index
-    : activeHover && hoverUrl
-      ? Math.max(0, images.indexOf(hoverUrl))
+    : previewHover
+      ? Math.max(0, images.indexOf(previewHover))
       : 0;
   useEffect(() => {
     // Prefetch only neighboring frames once the shopper interacts with this card.

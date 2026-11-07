@@ -275,7 +275,7 @@ export function ProductsPage() {
                 action={{ to: "/products", label: "دیدن همهٔ محصولات" }}
               />
             ) : (
-              <div className="grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 md:grid-cols-3">
+              <div className="product-list-grid grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                 {list.map((product, i) => (
                   <Reveal key={product.id} delay={Math.min(i, 5) * 0.03}>
                     <ProductCard product={product} />

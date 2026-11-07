@@ -129,7 +129,7 @@ export function HomePage() {
               description="هشت قطعه از آخرین خروجی‌های رانوی پاییز / زمستان، آمادهٔ سفارش."
               action={{ to: "/products?sort=newest", label: "دیدن همهٔ تازه‌ها" }}
             />
-            <div className="mt-6 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 lg:grid-cols-4">
+            <div className="mt-6 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {newArrivals().map((product, i) => (
                 <Reveal key={product.id} delay={Math.min(i, 4) * 0.04}>
                   <ProductCard product={product} />

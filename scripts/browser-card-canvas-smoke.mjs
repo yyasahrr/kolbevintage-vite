@@ -227,6 +227,53 @@ try {
   );
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(e.message));
+  // Real storefront grids: two on phones, three on tablets, more on wide screens.
+  for (const [width, shopColumns, homeColumns] of [
+    [390, 2, 2],
+    [767, 2, 2],
+    [768, 3, 3],
+    [1024, 3, 4],
+    [1280, 4, 5],
+    [1536, 5, 5],
+  ]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`${base}/#/products`, { waitUntil: "networkidle" });
+    const shop = page.locator(".product-list-grid");
+    assert.equal(
+      (
+        await shop.evaluate((el) => getComputedStyle(el).gridTemplateColumns)
+      ).split(" ").length,
+      shopColumns,
+      `shop grid at ${width}`,
+    );
+    assert.ok(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      `shop overflow at ${width}`,
+    );
+    await page.goto(`${base}/#/`, { waitUntil: "networkidle" });
+    const arrivals = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "تازه رسیده‌ها" }) })
+      .locator(".grid");
+    assert.equal(
+      (
+        await arrivals.evaluate(
+          (el) => getComputedStyle(el).gridTemplateColumns,
+        )
+      ).split(" ").length,
+      homeColumns,
+      `home grid at ${width}`,
+    );
+    assert.ok(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      `home overflow at ${width}`,
+    );
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${base}/#/products?q=${encodeURIComponent(name)}`, {
     waitUntil: "networkidle",
   });
@@ -241,8 +288,8 @@ try {
   await media.hover();
   assert.equal(
     await image.getAttribute("src"),
-    "https://example.com/two.jpg",
-    "hover should use configured hover image",
+    "https://example.com/one.jpg",
+    "hover must not skip the first image before browsing",
   );
   await page.mouse.move(700, 15);
   await page.waitForFunction(
@@ -260,7 +307,7 @@ try {
   await next.focus();
   const before = await image.getAttribute("src");
   await next.press("Enter");
-  assert.notEqual(await image.getAttribute("src"), before);
+  assert.equal(await image.getAttribute("src"), "https://example.com/two.jpg");
   assert.ok(
     page.url().includes("/products"),
     "navigation must not open product",
@@ -382,7 +429,6 @@ try {
     assert.equal(await animMedia.locator(".card-gallery-slide").count(), 1);
   };
   await testMotion(animNext, 1);
-  await testMotion(animPrev, -1);
   await testMotion(animPrev, -1);
   await testMotion(animPrev, -1); // first to last must also slide one step
   assert.equal(
@@ -952,7 +998,7 @@ try {
   await mobile.close();
   assert.deepEqual(errors, []);
   console.log(
-    "Product details RTL arrows and card sliding, hover, keyboard and bidirectional swipe; canvas: mouse/touch drag, zoom, variants, stock-safe duplicate, persistence, five widths, side panels and axe passed.",
+    "Product details RTL arrows and card sliding, keyboard and bidirectional swipe; canvas: mouse/touch drag, zoom, variants, stock-safe duplicate, persistence, five widths, side panels and axe passed.",
   );
 } finally {
   await browser.close();

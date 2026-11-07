@@ -180,7 +180,7 @@ export function ArticlePage() {
             همهٔ محصولات
           </Link>
         </div>
-        <div className="mt-5 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 lg:grid-cols-3">
+        <div className="mt-5 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {picks.map((p) => (
             <ProductCard key={p.id} product={p} />
           ))}

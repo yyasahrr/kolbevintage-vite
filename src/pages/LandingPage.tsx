@@ -174,7 +174,7 @@ export function LandingPage() {
           description="چهار قطعهٔ شاخص کمپین، آمادهٔ سفارش با سایز و رنگ دلخواه."
           action={{ to: "/products", label: "همهٔ محصولات" }}
         />
-        <div className="mt-6 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 lg:grid-cols-4">
+        <div className="mt-6 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {featured.map((p) => (
             <ProductCard key={p.id} product={p} />
           ))}

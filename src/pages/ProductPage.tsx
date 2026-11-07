@@ -541,7 +541,7 @@ export function ProductPage() {
           title="شاید این‌ها را هم بپسندی"
           action={{ to: "/products", label: "همهٔ محصولات" }}
         />
-        <div className="mt-5 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 lg:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {related.map((p, i) => (
             <Reveal key={p.id} delay={Math.min(i, 4) * 0.04}>
               <ProductCard product={p} />

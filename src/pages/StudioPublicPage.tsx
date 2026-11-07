@@ -45,12 +45,7 @@ function StudioProducts({ block }: { block: Block }) {
       )}
       {!products.length && <p>محصولی برای نمایش موجود نیست.</p>}
       <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit,minmax(min(100%, 180px),1fr))",
-          gap: "1rem",
-          marginTop: "1.5rem",
-        }}
+        className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
       >
         {products.map((p) => <ProductCard key={p.id} product={p} />)}
       </div>
