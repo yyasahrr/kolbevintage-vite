@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BookmarkCheck, Heart, Layers, Save, ShoppingBag, Sparkles, Trash2, Wallet } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { liveGetProduct } from "@/data/catalog";
-import { formatPrice, stockOf } from "@/data/looks";
+import { formatPrice, stockOf, tomanRate } from "@/data/looks";
 import { paletteScore, budgetCheck, stylistNote, hexToHsl, type Profile } from "@/lib/stylist";
 import { useLiveCatalog } from "@/state/live-catalog";
 import { useCart } from "@/state/cart";
@@ -14,6 +14,7 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
   const catalog = useLiveCatalog();
   const { add, notify, toggleWish, isWished, lines } = useCart();
   const [budget, setBudget] = useState(profile?.budget ?? 0);
+  useEffect(() => { if (profile) setBudget(profile.budget); }, [profile]);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
 
@@ -208,10 +209,10 @@ export function OutfitSummary({ profile, onEmpty }: { profile?: Profile | null; 
             <input
               type="number"
               min={0}
-              step={50}
-              value={budget || ""}
+              step={1}
+              value={budget ? Math.round(budget * tomanRate()) : ""}
               placeholder="اختیاری"
-              onChange={(e) => setBudget(Number(e.target.value) || 0)}
+              onChange={(e) => setBudget(Math.max(0, Number(e.target.value) || 0) / tomanRate())}
             />
             <span>تومان</span>
           </label>

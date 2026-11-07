@@ -6,23 +6,20 @@ import {
   Eye,
   Lightbulb,
   MapPin,
-  Ruler,
   Shirt,
   Sparkles,
   Target,
-  TrendingUp,
-  User,
   Wallet,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { ALL_COLORS } from "@/data/catalog";
+import { ALL_COLORS, liveGetProduct } from "@/data/catalog";
+import { useLiveCatalog } from "@/state/live-catalog";
 import { formatPrice, stockOf } from "@/data/looks";
 import {
   OCCASIONS,
   SHAPES,
   SLOTS,
   TASTES,
-  adviseSize,
   budgetCheck,
   harmony,
   hexToHsl,
@@ -54,24 +51,13 @@ const SEASONS: { id: Profile["season"]; label: string }[] = [
   { id: "winter", label: "زمستان" },
 ];
 
-const AGES = [
-  { id: "u25", label: "زیر ۲۵", value: 22 },
-  { id: "25-34", label: "۲۵ تا ۳۴", value: 30 },
-  { id: "35-44", label: "۳۵ تا ۴۴", value: 40 },
-  { id: "45-54", label: "۴۵ تا ۵۴", value: 50 },
-  { id: "55+", label: "۵۵ به بالا", value: 60 },
-];
-
-const QUESTION_STEPS = ["موقعیت", "مکان و هوا", "سن و قد", "فرم بدن", "سلیقه", "رنگ‌ها", "بودجه"] as const;
+const QUESTION_STEPS = ["موقعیت", "مکان و هوا", "فرم بدن", "سلیقه", "رنگ‌ها", "بودجه"] as const;
 
 const DEFAULT_PROFILE: Profile = {
   occasion: "casual",
   city: "تهران",
   season: "autumn",
   temp: 14,
-  age: 30,
-  height: 172,
-  weight: 68,
   shape: "rectangle",
   taste: "minimal",
   loveColors: [],
@@ -80,11 +66,13 @@ const DEFAULT_PROFILE: Profile = {
 };
 
 export function StyleWizard({ onFinish }: Props) {
+  const catalog = useLiveCatalog();
   const [step, setStep] = useState(0);
   const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
   const [picks, setPicks] = useState<Pick[]>([]);
   const [phase, setPhase] = useState<"ask" | "pick" | "done">("ask");
   const [slotIndex, setSlotIndex] = useState(0);
+  const [finishError, setFinishError] = useState("");
 
   const set = (patch: Partial<Profile>) => setProfile((p) => ({ ...p, ...patch }));
 
@@ -100,18 +88,22 @@ export function StyleWizard({ onFinish }: Props) {
   }, [profile.temp, profile.occasion, picks]);
 
   const slot = activeSlots[Math.min(slotIndex, activeSlots.length - 1)];
-  const chosenSoFar = picks.map((p) => ({
+  const previousSlotIds = new Set(activeSlots.slice(0, slotIndex).map(s => s.id));
+  const priorPicks = picks.filter(p => previousSlotIds.has(p.slot.id));
+  const chosenSoFar = priorPicks.map((p) => ({
     color: p.suggestion.color.hex,
     colorName: p.suggestion.color.name,
     slotLabel: p.slot.label,
     product: p.suggestion.product,
   }));
-  const suggestions = useMemo(() => (slot ? suggestFor(slot, profile, chosenSoFar, 5) : []), [slot, profile, picks.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const suggestions = useMemo(() => (slot ? suggestFor(slot, profile, chosenSoFar, 5) : []), [slot, profile, picks, catalog.products, catalog.status, catalog.loadedAt]); // chosenSoFar derives from picks and activeSlots
 
-  const palette = picks.map((p) => p.suggestion.color.hex);
+  const visiblePicks = phase === "pick" ? priorPicks : phase === "ask" ? [] : picks;
+  const palette = visiblePicks.map((p) => p.suggestion.color.hex);
   const harmonyNow = paletteScore(palette);
-  const total = picks.reduce((n, p) => n + p.suggestion.product.price, 0);
-  const money = budgetCheck(picks.map((p) => ({ price: p.suggestion.product.price })), profile.budget);
+  const currentPrice = (p: Pick) => liveGetProduct(p.suggestion.product.id)?.price ?? p.suggestion.product.price;
+  const total = picks.reduce((n, p) => n + currentPrice(p), 0);
+  const money = budgetCheck(picks.map((p) => ({ price: currentPrice(p) })), profile.budget);
 
   const totalSteps = QUESTION_STEPS.length + activeSlots.length + 1;
   const progress =
@@ -122,19 +114,22 @@ export function StyleWizard({ onFinish }: Props) {
         : 100;
 
   const choose = (sug: Suggestion) => {
-    const next = [...picks.filter((p) => p.slot.id !== slot.id), { slot, suggestion: sug }];
+    setFinishError("");
+    const next = [...priorPicks, { slot, suggestion: sug }];
     setPicks(next);
     if (slotIndex + 1 >= activeSlots.length) setPhase("done");
     else setSlotIndex((i) => i + 1);
   };
 
   const skip = () => {
-    setPicks((p) => p.filter((x) => x.slot.id !== slot.id));
+    setFinishError("");
+    setPicks(priorPicks);
     if (slotIndex + 1 >= activeSlots.length) setPhase("done");
     else setSlotIndex((i) => i + 1);
   };
 
   const back = () => {
+    setFinishError("");
     if (phase === "pick") {
       if (slotIndex === 0) {
         setPhase("ask");
@@ -146,46 +141,52 @@ export function StyleWizard({ onFinish }: Props) {
     } else setStep((s) => Math.max(0, s - 1));
   };
 
-  const finish = () =>
-    onFinish(
-      picks.map((p) => ({
-        productId: p.suggestion.product.id,
-        colorId: p.suggestion.color.id,
-        sizeId: p.suggestion.sizeId,
-        slot: p.slot.id,
-      })),
-      profile,
-    );
+  const finish = () => {
+    if (!picks.length) return;
+    const stale = picks.some(({suggestion}) => {
+      const current = liveGetProduct(suggestion.product.id);
+      return !current || stockOf(current, suggestion.color.id, suggestion.sizeId) <= 0;
+    });
+    if (catalog.status !== "online" || stale) {
+      setFinishError("موجودی برخی انتخاب‌ها قابل تأیید نیست؛ به مرحلهٔ قبل برگرد و انتخاب‌ها را بررسی کن.");
+      return;
+    }
+    onFinish(picks.map(p => ({productId:p.suggestion.product.id, colorId:p.suggestion.color.id, sizeId:p.suggestion.sizeId, slot:p.slot.id})), profile);
+  };
+  const restart = () => {
+    if (!window.confirm("پاسخ‌ها و انتخاب‌های دستیار پاک شوند؟")) return;
+    setProfile(DEFAULT_PROFILE); setPicks([]); setStep(0); setSlotIndex(0); setPhase("ask"); setFinishError("");
+  };
 
   return (
     <div className="sb-wizard">
       {/* progress */}
       <div className="sb-wz-progress">
-        <div className="sb-wz-bar">
+        <div className="sb-wz-bar" role="progressbar" aria-label="پیشرفت دستیار" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
           <span style={{ width: `${progress}%` }} />
         </div>
-        <p className="sb-wz-step">
+        <p className="sb-wz-step" aria-live="polite">
           {phase === "ask"
-            ? `پرسش ${step + 1} از ${QUESTION_STEPS.length} — ${QUESTION_STEPS[step]}`
+            ? `پرسش ${(step + 1).toLocaleString("fa-IR")} از ${QUESTION_STEPS.length.toLocaleString("fa-IR")} — ${QUESTION_STEPS[step]}`
             : phase === "pick"
-              ? `انتخاب ${slotIndex + 1} از ${activeSlots.length} — ${slot?.label}`
+              ? `انتخاب ${(slotIndex + 1).toLocaleString("fa-IR")} از ${activeSlots.length.toLocaleString("fa-IR")} — ${slot?.label}`
               : "ست آماده است"}
         </p>
       </div>
 
+      <p className="sb-wz-intro">پیشنهادها بر اساس قواعد سادهٔ رنگ، موقعیت و سلیقه مرتب می‌شوند؛ تشخیص خودکار سایز یا تضمین تناسب نیستند.</p>
       {/* live memory strip: what the wizard already knows */}
       <div className="sb-memory">
         <span className="sb-mem-title">
-          <Sparkles width={13} height={13} /> آنچه تا الان می‌دانم
+          <Sparkles width={13} height={13} /> انتخاب‌های فعلی · قابل تغییر
         </span>
         <div className="sb-mem-chips">
           <MemChip icon={<Target width={11} height={11} />} text={OCCASIONS.find((o) => o.id === profile.occasion)?.label ?? ""} />
           <MemChip icon={<MapPin width={11} height={11} />} text={`${profile.city} · ${profile.temp}°`} />
-          <MemChip icon={<User width={11} height={11} />} text={`${profile.age} سال · ${profile.height} سانتی‌متر`} />
-          <MemChip icon={<Ruler width={11} height={11} />} text={SHAPES.find((s) => s.id === profile.shape)?.label ?? ""} />
+          <MemChip icon={<Shirt width={11} height={11} />} text={SHAPES.find((s) => s.id === profile.shape)?.label ?? ""} />
           <MemChip icon={<Shirt width={11} height={11} />} text={TASTES.find((t) => t.id === profile.taste)?.label ?? ""} />
-          <MemChip icon={<Wallet width={11} height={11} />} text={`${profile.budget} تومان`} />
-          {picks.map((p) => (
+          <MemChip icon={<Wallet width={11} height={11} />} text={formatPrice(profile.budget)} />
+          {visiblePicks.map((p) => (
             <span key={p.slot.id} className="sb-mem-pick" title={`${p.slot.label}: ${p.suggestion.product.name}`}>
               <i style={{ background: p.suggestion.color.hex }} />
               {p.slot.label}
@@ -194,6 +195,7 @@ export function StyleWizard({ onFinish }: Props) {
         </div>
       </div>
 
+      <button type="button" className="sb-wz-reset" onClick={restart}>شروع دوبارهٔ دستیار</button>
       {/* ---------------- questions ---------------- */}
       {phase === "ask" && (
         <div className="sb-q">
@@ -210,7 +212,7 @@ export function StyleWizard({ onFinish }: Props) {
 
           {step === 1 && (
             <>
-              <QHead title="کجا و در چه هوایی؟" sub="دما تعیین می‌کند که لایهٔ بیرونی لازم داری یا نه." />
+              <QHead title="کجا و در چه هوایی؟" sub="دما را خودت وارد کن؛ شهر و فصل صرفاً یادداشت‌اند و هوا به‌صورت آنلاین دریافت نمی‌شود." />
               <div className="sb-field-row">
                 <label className="sb-field">
                   شهر
@@ -237,33 +239,7 @@ export function StyleWizard({ onFinish }: Props) {
 
           {step === 2 && (
             <>
-              <QHead title="سن، قد و وزن" sub="برای پیشنهاد سایز درست و برش مناسب." />
-              <div className="sb-chips">
-                {AGES.map((a) => (
-                  <Chip key={a.id} active={profile.age === a.value} onClick={() => set({ age: a.value })}>
-                    {a.label}
-                  </Chip>
-                ))}
-              </div>
-              <div className="sb-field-row">
-                <label className="sb-field">
-                  قد: <b>{profile.height} سانتی‌متر</b>
-                  <input type="range" min={145} max={200} value={profile.height} onChange={(e) => set({ height: Number(e.target.value) })} />
-                </label>
-                <label className="sb-field">
-                  وزن: <b>{profile.weight} کیلوگرم</b>
-                  <input type="range" min={40} max={130} value={profile.weight} onChange={(e) => set({ weight: Number(e.target.value) })} />
-                </label>
-              </div>
-              <p className="sb-note">
-                BMI تقریبی: {(profile.weight / Math.pow(profile.height / 100, 2)).toFixed(1)} — سایزها بر همین اساس پیشنهاد می‌شوند.
-              </p>
-            </>
-          )}
-
-          {step === 3 && (
-            <>
-              <QHead title="فرم بدنت کدام است؟" sub="برای تعادل حجم بین بالاتنه و پایین‌تنه." />
+              <QHead title="فرم بدنت کدام است؟" sub="یک ترجیح سلیقه‌ای برای ترکیب برش‌ها؛ تناسب واقعی را با جدول سایز بررسی کن." />
               <div className="sb-opt-grid">
                 {SHAPES.map((s) => (
                   <OptionCard key={s.id} active={profile.shape === s.id} title={s.label} desc={s.hint} onClick={() => set({ shape: s.id as BodyShape })} />
@@ -272,9 +248,9 @@ export function StyleWizard({ onFinish }: Props) {
             </>
           )}
 
-          {step === 4 && (
+          {step === 3 && (
             <>
-              <QHead title="سلیقه‌ات به کدام سمت است؟" sub="این انتخاب وزن برندها و برش‌ها را عوض می‌کند." />
+              <QHead title="سلیقه‌ات به کدام سمت است؟" sub="این انتخاب در مرتب‌سازی سبک‌های پیشنهادی اثر دارد." />
               <div className="sb-opt-grid">
                 {TASTES.map((t) => (
                   <OptionCard key={t.id} active={profile.taste === t.id} title={t.label} onClick={() => set({ taste: t.id as StyleTaste })} />
@@ -283,27 +259,28 @@ export function StyleWizard({ onFinish }: Props) {
             </>
           )}
 
-          {step === 5 && (
+          {step === 4 && (
             <>
-              <QHead title="رنگ‌ها" sub="رنگ‌های مورد علاقه امتیاز می‌گیرند؛ رنگ‌های ممنوع حذف می‌شوند." />
+              <QHead title="رنگ‌ها" sub="رنگ‌های محبوب امتیاز بیشتر و رنگ‌های ناپسند امتیاز کمتر می‌گیرند؛ حذف قطعی نیستند." />
               <p className="sb-sub-label">دوست داری</p>
-              <ColorPick selected={profile.loveColors} onToggle={(hex) => set({ loveColors: toggle(profile.loveColors, hex) })} />
+              <ColorPick label="رنگ مورد علاقه" selected={profile.loveColors} onToggle={(hex) => set({ loveColors: toggle(profile.loveColors, hex), avoidColors: profile.avoidColors.filter(c => c !== hex) })} />
               <p className="sb-sub-label">نمی‌پسندی</p>
-              <ColorPick selected={profile.avoidColors} onToggle={(hex) => set({ avoidColors: toggle(profile.avoidColors, hex) })} />
+              <ColorPick label="رنگ ناپسند" selected={profile.avoidColors} onToggle={(hex) => set({ avoidColors: toggle(profile.avoidColors, hex), loveColors: profile.loveColors.filter(c => c !== hex) })} />
             </>
           )}
 
-          {step === 6 && (
+          {step === 5 && (
             <>
               <QHead title="بودجهٔ کل ست" sub="قطعه‌هایی که بیش از نصف بودجه را می‌گیرند پایین‌تر می‌آیند." />
               <label className="sb-field">
+                <span>بودجهٔ کل (تومان)</span>
                 <b>{formatPrice(profile.budget)}</b>
                 <input type="range" min={200} max={5000} step={100} value={profile.budget} onChange={(e) => set({ budget: Number(e.target.value) })} />
               </label>
               <div className="sb-hint-row">
                 {[500, 1000, 1500, 2500, 4000].map((v) => (
                   <Chip key={v} active={profile.budget === v} onClick={() => set({ budget: v })}>
-                    {v.toLocaleString("fa-IR")}
+                    {formatPrice(v)}
                   </Chip>
                 ))}
               </div>
@@ -317,7 +294,7 @@ export function StyleWizard({ onFinish }: Props) {
             <button
               type="button"
               className="sb-cta is-small"
-              onClick={() => (step + 1 >= QUESTION_STEPS.length ? (setPhase("pick"), setSlotIndex(0)) : setStep((s) => s + 1))}
+              onClick={() => (step + 1 >= QUESTION_STEPS.length ? (setPicks([]), setPhase("pick"), setSlotIndex(0)) : setStep((s) => s + 1))}
             >
               {step + 1 >= QUESTION_STEPS.length ? "شروع پیشنهادها" : "پرسش بعدی"} <ArrowLeft width={14} height={14} />
             </button>
@@ -331,15 +308,15 @@ export function StyleWizard({ onFinish }: Props) {
           <QHead
             title={slot.label}
             sub={
-              picks.length
-                ? `با ${picks.length.toLocaleString("fa-IR")} قطعهٔ انتخابی هماهنگ است — هماهنگی فعلی ${harmonyNow.score.toLocaleString("fa-IR")} از ۱۰۰`
+              priorPicks.length
+                ? `با ${priorPicks.length.toLocaleString("fa-IR")} قطعهٔ انتخابی هماهنگ است — هماهنگی فعلی ${harmonyNow.score.toLocaleString("fa-IR")} از ۱۰۰`
                 : "اولین قطعه؛ بقیه بر اساس رنگ و سبک همین پیشنهاد می‌شوند"
             }
           />
 
           {palette.length > 0 && (
             <div className="sb-chosen">
-              {picks.map((p) => (
+              {priorPicks.map((p) => (
                 <span key={p.slot.id} className="sb-chosen-chip">
                   <i style={{ background: p.suggestion.color.hex }} />
                   {p.slot.label}: {p.suggestion.product.name}
@@ -348,24 +325,27 @@ export function StyleWizard({ onFinish }: Props) {
             </div>
           )}
 
+          <p className="sb-wz-size-note">سایز اولیه فقط بر اساس موجودی است؛ پس از انتقال به بوم می‌توانی آن را تغییر دهی و جدول سایز محصول را بررسی کنی.</p>
+          {suggestions.length === 0 && <p className="sb-wz-empty" role="status">برای این بخش محصول موجودی پیدا نشد. می‌توانی این مرحله را رد کنی.</p>}
           <ul className="sb-sugg">
             {suggestions.map((sug, i) => {
               const p = sug.product;
               const lastColor = palette[palette.length - 1];
               const pair = lastColor ? harmony(lastColor, sug.color.hex) : null;
-              const advice = adviseSize(p, profile);
               const stock = stockOf(p, sug.color.id, sug.sizeId);
+              const canvasReady = catalog.products.find(item => item.id === p.id)?.images.some(image => image.role === "cutout" && (image.colorId === "*" || image.colorId === sug.color.id));
               return (
                 <li key={p.id}>
                   <button type="button" className="sb-sugg-card" onClick={() => choose(sug)} disabled={stock === 0}>
-                    <span className="sb-sugg-rank">{i === 0 ? "بهترین" : `#${(i + 1).toLocaleString("fa-IR")}`}</span>
-                    <ProductThumb product={p} tint={sug.color.hex} className="w-[74px]" />
+                    <span className="sb-sugg-rank">{i === 0 ? "پیشنهاد اول" : `#${(i + 1).toLocaleString("fa-IR")}`}</span>
+                    <ProductThumb product={p} colorId={sug.color.id} decorative tint={sug.color.hex} className="w-[74px]" />
                     <span className="sb-sugg-main">
                       <span className="sb-sugg-name">{p.name}</span>
                       <span className="sb-sugg-meta">
-                        <i className="sb-dot" style={{ background: sug.color.hex }} /> {sug.color.name} · سایز {sug.sizeLabel}
-                        {advice.size !== sug.sizeLabel && <em> (پیشنهاد تو: {advice.size})</em>} · {formatPrice(p.price)}
+                        <i className="sb-dot" style={{ background: sug.color.hex }} /> {sug.color.name} · سایز اولیه {sug.sizeLabel}
+                        · {formatPrice(p.price)}
                       </span>
+                      {!canvasReady && <span className="sb-sugg-cutout">تصویر شفاف بوم ثبت نشده</span>}
                       <span className="sb-sugg-reasons">
                         {sug.reasons.map((r) => (
                           <span key={r} className="sb-reason">
@@ -387,7 +367,7 @@ export function StyleWizard({ onFinish }: Props) {
                         <span className="sb-score-bar">
                           <i style={{ width: `${Math.round(Math.max(0, Math.min(1, sug.score)) * 100)}%` }} />
                         </span>
-                        <small>امتیاز تناسب</small>
+                        <small>امتیاز سبک</small>
                       </span>
                     </span>
                   </button>
@@ -400,11 +380,9 @@ export function StyleWizard({ onFinish }: Props) {
             <button type="button" className="sb-ghost" onClick={back}>
               <ArrowRight width={14} height={14} /> قبلی
             </button>
-            {slot.optional && (
-              <button type="button" className="sb-ghost" onClick={skip}>
-                این قطعه لازم نیست
-              </button>
-            )}
+            <button type="button" className="sb-ghost" onClick={skip}>
+              {slot.optional ? "این قطعه لازم نیست" : "رد کردن این مرحله"}
+            </button>
           </div>
         </div>
       )}
@@ -440,19 +418,18 @@ export function StyleWizard({ onFinish }: Props) {
 
           <ul className="sb-done-list">
             {picks.map((p) => {
-              const advice = adviseSize(p.suggestion.product, profile);
               return (
                 <li key={p.slot.id}>
-                  <ProductThumb product={p.suggestion.product} tint={p.suggestion.color.hex} className="w-[62px]" />
+                  <ProductThumb product={p.suggestion.product} colorId={p.suggestion.color.id} decorative tint={p.suggestion.color.hex} className="w-[62px]" />
                   <div>
                     <p className="sb-done-slot">{p.slot.label}</p>
                     <p className="sb-done-name">{p.suggestion.product.name}</p>
                     <p className="sb-done-meta">
                       <i className="sb-dot" style={{ background: p.suggestion.color.hex }} />
-                      {p.suggestion.color.name} · سایز {p.suggestion.sizeLabel} · {formatPrice(p.suggestion.product.price)}
+                      {p.suggestion.color.name} · سایز {p.suggestion.sizeLabel} · {formatPrice(currentPrice(p))}
                     </p>
                     <p className="sb-done-advice">
-                      <TrendingUp width={11} height={11} /> {advice.note}
+                      سایز اولیه بر اساس موجودی؛ پیش از خرید بررسی شود.
                     </p>
                   </div>
                 </li>
@@ -460,11 +437,13 @@ export function StyleWizard({ onFinish }: Props) {
             })}
           </ul>
 
+          {finishError && <p role="alert" className="sb-wz-empty">{finishError}</p>}
+          {!picks.length && <p className="sb-wz-empty">هنوز قطعه‌ای انتخاب نشده است؛ برای ساخت ست به مراحل قبل برگرد.</p>}
           <div className="sb-nav-row">
             <button type="button" className="sb-ghost" onClick={back}>
               <ArrowRight width={14} height={14} /> ویرایش انتخاب‌ها
             </button>
-            <button type="button" className="sb-cta is-small" onClick={finish}>
+            <button type="button" className="sb-cta is-small" onClick={finish} disabled={!picks.length}>
               <Eye width={14} height={14} /> دیدن و چیدن روی بوم
             </button>
           </div>
@@ -516,7 +495,7 @@ function OptionCard({ active, title, desc, onClick }: { active: boolean; title: 
   );
 }
 
-function ColorPick({ selected, onToggle }: { selected: string[]; onToggle: (hex: string) => void }) {
+function ColorPick({ label, selected, onToggle }: { label: string; selected: string[]; onToggle: (hex: string) => void }) {
   return (
     <div className="sb-colorpick">
       {ALL_COLORS.map((c) => (
@@ -524,7 +503,7 @@ function ColorPick({ selected, onToggle }: { selected: string[]; onToggle: (hex:
           key={c.id}
           type="button"
           title={c.name}
-          aria-label={c.name}
+          aria-label={`${label}: ${c.name}`}
           aria-pressed={selected.includes(c.hex)}
           onClick={() => onToggle(c.hex)}
           className={cn("sb-cp", selected.includes(c.hex) && "is-on")}

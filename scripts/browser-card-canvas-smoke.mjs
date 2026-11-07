@@ -538,7 +538,7 @@ try {
     1,
     "drag from right panel onto board",
   );
-  await page.getByRole("button", { name: `افزودن ${name} به بوم` }).click();
+  await page.getByRole("button", { name: `انتخاب ${name} روی بوم` }).click();
   let item = board.getByRole("button", { name: `قطعه ${name} روی بوم` });
   await item.waitFor();
   assert.equal(await item.getAttribute("aria-pressed"), "true");
@@ -630,7 +630,7 @@ try {
   const summary = page.locator(".sb-summary");
   await summary.getByRole("button", { name: "رنگ سبز", exact: true }).click();
   assert.equal(await item.locator("img").getAttribute("src"), greenCutout);
-  await page.getByRole("button", { name: `افزودن ${name} به بوم` }).click();
+  await page.getByRole("button", { name: `انتخاب ${name} روی بوم` }).click();
   assert.equal(
     await summary
       .getByRole("button", { name: "رنگ سبز", exact: true })

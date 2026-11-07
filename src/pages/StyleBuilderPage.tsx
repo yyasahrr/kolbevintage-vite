@@ -6,6 +6,7 @@ import {
   COLLECTIONS,
   liveGetProduct,
   productsInCollection,
+  totalStock,
   visibleProducts,
 } from "@/data/catalog";
 import { firstAvailable, formatPrice } from "@/data/looks";
@@ -14,7 +15,7 @@ import { useLiveCatalog } from "@/state/live-catalog";
 import { useAdmin } from "@/state/admin";
 import { addItem, clearBoard, setItems, useOutfit } from "@/state/outfit";
 import { uid } from "@/builder/tree";
-import { adviseSize, type Profile } from "@/lib/stylist";
+import type { Profile } from "@/lib/stylist";
 import { ProductThumb } from "@/components/ProductThumb";
 import { StyleCanvas } from "@/components/StyleCanvas";
 import { OutfitSummary } from "@/components/OutfitSummary";
@@ -37,20 +38,29 @@ export function StyleBuilderPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [group, setGroup] = useState("all");
   const [query, setQuery] = useState("");
+  const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const [onlyCutouts, setOnlyCutouts] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<"products" | null>(null);
   const productToggleRef = useRef<HTMLButtonElement>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const { items } = useOutfit();
   const { notify } = useCart();
 
+  const productImages = useMemo(() => new Map(catalog.products.map(p => [p.id, p.images])), [catalog.products]);
+  const hasCanvasImage = (productId: string, colorId: string) => {
+    const images = productImages.get(productId) ?? [];
+    return images.some(i => i.role === "cutout" && (i.colorId === "*" || i.colorId === colorId));
+  };
   const products = useMemo(() => {
-    const base =
-      group === "all" ? visibleProducts() : productsInCollection(group);
-    const q = query.trim();
-    return q
-      ? base.filter((p) => `${p.name} ${p.category} ${p.lookName}`.includes(q))
-      : base;
-  }, [group, query, catalog.products]);
+    const base = group === "all" ? visibleProducts() : productsInCollection(group);
+    const normalize = (v: string) => v.normalize("NFKC").replace(/ي/g, "ی").replace(/ك/g, "ک").toLocaleLowerCase().trim();
+    const q = normalize(query);
+    return base.filter(p => {
+      const color = items.find(i => i.productId === p.id)?.colorId ?? firstAvailable(p).colorId;
+      return (!q || normalize(`${p.name} ${p.category} ${p.lookName}`).includes(q)) &&
+        (!onlyAvailable || totalStock(p) > 0) && (!onlyCutouts || hasCanvasImage(p.id, color));
+    });
+  }, [group, query, productImages, catalog.status, catalog.loadedAt, items, onlyAvailable, onlyCutouts]);
 
   const addProduct = (
     productId: string,
@@ -93,6 +103,7 @@ export function StyleBuilderPage() {
     }[],
     p: Profile,
   ) => {
+    if (items.length && !window.confirm("ست پیشنهادی جای قطعه‌های فعلی بوم را می‌گیرد. ادامه می‌دهی؟")) return;
     const built = picks.map((pick, i) => ({
       id: uid(),
       productId: pick.productId,
@@ -115,17 +126,6 @@ export function StyleBuilderPage() {
       `${built.length.toLocaleString("fa-IR")} قطعه — حالا آزادانه جابه‌جایشان کن`,
     );
   };
-
-  const sizeAdviceCount = profile
-    ? items.filter((i) => {
-        const p = liveGetProduct(i.productId);
-        return (
-          p &&
-          adviseSize(p, profile).size ===
-            p.sizes.find((s) => s.id === i.sizeId)?.label
-        );
-      }).length
-    : 0;
 
   return (
     <div className="sb-page">
@@ -176,16 +176,17 @@ export function StyleBuilderPage() {
           }
         }}
       >
-        <div className="sb-mobile-panel-toggles" aria-label="پنل‌های بوم">
+        <div className="sb-mobile-panel-toggles" role="group" aria-label="پنل‌های بوم">
           {mode === "canvas" && (
             <button
               type="button"
               ref={productToggleRef}
               aria-controls="sb-products-panel"
               aria-expanded={mobilePanel === "products"}
-              onClick={() =>
-                setMobilePanel(mobilePanel === "products" ? null : "products")
-              }
+              onClick={() => {
+                const open = mobilePanel !== "products";
+                setMobilePanel(open ? "products" : null);
+              }}
             >
               <Plus size={16} /> محصولات
             </button>
@@ -205,6 +206,7 @@ export function StyleBuilderPage() {
                 <Plus width={14} height={14} aria-hidden /> افزودن محصول به بوم{" "}
                 <small>{products.length.toLocaleString("fa-IR")} قطعه</small>
               </h2>
+              <button type="button" className="sb-tray-close" aria-label="بستن محصولات" onClick={() => { setMobilePanel(null); productToggleRef.current?.focus(); }}><X size={18} /></button>
               <div className="sb-tray-search">
                 <Search width={13} height={13} />
                 <input
@@ -242,12 +244,19 @@ export function StyleBuilderPage() {
                 </button>
               ))}
             </div>
+            <div className="sb-tray-filters" aria-label="فیلترهای محصول">
+              <button type="button" className={cn("sb-chip", onlyAvailable && "is-on")} aria-pressed={onlyAvailable} onClick={() => setOnlyAvailable(v => !v)}>فقط موجودها</button>
+              <button type="button" className={cn("sb-chip", onlyCutouts && "is-on")} aria-pressed={onlyCutouts} onClick={() => setOnlyCutouts(v => !v)}>تصویر بوم</button>
+            </div>
+            {catalog.status !== "online" && <p className="sb-tray-info" role="status">موجودی فعلاً قابل تأیید نیست.</p>}
             <div className="sb-tray-scroll">
               {products.length === 0 && (
-                <p className="sb-empty-note">قطعه‌ای با این فیلتر پیدا نشد.</p>
+                <div className="sb-tray-empty"><p className="sb-empty-note">قطعه‌ای با این فیلتر پیدا نشد.</p><button type="button" onClick={() => { setQuery(""); setGroup("all"); setOnlyAvailable(false); setOnlyCutouts(false); }}>پاک کردن فیلترها</button></div>
               )}
               {products.map((p) => {
                 const inBoard = items.some((i) => i.productId === p.id);
+                const colorId = items.find(i => i.productId === p.id)?.colorId ?? firstAvailable(p).colorId;
+                const canvasReady = hasCanvasImage(p.id, colorId);
                 return (
                   <article
                     key={p.id}
@@ -261,7 +270,8 @@ export function StyleBuilderPage() {
                     <ProductThumb
                       product={p}
                       tileAspect={0.86}
-                      className="w-full"
+                      className="sb-tray-thumb"
+                      decorative
                     />
                     <div className="sb-tray-meta">
                       <span className="sb-tray-cat">{p.category}</span>
@@ -269,7 +279,8 @@ export function StyleBuilderPage() {
                       <span className="sb-tray-price">
                         {formatPrice(p.price)}
                       </span>
-                      <div className="sb-tray-dots">
+                      <span className={cn("sb-tray-status", canvasReady && "is-ready")}>{canvasReady ? "تصویر بوم آماده" : "بدون تصویر بوم"}</span>
+                      <div className="sb-tray-dots" aria-label={`${p.colors.length.toLocaleString("fa-IR")} رنگ`}>
                         {p.colors.map((c) => (
                           <i
                             key={c.id}
@@ -283,10 +294,10 @@ export function StyleBuilderPage() {
                       type="button"
                       className="sb-tray-add"
                       onClick={() => addProduct(p.id)}
-                      aria-label={`افزودن ${p.name} به بوم`}
+                      aria-label={inBoard ? `انتخاب ${p.name} روی بوم` : `افزودن ${p.name} به بوم`}
                       title={
                         inBoard
-                          ? "روی بوم هست — دوباره اضافه نمی‌شود"
+                          ? "انتخاب قطعهٔ موجود روی بوم"
                           : "افزودن به بوم"
                       }
                     >
@@ -295,7 +306,7 @@ export function StyleBuilderPage() {
                       ) : (
                         <Plus width={14} height={14} />
                       )}
-                      <span>{inBoard ? "روی بوم" : "افزودن"}</span>
+                      <span>{inBoard ? "انتخاب" : "افزودن"}</span>
                     </button>
                   </article>
                 );
@@ -304,8 +315,7 @@ export function StyleBuilderPage() {
           </section>
         )}
         <div className="sb-main">
-          {mode === "canvas" ? (
-            <>
+          <div hidden={mode !== "canvas"}>
               <StyleCanvas
                 selectedId={selectedId}
                 onSelect={setSelectedId}
@@ -318,10 +328,7 @@ export function StyleBuilderPage() {
                 <div className="sb-profile-note">
                   <Sparkles width={14} height={14} />
                   <span>
-                    پروفایل دستیار فعال است:{" "}
-                    {sizeAdviceCount.toLocaleString("fa-IR")} از{" "}
-                    {items.length.toLocaleString("fa-IR")} قطعه دقیقاً با سایز
-                    پیشنهادی مطابقت دارد.
+                    ست از دستیار آمده است. رنگ و سایز هر قطعه را پیش از خرید بررسی کن؛ سایزهای اولیه فقط بر اساس موجودی انتخاب شده‌اند.
                   </span>
                   <button
                     type="button"
@@ -340,15 +347,14 @@ export function StyleBuilderPage() {
                   </button>
                 </div>
               )}
-            </>
-          ) : (
-            <div className="sb-wizard-shell">
+          </div>
+            <div className="sb-wizard-shell" hidden={mode !== "wizard"}>
               <div className="sb-wizard-hero">
                 <Wand2 width={22} height={22} />
                 <div>
                   <h2>دستیار استایل</h2>
                   <p>
-                    هفت پرسش کوتاه، بعد پیشنهاد قطعه‌به‌قطعه. هر پیشنهاد از
+                    چند پرسش کوتاه، بعد پیشنهاد قطعه‌به‌قطعه. هر پیشنهاد از
                     انتخاب‌های قبلی‌ات خبر دارد: اگر بالاتنهٔ نارنجی برداشته
                     باشی، کفش و کیفی پیشنهاد می‌شود که با نارنجی بخواند.
                   </p>
@@ -356,7 +362,6 @@ export function StyleBuilderPage() {
               </div>
               <StyleWizard onFinish={loadWizardResult} />
             </div>
-          )}
         </div>
 
         <aside

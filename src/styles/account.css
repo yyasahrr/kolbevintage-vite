@@ -1585,3 +1585,27 @@ html[data-theme] button:is(.pg-arrow,.card-gallery-arrow):not(:disabled):is(:hov
 .card-gallery-slide { position:absolute; inset:0; width:100%; height:100%; }
 .card-gallery-slide > div { width:100%; height:100%; }
 @media (prefers-reduced-motion:reduce) { .card-gallery-slide { transition:none; } }
+
+/* Illustrative body guide and merchant-provided size table. */
+.ssg-x { width:44px; height:44px; }
+.ssg-content { display:grid; gap:18px; padding:18px; }
+.ssg-measure-guide { display:grid; grid-template-columns:minmax(92px, 130px) minmax(0,1fr); gap:14px; align-items:center; border:1px solid #e8ded2; border-radius:16px; padding:12px; background:#f7f1e8; }
+.ssg-illustration { border-radius:10px; overflow:hidden; background:#f8f4e9; }
+.ssg-illustration img { width:100%; height:auto; max-height:280px; object-fit:contain; display:block; }
+.ssg-guide-kicker { color:#81503a; font-size:10px; font-weight:700; margin:0 0 4px; }
+.ssg-measure-guide h4, .ssg-table-content h4 { margin:0; color:#201a15; font-size:15px; font-weight:700; }
+.ssg-measure-guide p:not(.ssg-guide-kicker), .ssg-table-content p { color:#584c40; font-size:11.5px; line-height:1.85; margin:6px 0; }
+.ssg-measure-guide ul { list-style:none; margin:10px 0; padding:0; display:grid; gap:6px; }
+.ssg-measure-guide li { display:flex; flex-wrap:wrap; gap:4px 7px; color:#584c40; font-size:11px; line-height:1.6; }
+.ssg-measure-guide li b { color:#211a14; }
+.ssg-measure-guide small { font-size:10px; color:#68584a; line-height:1.6; display:block; }
+.ssg-table-content { min-width:0; }
+.ssg-table-scroll { overflow-x:auto; border:1px solid #e8ded2; border-radius:10px; margin:10px 0; }
+.ssg-table-scroll:focus-visible { outline:2px solid #8c4a2f; outline-offset:2px; }
+.ssg-table-scroll table { width:100%; min-width:440px; border-collapse:collapse; text-align:start; font-size:11px; }
+.ssg-table-scroll th, .ssg-table-scroll td { text-align:start; padding:10px; border-bottom:1px solid #eee6dc; white-space:nowrap; }
+.ssg-table-scroll thead { background:#f6f1e9; }
+.ssg-size-options { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.ssg-size-options button { min-height:42px; padding:7px 12px; border:1px solid #cfc1b1; border-radius:10px; background:white; color:#211a14; font:inherit; font-size:12px; cursor:pointer; }
+.ssg-size-options button:disabled { opacity:.5; cursor:not-allowed; }
+@media (min-width:760px) { .ssg-content { grid-template-columns:minmax(240px, .9fr) minmax(0,1.1fr); align-items:start; padding:20px; } }

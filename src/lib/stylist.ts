@@ -40,6 +40,13 @@ const hueDist = (a: number, b: number) => {
   return d > 180 ? 360 - d : d;
 };
 
+/** Neutral shades have no meaningful hue; compare their lightness instead. */
+const similarColor = (a: HSL, b: HSL, degrees: number) => {
+  const aNeutral = isNeutral(a), bNeutral = isNeutral(b);
+  if (aNeutral || bNeutral) return aNeutral && bNeutral && Math.abs(a.l - b.l) < 0.16;
+  return hueDist(a.h, b.h) < degrees;
+};
+
 export type Harmony = "neutral" | "monochrome" | "analogous" | "complementary" | "triadic" | "clash";
 
 export interface HarmonyResult {
@@ -116,9 +123,6 @@ export interface Profile {
   city: string;
   season: "spring" | "summer" | "autumn" | "winter";
   temp: number;
-  age: number;
-  height: number;
-  weight: number;
   shape: BodyShape;
   taste: StyleTaste;
   loveColors: string[];
@@ -169,35 +173,6 @@ export const SLOTS: Slot[] = [
 /* ------------------------------------------------------------------ */
 /* sizing                                                              */
 /* ------------------------------------------------------------------ */
-
-export interface SizeAdvice {
-  size: string;
-  note: string;
-}
-
-export function adviseSize(p: CatalogProduct, profile: Profile): SizeAdvice {
-  const labels = p.sizes.map((s) => s.label);
-  if (labels.length === 1) return { size: labels[0], note: "تک‌سایز با فرم آزاد" };
-  const bmi = profile.weight / Math.pow(profile.height / 100, 2);
-  const numeric = labels.every((l) => /^\d+$/.test(l));
-  if (numeric) {
-    const waist = Math.round(profile.weight * 0.42 + (profile.shape === "pear" ? 4 : 0));
-    const best = labels.reduce((a, b) => (Math.abs(Number(a) - waist) <= Math.abs(Number(b) - waist) ? a : b));
-    return { size: best, note: `بر اساس دور کمرِ تقریبی ${waist} سانتی‌متر` };
-  }
-  const shoe = labels.every((l) => Number(l) >= 35 && Number(l) <= 46);
-  if (shoe) {
-    const eu = Math.round(profile.height / 6.6 + (profile.weight > 78 ? 1 : 0));
-    const best = labels.reduce((a, b) => (Math.abs(Number(a) - eu) <= Math.abs(Number(b) - eu) ? a : b));
-    return { size: best, note: `سایز پیشنهادی ${best}` };
-  }
-  const order = ["XS", "S", "M", "L", "XL"];
-  const idx = bmi < 19 ? 0 : bmi < 22 ? 1 : bmi < 26 ? 2 : bmi < 30 ? 3 : 4;
-  let pick = order[idx];
-  if (profile.shape === "inverted" && ["top", "coat", "jacket", "knit", "tee"].includes(p.garment)) pick = order[Math.min(4, idx + 1)];
-  if (profile.shape === "pear" && ["trousers", "skirt"].includes(p.garment)) pick = order[Math.min(4, idx + 1)];
-  return { size: labels.includes(pick) ? pick : labels[Math.min(idx, labels.length - 1)], note: `بر اساس BMI ${bmi.toFixed(1)}` };
-}
 
 /* ------------------------------------------------------------------ */
 /* scoring                                                             */
@@ -257,8 +232,8 @@ export function suggestFor(slot: Slot, profile: Profile, chosen: ChosenPiece[], 
       if (!p.sizes.some((s) => stockOf(p, c.id, s.id) > 0)) continue;
       let s = 0;
       const hsl = hexToHsl(c.hex);
-      if (profile.avoidColors.some((a) => hueDist(hsl.h, hexToHsl(a).h) < 24)) s -= 0.9;
-      if (profile.loveColors.some((a) => hueDist(hsl.h, hexToHsl(a).h) < 30)) s += 0.5;
+      if (profile.avoidColors.some((a) => similarColor(hsl, hexToHsl(a), 24))) s -= 0.9;
+      if (profile.loveColors.some((a) => similarColor(hsl, hexToHsl(a), 30))) s += 0.5;
       if (chosenHexes.length) {
         const avg = chosenHexes.reduce((acc, hex) => acc + harmony(hex, c.hex).score, 0) / chosenHexes.length;
         s += avg * 1.1;
@@ -269,8 +244,8 @@ export function suggestFor(slot: Slot, profile: Profile, chosen: ChosenPiece[], 
       }
     }
 
-    const advice = adviseSize(p, profile);
-    const size = p.sizes.find((s) => s.label === advice.size && stockOf(p, bestColor.id, s.id) > 0) ?? p.sizes.find((s) => stockOf(p, bestColor.id, s.id) > 0) ?? p.sizes[0];
+    // An available variant is only a starting point, not a fit recommendation.
+    const size = p.sizes.find((s) => stockOf(p, bestColor.id, s.id) > 0)!;
 
     let score = 0.5 + bestColorScore * 0.32;
     const reasons: string[] = [];
@@ -310,10 +285,6 @@ export function suggestFor(slot: Slot, profile: Profile, chosen: ChosenPiece[], 
       if (worst < 0.5) warnings.push("با یکی از قطعه‌های انتخابی تضاد دارد");
     }
 
-    // age: keep very loud pieces away from conservative brackets, allow them for young
-    if (profile.age > 45 && ["sneaker", "tee"].includes(p.garment) && bestColorScore > 0.4) score -= 0.06;
-    if (profile.age < 26 && p.price > 1000) score -= 0.05;
-
     // budget
     if (p.price > profile.budget / 2.4) {
       score -= 0.12;
@@ -332,10 +303,6 @@ export function suggestFor(slot: Slot, profile: Profile, chosen: ChosenPiece[], 
     if (profile.shape === "inverted" && p.garment === "skirt") {
       score += 0.05;
       reasons.push("حجم در پایین‌تنه برای تعادل شانه");
-    }
-    if (profile.height < 165 && p.garment === "coat" && p.name.includes("بلند")) {
-      score -= 0.05;
-      warnings.push("قد بلند ممکن است کوتاه‌تر نشان دهد");
     }
 
     out.push({ product: p, color: bestColor, sizeId: size.id, sizeLabel: size.label, score, reasons: reasons.slice(0, 3), warnings: warnings.slice(0, 2) });
@@ -375,7 +342,5 @@ export function stylistNote(profile: Profile, items: { color: string }[], score:
   if (profile.temp <= 12 && !items.length) bits.push("برای این هوا لایهٔ بیرونی لازم داری.");
   if (profile.occasion === "formal") bits.push("برای مراسم رسمی، کفش و کیف را براق و ساده نگه دار.");
   if (profile.occasion === "travel") bits.push("برای سفر، کفش راحت و کیف کراس‌بادی انتخاب هوشمندانه‌ای است.");
-  if (profile.age < 26) bits.push("می‌توانی یک قطعهٔ ترند اضافه کنی تا ست جوان‌تر شود.");
-  if (profile.age > 45) bits.push("برش‌های تمیز و پارچهٔ باکیفیت، این ست را گران‌تر نشان می‌دهد.");
   return bits.slice(0, 2).join(" ");
 }
