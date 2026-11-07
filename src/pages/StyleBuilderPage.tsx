@@ -231,7 +231,7 @@ export function StyleBuilderPage() {
               برای نمایش روی بوم، تصویر شفاف و جداشدهٔ هر محصول باید در مدیریت
               تصاویر آن ثبت شود.
             </p>
-            <div className="sb-tray-groups" role="group" aria-label="دسته‌بندی محصولات">
+            <div className="sb-tray-groups">
               {GROUPS.map((g) => (
                 <button
                   key={g.id}

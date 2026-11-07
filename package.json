@@ -48,7 +48,8 @@
     "test:size-guide": "tsx scripts/size-guide-smoke.tsx",
     "test:browser-store": "node scripts/browser-store-smoke.mjs",
     "test:browser-card-canvas": "node scripts/browser-card-canvas-smoke.mjs",
-    "test:browser-style-wizard": "node scripts/browser-style-wizard-smoke.mjs"
+    "test:browser-style-wizard": "node scripts/browser-style-wizard-smoke.mjs",
+    "test:browser-home-panel": "node scripts/browser-home-panel-smoke.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

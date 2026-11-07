@@ -433,11 +433,9 @@ export function LooksPanel() {
       <input ref={lookImgRef} type="file" accept="image/*" hidden onChange={(e) => void uploadLook(e.target.files?.[0])} />
       <PanelHead
         title="استایل‌ها"
-        sub="استایل‌های رانوی را مدیریت کن یا استایل تازه بساز: نام، تصویر و قطعه‌هایش را انتخاب کن و منتشرش کن تا در «خرید بر اساس استایل» دیده شود."
+        sub="تنظیمات قدیمی استایل‌های پایه در این بخش است. ساخت، ویرایش و انتشار استایل اختصاصی در پنل متصل انجام می‌شود."
         action={
-          <button type="button" className="ad-btn is-primary" onClick={() => setComposer("new")}>
-            <Plus width={13} height={13} /> استایل جدید
-          </button>
+          <a className="ad-btn is-primary" href="/panel?view=custom-looks">مدیریت استایل‌های اختصاصی در پنل متصل</a>
         }
       />
 
@@ -463,12 +461,12 @@ export function LooksPanel() {
                   </small>
                 </span>
                 <span className="ad-actions">
-                  <button type="button" className="ad-btn is-sm" onClick={() => setComposer(l)}>
+                  <button type="button" disabled title="ویرایش در پنل متصل انجام می‌شود" className="ad-btn is-sm" onClick={() => setComposer(l)}>
                     <Pencil width={13} height={13} /> ویرایش
                   </button>
                   <button
                     type="button"
-                    className="ad-btn is-sm"
+                    className="ad-btn is-sm" disabled title="انتشار در پنل متصل انجام می‌شود"
                     onClick={() => {
                       setCustomLookPublished(l.id, !l.published);
                       addLog({ actor: "مدیر", action: l.published ? "پیش‌نویس کردن استایل" : "انتشار استایل", target: l.name });
@@ -478,7 +476,7 @@ export function LooksPanel() {
                   </button>
                   <button
                     type="button"
-                    className="ad-btn is-sm is-danger"
+                    className="ad-btn is-sm is-danger" disabled title="حذف در پنل متصل انجام می‌شود"
                     onClick={() => {
                       if (!window.confirm(`استایل «${l.name}» حذف شود؟ این کار برگشت‌پذیر نیست.`)) return;
                       removeCustomLook(l.id);

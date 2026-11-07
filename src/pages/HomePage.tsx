@@ -6,6 +6,7 @@ import { LOOKS, formatPrice } from "@/data/looks";
 import { POSTS, HERO_IMAGE, ATELIER_IMAGE, CAMPAIGN_IMAGE } from "@/data/journal";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductThumb } from "@/components/ProductThumb";
+import { resolveImg } from "@/builder/stock";
 import { ArrowLink, Marquee, Reveal, SectionHeading, buttonStyles } from "@/components/ui";
 import { HOME_DEFAULT_ORDER, useOps } from "@/state/ops";
 import { WidgetZone } from "@/widgets/WidgetZone";
@@ -21,6 +22,9 @@ const COLLECTION_COPY: Record<string, string> = {
 export function HomePage() {
   const ops = useOps();
   const saved = ops.homeSections?.length ? ops.homeSections : [];
+  const homeCategories = Array.isArray(ops.homeCategoryIds)
+    ? ops.homeCategoryIds.map(id => ops.categories.find(c => c.id === id && c.active)).filter((c): c is NonNullable<typeof c> => Boolean(c)).map(c => ({id:c.id,label:c.name,thumbnail:c.thumbnail}))
+    : FEATURED_COLLECTIONS.filter(c => !ops.categories.some(category => category.id === c.id && !category.active)).map(c => ({id:c.id,label:c.label,thumbnail:""}));
 
   const blocks: Record<string, React.ReactNode> = {
     hero: (
@@ -86,30 +90,31 @@ export function HomePage() {
             <SectionHeading
               eyebrow="دسته‌بندی‌ها"
               title="از کجا شروع کنی؟"
-              description="چهار مسیر کوتاه به کمد پاییزی؛ هر دسته از قطعه‌های واقعی کالکشن ساخته شده است."
+              description="مسیرهای کوتاه به دسته‌بندی‌های فروشگاه."
               action={{ to: "/products", label: "همهٔ محصولات" }}
             />
-            <div className="home-collections-grid mt-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-              {FEATURED_COLLECTIONS.map((c, i) => {
+            <div className="home-collections-grid mx-auto mt-6 grid max-w-[280px] grid-cols-2 gap-3 sm:max-w-[900px] sm:grid-cols-4 sm:gap-4">
+              {homeCategories.map((c, i) => {
                 const sample = productsInCollection(c.id)[0];
-                if (!sample) return null;
+                if (!sample && !c.thumbnail && !Array.isArray(ops.homeCategoryIds)) return null;
                 return (
                   <Reveal key={c.id} delay={i * 0.05}>
                     <Link
                       to={`/products?collection=${c.id}`}
                       className="group relative block overflow-hidden rounded-xl bg-[#efe8dd]"
                     >
-                      <ProductThumb
+                      {c.thumbnail ? <img src={resolveImg(c.thumbnail)} alt="" loading="lazy" className="aspect-[1.15] w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]" /> : sample ? <ProductThumb
                         product={sample}
-                        tileAspect={0.95}
+                        tileAspect={1.15}
+                        decorative
                         className="w-full rounded-none bg-transparent ring-0 transition-transform duration-700 group-hover:scale-[1.03]"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-ink/55 via-transparent to-transparent" />
-                      <div className="absolute inset-x-3 bottom-3 text-bone">
-                        <p className="text-[9.5px] text-bone/70">{COLLECTION_COPY[c.id]}</p>
-                        <div className="mt-0.5 flex items-center justify-between gap-2">
-                          <h3 className="font-display text-[17px] font-medium">{c.label}</h3>
-                          <span className="text-[10px] text-bone/70">{productsInCollection(c.id).length} قطعه</span>
+                      /> : <div aria-hidden="true" className="aspect-[1.15] w-full bg-[#b2a494]" />}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+                      <div className="absolute inset-x-2 bottom-2 text-white sm:inset-x-3 sm:bottom-3">
+                        {!Array.isArray(ops.homeCategoryIds) && <p className="hidden text-[9.5px] text-white/90 sm:block">{COLLECTION_COPY[c.id]}</p>}
+                        <div className="mt-0.5 flex items-end justify-between gap-1">
+                          <h3 className="font-display text-[13px] leading-5 font-medium sm:text-[15px]">{c.label}</h3>
+                          <span className="shrink-0 text-[10px] text-white/90">{productsInCollection(c.id).length.toLocaleString("fa-IR")} قطعه</span>
                         </div>
                       </div>
                     </Link>

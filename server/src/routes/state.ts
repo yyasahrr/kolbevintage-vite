@@ -122,7 +122,7 @@ export async function stateRoutes(app: FastifyInstance) {
     } else if (responseAdmin) delete responseAdmin.orders;
 
     const sourceOps = (map.ops as Record<string,unknown> | null) ?? {};
-    const publicKeys = ["brand","siteTheme","siteUnderSetup","categories","colorLibrary","sizeSets","homeSections","productImages","productVideos","colorMedia","hoverMedia","sizeGuides","features","categorySort","seo","cashbackRate","tryonPackages","formFields","megaMenus","widgets","faqs","lookProducts","lookImages"];
+    const publicKeys = ["brand","siteTheme","siteUnderSetup","categories","homeCategoryIds","colorLibrary","sizeSets","homeSections","productImages","productVideos","colorMedia","hoverMedia","sizeGuides","features","categorySort","seo","cashbackRate","tryonPackages","formFields","megaMenus","widgets","faqs","lookProducts","lookImages"];
     const safeOps:Record<string,unknown> = Object.fromEntries(publicKeys.filter(key=>key in sourceOps).map(key=>[key,sourceOps[key]]));
     const security = (sourceOps.security && typeof sourceOps.security === "object" ? sourceOps.security : {}) as Record<string,unknown>;
     safeOps.security = {allowCustomerSignup:security.allowCustomerSignup, otpChannels:security.otpChannels};
@@ -175,7 +175,7 @@ export async function stateRoutes(app: FastifyInstance) {
         const row=await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");
         const current=row.rows[0]?.value ?? {};
         const next=body as Record<string,any>;
-        for (const field of ["siteTheme","previousSiteTheme","sizeSets","categories","colorLibrary"]) {
+        for (const field of ["siteTheme","previousSiteTheme","sizeSets","categories","colorLibrary","homeCategoryIds"]) {
           if (Object.prototype.hasOwnProperty.call(current,field)) next[field]=current[field];
           else delete next[field];
         }
@@ -189,6 +189,12 @@ export async function stateRoutes(app: FastifyInstance) {
       await withTransaction(async client => {
         const current=(await client.query<{value:Record<string,any>}>("select value from state_documents where key='admin' for update")).rows[0]?.value ?? {};
         const next=body as Record<string,any>;
+        // Custom looks are managed by their permission-checked, versioned API.
+        if (Object.prototype.hasOwnProperty.call(current,"customLooks")) next.customLooks=current.customLooks;
+        else delete next.customLooks;
+        const customIds=new Set(Array.isArray(current.customLooks)?current.customLooks.map((look:any)=>look?.id):[]);
+        const hiddenBase=Array.isArray(next.hiddenLooks)?next.hiddenLooks.filter((id:unknown)=>!customIds.has(id)):[];
+        next.hiddenLooks=[...hiddenBase,...(Array.isArray(current.hiddenLooks)?current.hiddenLooks.filter((id:unknown)=>customIds.has(id)):[])];
         const restricted=(doc:Record<string,any>) => ["campaigns","discountRules"].some(field => Array.isArray(doc[field]) && doc[field].some((item:any)=>item && typeof item === "object" && (item.audience != null || hasUnsupportedCampaignRestrictions(item))));
         if (restricted(current) || restricted(next)) throw conflict("سند قدیمی با پیش‌نویس محدود سازگار نیست؛ از پنل کمپین‌ها استفاده کنید.","campaign_draft_legacy_conflict");
         await client.query("insert into state_documents(key,value,updated_at) values('admin',$1::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()",[JSON.stringify(next)]);

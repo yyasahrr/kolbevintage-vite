@@ -232,6 +232,8 @@ export interface OpsState {
   /** New stores stay behind a preparation screen until explicitly launched. */
   siteUnderSetup?: boolean;
   categories: CategoryDef[];
+  /** null/absent keeps legacy defaults; an array is the curated home selection */
+  homeCategoryIds?: string[] | null;
   /** reusable colour definitions available to every product editor */
   colorLibrary: ColorLibraryItem[];
   sizeSets: SizeSet[];

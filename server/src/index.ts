@@ -1,4 +1,6 @@
 import { studioDraftRoutes, studioPageRoutes, studioLifecycleRoutes } from "./routes/studio-drafts";
+import { customLookRoutes } from "./routes/custom-looks";
+import { homeCategoryRoutes } from "./routes/home-categories";
 import { colorLibraryRoutes } from "./routes/color-library";
 import { measurementRoutes } from "./routes/measurements";
 import { supportRoutes } from "./routes/support";
@@ -130,6 +132,8 @@ export async function buildServer() {
   await app.register(measurementRoutes);
   await app.register(catalogRoutes);
   await app.register(categoryRoutes);
+  await app.register(homeCategoryRoutes);
+  await app.register(customLookRoutes);
   await app.register(sizeSetRoutes);
   await app.register(colorLibraryRoutes);
   await app.register(uploadRoutes);

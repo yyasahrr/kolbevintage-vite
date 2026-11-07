@@ -31,9 +31,10 @@ export async function categoryRoutes(app: FastifyInstance) {
   // or silently changing campaign applicability.
   const cleanName = (value: unknown) => typeof value === "string" ? value.normalize("NFKC").trim() : "";
   const key = (value: unknown) => cleanName(value).toLocaleLowerCase();
-  type CategoryInput = {name?:unknown; slug?:unknown; active?:unknown; order?:unknown; sizeSetId?:unknown};
+  type CategoryInput = {name?:unknown; slug?:unknown; active?:unknown; order?:unknown; sizeSetId?:unknown; expected?:unknown};
+  const snapshot = (c:Record<string,any>) => ({name:c.name,active:c.active,order:c.order ?? 0,sizeSetId:c.sizeSetId ?? ""});
   async function saveCategory(id: string | null, body: CategoryInput, actor: string, requestId: string) {
-    const allowed = id ? ["name","active","order","sizeSetId"] : ["name","slug","active","order","sizeSetId"];
+    const allowed = id ? ["name","active","order","sizeSetId","expected"] : ["name","slug","active","order","sizeSetId"];
     if (!body || typeof body !== "object" || Object.keys(body).some(k=>!allowed.includes(k))) throw validation("فیلد دسته‌بندی معتبر نیست؛ زیردسته پشتیبانی نمی‌شود.");
     return withTransaction(async client => {
       const result = await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");
@@ -42,6 +43,12 @@ export async function categoryRoutes(app: FastifyInstance) {
       const index = id ? categories.findIndex(c=>c.id===id) : -1;
       if (id && index < 0) throw notFound("دسته‌بندی پیدا نشد.");
       const previous = id ? categories[index] : null;
+      if (previous && body.expected !== undefined) {
+        const expected = body.expected;
+        if (!expected || typeof expected !== "object" || Array.isArray(expected) || Object.keys(expected).sort().join(",") !== "active,name,order,sizeSetId") throw validation("نسخهٔ قبلی دسته معتبر نیست.");
+        const old=expected as Record<string,unknown>, actual=snapshot(previous);
+        if (old.name!==actual.name || old.active!==actual.active || old.order!==actual.order || old.sizeSetId!==actual.sizeSetId) throw conflict("دسته هم‌زمان تغییر کرده است؛ فهرست را تازه کنید.","category_stale");
+      }
       const name = body.name === undefined && previous ? previous.name : cleanName(body.name);
       const slug = previous?.slug ?? (typeof body.slug === "string" ? body.slug.trim().toLowerCase() : "");
       const active = body.active === undefined ? previous?.active ?? true : body.active;
@@ -72,10 +79,10 @@ export async function categoryRoutes(app: FastifyInstance) {
     const session=await requirePermission(req,"catalog:edit");
     return {ok:true,category:await saveCategory(req.params.id,req.body,session.subject,req.id)};
   });
-  app.patch<{Params:{id:string};Body:{image?:string}}>("/api/admin/categories/:id/thumbnail", async req => {
+  app.patch<{Params:{id:string};Body:{image?:string;expectedThumbnail?:unknown}}>("/api/admin/categories/:id/thumbnail", async req => {
     const actor=await requirePermission(req,"catalog:edit");
     const image=req.body?.image;
-    if (typeof image !== "string") throw validation("تصویر معتبر نیست.");
+    if (!req.body || Object.keys(req.body).some(k=>!["image","expectedThumbnail"].includes(k)) || typeof image !== "string" || (req.body.expectedThumbnail !== undefined && typeof req.body.expectedThumbnail !== "string")) throw validation("تصویر یا نسخهٔ قبلی معتبر نیست.");
     let filename:string|undefined;
     let thumbnail=image;
     if (image.startsWith("data:")) {
@@ -106,6 +113,7 @@ export async function categoryRoutes(app: FastifyInstance) {
         const index=categories.findIndex((c:any)=>c.id===req.params.id);
         if(index<0) throw notFound("دسته‌بندی پیدا نشد.");
         const before=categories[index].thumbnail ?? "";
+        if (req.body.expectedThumbnail !== undefined && before !== req.body.expectedThumbnail) throw conflict("تصویر دسته هم‌زمان تغییر کرده است؛ فهرست را تازه کنید.","category_thumbnail_stale");
         categories[index]={...categories[index],thumbnail}; doc.categories=categories;
         await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='ops'",[JSON.stringify(doc)]);
         await client.query(`insert into settings(key,value,updated_at) values('categories',$1::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()`,[JSON.stringify(categories)]);

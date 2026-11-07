@@ -291,7 +291,6 @@ html[data-theme="editorial"] .font-display { font-weight: 500; }
 html[data-theme="editorial"] :where(article, section) { border-color: var(--line); }
 html[data-theme="liquid-glass"] body { background-image: radial-gradient(at 12% 10%, #cde6fb 0, transparent 50%), radial-gradient(at 85% 15%, #dfdcff 0, transparent 50%), radial-gradient(at 50% 85%, #cfe9f5 0, transparent 55%); }
 html[data-theme="bento"] :where(.rounded-xl.border, .rounded-2xl.border) { border-radius: 22px; box-shadow: 0 12px 28px -20px rgba(70,55,110,.32); }
-@media (min-width: 1024px) { html[data-theme="bento"] .home-collections-grid > :first-child { grid-column: span 2; } }
 html[data-theme="neumorphism"] :where(.bg-paper, .rounded-xl.border, .rounded-2xl.border) { background: var(--color-paper); box-shadow: var(--card-shadow); border-color: var(--line); }
 html[data-theme="neumorphism"] :where(button.rounded-full, a.rounded-full) { box-shadow: var(--btn-shadow); }
 html[data-theme="brutalism"] :where(.bg-paper, .rounded-xl.border, .rounded-2xl.border, article.group) { border: 2px solid #111 !important; border-radius: 0 !important; box-shadow: none !important; }

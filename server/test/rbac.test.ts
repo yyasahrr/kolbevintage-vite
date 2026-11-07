@@ -157,6 +157,98 @@ test("style packs use real storefront settings, authorization, concurrency and r
   } finally {await query("update state_documents set value=$1 where key='ops'",[JSON.stringify(original)]);}
 });
 
+test("home categories and category edits are authorized, version checked and preserved", async () => {
+  const {admin,client:viewer}=await staffWith(["catalog:view"],"home-categories-viewer","home-categories-user","home-categories-pass");
+  const guest=makeClient();
+  const original=(await query("select value from state_documents where key='ops'")).rows[0].value;
+  const originalSettings=(await query("select value from settings where key='categories'")).rows[0]?.value;
+  try {
+    assert.equal((await guest.get("/api/admin/home-categories")).status,401);
+    const read=await viewer.get("/api/admin/home-categories");assert.equal(read.status,200);
+    const expected=read.body.ids;
+    assert.equal((await viewer.patch("/api/admin/home-categories",{ids:[],expectedIds:expected})).status,403);
+    assert.equal((await admin.patch("/api/admin/home-categories",{ids:["missing"],expectedIds:expected})).status,422);
+    assert.equal((await admin.patch("/api/admin/home-categories",{ids:["a","a"],expectedIds:expected})).status,422);
+    assert.equal((await admin.patch("/api/admin/home-categories",{ids:["1","2","3","4","5"],expectedIds:expected})).status,422);
+    assert.equal((await admin.patch("/api/admin/home-categories",{ids:[]})).status,422);
+    const a=(await admin.post("/api/admin/categories",{name:"دسته صفحه آزمایش الف",slug:"home-test-a",active:true})).body.category;
+    const b=(await admin.post("/api/admin/categories",{name:"دسته صفحه آزمایش ب",slug:"home-test-b",active:true})).body.category;
+    const snapshot={name:a.name,active:a.active,order:a.order,sizeSetId:a.sizeSetId};
+    assert.equal((await admin.patch(`/api/admin/categories/${a.id}`,{order:42,expected:snapshot})).status,200);
+    const stale=await admin.patch(`/api/admin/categories/${a.id}`,{name:"تغییر کهنه",expected:snapshot});assert.equal(stale.status,409);assert.equal(stale.body.code,"category_stale");
+    assert.equal((await admin.patch(`/api/admin/categories/${a.id}/thumbnail`,{image:"https://example.com/first.jpg",expectedThumbnail:""})).status,200);
+    const staleImage=await admin.patch(`/api/admin/categories/${a.id}/thumbnail`,{image:"https://example.com/old.jpg",expectedThumbnail:""});assert.equal(staleImage.status,409);assert.equal(staleImage.body.code,"category_thumbnail_stale");
+    const ids=[a.id,b.id];
+    assert.equal((await admin.patch("/api/admin/home-categories",{ids,expectedIds:expected})).status,200);
+    assert.deepEqual((await guest.get("/api/bootstrap")).body.ops.homeCategoryIds,ids);
+    assert.equal((await admin.patch("/api/admin/home-categories",{ids:[],expectedIds:expected})).status,409);
+    const [one,two]=await Promise.all([admin.patch("/api/admin/home-categories",{ids:[b.id,a.id],expectedIds:ids}),admin.patch("/api/admin/home-categories",{ids:[a.id],expectedIds:ids})]);assert.deepEqual([one.status,two.status].sort(),[200,409]);
+    const current=(await admin.get("/api/admin/home-categories")).body.ids;
+    const legacy=await admin.put("/api/state/ops",original);assert.equal(legacy.status,200);assert.deepEqual((await guest.get("/api/bootstrap")).body.ops.homeCategoryIds,current);
+    assert.equal((await admin.patch(`/api/admin/categories/${b.id}`,{active:false})).status,200);
+    assert.equal((await admin.patch("/api/admin/home-categories",{ids:[b.id],expectedIds:current})).status,422);
+    assert.equal((await admin.patch("/api/admin/home-categories",{ids:[],expectedIds:current})).status,200);
+    assert.deepEqual((await guest.get("/api/bootstrap")).body.ops.homeCategoryIds,[]);
+    assert.equal((await admin.patch("/api/admin/home-categories",{ids:null,expectedIds:[]})).status,200);
+    assert.equal((await guest.get("/api/bootstrap")).body.ops.homeCategoryIds,null);
+    const audit=await query("select id from audit_events where action='catalog.home_categories_updated' and target_id='store'");assert.ok(audit.rows.length>=3);
+    const noCsrf=await fetch(base+"/api/admin/home-categories",{method:"PATCH",headers:{"content-type":"application/json",cookie:admin.cookie()},body:JSON.stringify({ids:[],expectedIds:null})});assert.equal(noCsrf.status,403);
+  } finally {await query("update state_documents set value=$1 where key='ops'",[JSON.stringify(original)]);if(originalSettings)await query("update settings set value=$1 where key='categories'",[JSON.stringify(originalSettings)]);}
+});
+
+test("custom looks use private drafts, publication permissions, product validation and optimistic locking", async () => {
+  const {admin,client:viewer}=await staffWith(["looks:view"],"look-viewer","look-viewer-user","look-viewer-pass");
+  const {client:editor}=await staffWith(["looks:view","looks:edit"],"look-editor","look-editor-user","look-editor-pass");
+  const {client:publisher}=await staffWith(["looks:view","looks:publish"],"look-publisher","look-publisher-user","look-publisher-pass");
+  const guest=makeClient();const original=(await query("select value from state_documents where key='admin'")).rows[0].value;
+  try {
+    const product=(await guest.get("/api/products")).body[0];assert.ok(product?.id);
+    const draft={name:"استایل تست واقعی",tagline:"شرح",season:"زمستان",image:"https://example.com/look.webp",aspect:0.75,productIds:[product.id]};
+    assert.equal((await guest.get("/api/admin/custom-looks")).status,401);
+    assert.equal((await viewer.post("/api/admin/custom-looks",draft)).status,403);
+    assert.equal((await editor.post("/api/admin/custom-looks",{...draft,image:"javascript:alert(1)"})).status,422);
+    const sharp=(await import("sharp")).default;const pixels=await sharp({create:{width:8,height:8,channels:3,background:"#aaccee"}}).png().toBuffer();
+    assert.equal((await viewer.post("/api/admin/custom-looks/image",{imageData:`data:image/png;base64,${pixels.toString("base64")}`})).status,403);
+    assert.equal((await editor.post("/api/admin/custom-looks/image",{imageData:"data:image/png;base64,bm90YW5pbWFnZQ=="})).status,422);
+    const uploaded=await editor.post("/api/admin/custom-looks/image",{imageData:`data:image/png;base64,${pixels.toString("base64")}`});assert.equal(uploaded.status,200);assert.match(uploaded.body.url,/^\/uploads\/product-.*\.webp$/);
+    const noImage=await editor.post("/api/admin/custom-looks",{...draft,name:"بی‌تصویر",image:""});assert.equal(noImage.status,201);
+    assert.equal((await publisher.post(`/api/admin/custom-looks/${noImage.body.look.id}/publication`,{published:true,expectedVersion:0})).status,422);
+    assert.equal((await editor.post(`/api/admin/custom-looks/${noImage.body.look.id}/delete`,{expectedVersion:0})).status,200);
+    assert.equal((await editor.post("/api/admin/custom-looks",{...draft,productIds:["unknown-product"]})).status,422);
+    const created=await editor.post("/api/admin/custom-looks",draft);assert.equal(created.status,201,JSON.stringify(created.body));const id=created.body.look.id;
+    assert.equal(created.body.look.published,false);assert.equal(created.body.look.version,0);
+    assert.ok(!(await guest.get("/api/bootstrap")).body.admin.customLooks.some((l:any)=>l.id===id));
+    assert.equal((await editor.post(`/api/admin/custom-looks/${id}/publication`,{published:true,expectedVersion:0})).status,403);
+    assert.equal((await publisher.post(`/api/admin/custom-looks/${id}/publication`,{published:true,expectedVersion:0})).status,200);
+    assert.ok((await guest.get("/api/bootstrap")).body.admin.customLooks.some((l:any)=>l.id===id));
+    assert.equal((await editor.patch(`/api/admin/custom-looks/${id}`,{...draft,expectedVersion:1})).body.code,"look_published");
+    assert.equal((await editor.post(`/api/admin/custom-looks/${id}/delete`,{expectedVersion:1})).body.code,"look_published");
+    assert.equal((await publisher.post(`/api/admin/custom-looks/${id}/publication`,{published:false,expectedVersion:0})).status,409);
+    assert.equal((await admin.put("/api/state/admin",original)).status,200);
+    assert.ok((await guest.get("/api/bootstrap")).body.admin.customLooks.some((l:any)=>l.id===id));
+    assert.equal((await publisher.post(`/api/admin/custom-looks/${id}/publication`,{published:false,expectedVersion:1})).status,200);
+    assert.ok(!(await guest.get("/api/bootstrap")).body.admin.customLooks.some((l:any)=>l.id===id));
+    const [a,b]=await Promise.all([editor.patch(`/api/admin/custom-looks/${id}`,{...draft,name:"ویرایش الف",expectedVersion:2}),editor.patch(`/api/admin/custom-looks/${id}`,{...draft,name:"ویرایش ب",expectedVersion:2})]);assert.deepEqual([a.status,b.status].sort(),[200,409]);
+    assert.equal((await editor.post(`/api/admin/custom-looks/${id}/delete`,{expectedVersion:3})).status,200);
+    assert.ok(!(await viewer.get("/api/admin/custom-looks")).body.some((l:any)=>l.id===id));
+    const actions=await query("select action from audit_events where target_id=$1",[id]);for(const name of ["looks.created","looks.published","looks.unpublished","looks.updated","looks.deleted"])assert.ok(actions.rows.some((x:any)=>x.action===name));
+    const noCsrf=await fetch(base+"/api/admin/custom-looks",{method:"POST",headers:{"content-type":"application/json",cookie:editor.cookie()},body:JSON.stringify(draft)});assert.equal(noCsrf.status,403);
+  } finally {await query("update state_documents set value=$1 where key='admin'",[JSON.stringify(original)]);}
+});
+
+test("product drafts accept complete merchandise details without changing stock or publication", async () => {
+  const admin=owner();await admin.login(OWNER_PASSCODE);
+  const body={name:"پیش‌نویس کامل آزمون",category:"پالتو و کاپشن",garment:"coat",price:100.25,compareAt:150.5,material:"پشم",care:"خشکشویی",fit:"راحت",origin:"تهران",description:"شرح واقعی",colorName:"مشکی",colorHex:"#111111",sizes:["M"],imageUrl:"https://example.com/cover.jpg"};
+  assert.equal((await admin.post("/api/admin/products",{...body,compareAt:100})).status,422);
+  assert.equal((await admin.post("/api/admin/products",{...body,price:100.123})).status,422);
+  assert.equal((await admin.post("/api/admin/products",{...body,material:"x".repeat(2001)})).status,422);
+  const created=await admin.post("/api/admin/products",body);assert.equal(created.status,201,JSON.stringify(created.body));
+  const product=(await admin.get("/api/products?all=1")).body.find((p:any)=>p.id===created.body.id);assert.equal(product.active,false);for(const key of ["material","care","fit","origin","compareAt"] as const)assert.equal(product[key],body[key]);
+  const variants=await query("select on_hand,active from product_variants where product_id=$1",[created.body.id]);assert.ok(variants.rows.every((v:any)=>Number(v.on_hand)===0 && !v.active));
+  const docs=await query("select key,value from state_documents where key in ('admin','ops')");const map=Object.fromEntries(docs.rows.map((r:any)=>[r.key,r.value]));await (await import("../src/projection")).syncProjection(map.admin,map.ops);
+  const row=(await query("select compare_at,material,care,fit,origin from products where id=$1",[created.body.id])).rows[0];assert.equal(Number(row.compare_at),150.5);assert.equal(row.material,"پشم");assert.equal(row.origin,"تهران");
+});
+
 test("production upgrades an owner plaintext credential without exposing its hash", async () => {
   const {config}=await import("../src/config");const was=config.isProd;
   const adminOriginal=(await query("select value from state_documents where key='admin'")).rows[0].value;

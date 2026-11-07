@@ -8,7 +8,7 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, H
 Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
 Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 const requests: { path: string; method: string; body?: any }[] = [];
-const permissions = ["dashboard:view", "catalog:view", "catalog:edit", "catalog:publish", "inventory:view", "inventory:adjust", "inventory:approve", "orders:view", "orders:edit", "customers:view", "content:view", "content:edit", "content:publish", "staff:manage", "security:view", "campaigns:view", "campaigns:edit", "design:view", "design:edit", "settings:view", "settings:edit", "finance:view"];
+const permissions = ["dashboard:view", "catalog:view", "catalog:edit", "catalog:publish", "looks:view", "looks:edit", "looks:publish", "inventory:view", "inventory:adjust", "inventory:approve", "orders:view", "orders:edit", "customers:view", "content:view", "content:edit", "content:publish", "staff:manage", "security:view", "campaigns:view", "campaigns:edit", "design:view", "design:edit", "settings:view", "settings:edit", "finance:view"];
 const variant = { id: "v-1", productId: "p-1", name: "پالتو", sku: "SKU-1", colorName: "آبی", sizeLabel: "M", sellable: 5, onHand: 6, stockVersion: "2026-01-01 00:00:00+00", active: true, price: 100, reserved: 1, quarantined: 0, lowStock: true, outOfStock: false };
 const productFixture = { id:"p-1", name:"پالتو", category:"پوشاک", price:100, active:true, images:[], colors:[{id:"c1",name:"مشکی",hex:"#111111"}], sizes:[{id:"s1",label:"M"}] };
 let activeTheme="soft", previousTheme:string|null=null;
@@ -18,6 +18,9 @@ const printFixture={order:printOrder,adjustments:[{id:"refund-1",amount:30,quant
 const fixtures: Record<string, unknown> = {
   "/api/commerce/orders/VL-1/invoice": printFixture,
   "/api/admin/me": { authenticated: true, subject: "admin", permissions, openAccess: false },
+  "/api/products": [productFixture],
+  "/api/admin/custom-looks": [],
+  "/api/admin/home-categories": {ids:null},
   "/api/admin/categories": [{id:"outerwear",name:"پالتو",slug:"outerwear",thumbnail:"stock:hero",active:true,order:1,sizeSetId:"set-1"}],
   "/api/admin/color-library": [{id:"lib-1",name:"آبی کتابخانه",hex:"#1144bb",family:"سرد",active:true,order:1,version:0}],
   "/api/admin/size-sets": [{id:"set-1",name:"سایز پوشاک",sizes:["M","L"]}],
@@ -68,6 +71,10 @@ globalThis.fetch = async (request, init) => {
   if (method === "PATCH" && path === "/api/admin/size-sets/set-2") {const items=fixtures["/api/admin/size-sets"] as any[];const sizeSet={id:"set-2",name:body.name,sizes:body.sizes};items[items.findIndex(s=>s.id==="set-2")]=sizeSet;return new Response(JSON.stringify({sizeSet}))}
   if (method === "PATCH" && path === "/api/admin/size-sets/set-2/measurements") {const items=fixtures["/api/admin/size-sets"] as any[];const i=items.findIndex(s=>s.id==="set-2");items[i]={...items[i],measurements:body.measurements,measurementBasis:body.basis};return new Response(JSON.stringify({sizeSet:items[i]}))}
   if (method === "POST" && path === "/api/admin/size-sets/set-2/delete") {const items=fixtures["/api/admin/size-sets"] as any[];items.splice(items.findIndex(s=>s.id==="set-2"),1);return new Response(JSON.stringify({ok:true}))}
+  if (method === "POST" && path === "/api/admin/custom-looks") {const look={id:"look-test",...body,createdAt:Date.now(),published:false,version:0};(fixtures[path] as any[]).push(look);return new Response(JSON.stringify({look}),{status:201})}
+  if (method === "POST" && path === "/api/admin/custom-looks/look-test/publication") {const look=(fixtures["/api/admin/custom-looks"] as any[])[0];look.published=body.published;look.version++;return new Response(JSON.stringify({look}))}
+  if (method === "POST" && path === "/api/admin/custom-looks/look-test/delete") {(fixtures["/api/admin/custom-looks"] as any[]).splice(0,1);return new Response(JSON.stringify({ok:true}))}
+  if (method === "PATCH" && path === "/api/admin/home-categories") {(fixtures[path] as any).ids=body.ids;return new Response(JSON.stringify({ids:body.ids}))}
   if (method === "POST" && path === "/api/admin/categories") return new Response(JSON.stringify({ok:true,category:{id:"cat-test",...body,thumbnail:"",order:2}}),{status:201,headers:{"content-type":"application/json"}});
   if (method !== "GET") return new Response(JSON.stringify({ ok: true, refund: {status: "qc_failed"} }), { status: 200, headers: { "content-type": "application/json" } });
   if (!(path in fixtures)) return new Response(JSON.stringify({ error: `unexpected ${path}` }), { status: 500 });
@@ -104,6 +111,21 @@ for (const [button, expected] of [
   console.log(`OK ${button}`);
 }
 await click("استودیو طراحی (Site Studio)");const studio=document.querySelector<HTMLElement>('section[aria-label="استودیو پیش‌نویس"]')!;const studioName=[...studio.querySelectorAll("label")].find(l=>l.textContent?.startsWith("عنوان پیش‌نویس جدید"))!.querySelector("input")!;await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,"value")!.set!.call(studioName,"صفحه آزمایشی");studioName.dispatchEvent(new dom.window.Event("input",{bubbles:true}))});await click("ساخت پیش‌نویس");await click("افزودن هیرو");await click("افزودن بنر");assert.match(studio.textContent||"",/پیش‌نمایش لحظه‌ای بلوک‌ها/);await click("ذخیره پیش‌نویس");assert.ok(requests.some(r=>r.path==="/api/admin/studio/drafts/draft-smoke"&&r.body.expectedVersion===0&&r.body.blocks.map((b:any)=>b.type).join(',')==='hero,banner'));
+await click("استایل‌ها و ست‌های لباس");
+assert.match(document.body.textContent||"",/استایل اختصاصی ثبت نشده/);
+await click("استایل جدید");
+const lookForm=document.querySelector<HTMLFormElement>('form[aria-label="استایل جدید"]')!;
+const lookName=[...lookForm.querySelectorAll("label")].find(l=>l.textContent?.startsWith("نام استایل"))!.querySelector("input")!;
+await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,"value")!.set!.call(lookName,"استایل آزمون");lookName.dispatchEvent(new dom.window.Event("input",{bubbles:true}))});
+const lookImage=[...lookForm.querySelectorAll("label")].find(l=>l.textContent?.startsWith("نشانی تصویر"))!.querySelector("input")!;
+await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,"value")!.set!.call(lookImage,"https://example.com/look.webp");lookImage.dispatchEvent(new dom.window.Event("input",{bubbles:true}))});
+await act(async()=>lookForm.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+await click("ذخیره پیش‌نویس استایل");
+assert.ok(requests.some(r=>r.path==="/api/admin/custom-looks"&&r.method==="POST"&&r.body.productIds[0]==="p-1"));
+dom.window.confirm=()=>true;await click("انتشار استایل آزمون");
+assert.ok(requests.some(r=>r.path==="/api/admin/custom-looks/look-test/publication"&&r.body.expectedVersion===0&&r.body.published===true));
+await click("برداشتن استایل آزمون از انتشار");await click("حذف استایل آزمون");
+assert.ok(requests.some(r=>r.path==="/api/admin/custom-looks/look-test/delete"&&r.body.expectedVersion===2));
 await click("مشتریان و گروه‌بندی CRM");assert.match(document.body.textContent||"",/هنگام تعریف مخاطب کمپین/);assert.match(document.body.textContent||"",/خودکار ذخیره یا به کمپین منتقل نمی‌شود/);assert.doesNotMatch(document.body.textContent||"",/هنوز به قیمت، دسترسی زودهنگام/);
 await click("بلاگ و محتوای ویدیویی");
 assert.ok(document.body.textContent?.includes("هنوز مقاله‌ای ثبت نشده است"));
@@ -154,6 +176,12 @@ dom.window.confirm=()=>true;
 const deleteButton=document.querySelector<HTMLButtonElement>('button[aria-label="حذف سایز آزمون"]')!;await act(async()=>deleteButton.click());await settle();
 assert.ok(requests.some(r=>r.path==="/api/admin/size-sets/set-2/delete"&&r.body.expected.measurements.XS.chest===92.5));
 await click("دسته‌بندی‌ها");
+await click("انتخاب اختصاصی");
+const homeCategory=document.querySelector<HTMLElement>('section[aria-label="دسته‌های صفحه اصلی"]')!;
+const categoryCheck=homeCategory.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+await act(async()=>categoryCheck.click());
+await click("ذخیره دسته‌های صفحه اصلی");
+assert.ok(requests.some(r=>r.path==="/api/admin/home-categories"&&r.method==="PATCH"&&r.body.ids[0]==="outerwear"&&r.body.expectedIds===null));
 await click("افزودن دسته‌بندی");
 const categoryForm=document.querySelector<HTMLFormElement>('form[aria-label="افزودن دسته‌بندی"]'); assert.ok(categoryForm);
 const inputs=categoryForm.querySelectorAll<HTMLInputElement>('input:not([type="checkbox"])');

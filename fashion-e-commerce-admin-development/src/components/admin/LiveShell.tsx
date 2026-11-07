@@ -303,6 +303,7 @@ const ROUTES: Record<string,{ section:string; permission:string; extra?:string; 
   "/products/new": {section:"create",permission:"catalog:edit"},
   "/inventory": {section:"inventory",permission:"inventory:view"},
   "/inventory/labels": {section:"inventoryLabels",permission:"inventory:view"},
+  "/catalog/outfits": {section:"looks",permission:"looks:view",partial:true},
   "/catalog/colors": {section:"colors",permission:"catalog:view"},
   "/catalog/sizes": {section:"sizeSets",permission:"catalog:view",partial:true},
   "/catalog/categories": {section:"categories",permission:"catalog:view"},

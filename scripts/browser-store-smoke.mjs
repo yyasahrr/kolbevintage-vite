@@ -24,15 +24,6 @@ try {
     await page.goto(`${base}/#/products`,{waitUntil:"networkidle"});
     assert.equal(await page.locator('select[aria-label="مرتب‌سازی"]').count(),1,"sort has an accessible name");
     assert.equal(await page.locator('img[src=""]').count(),0,"no empty image source");
-    const categories=page.locator('.sb-cat-tile');
-    if(await categories.count()>1){
-      const box=await categories.first().boundingBox();
-      assert.ok(box.width >= 44 && box.width <= 64, "category tiles remain compact and tappable");
-      await categories.nth(1).click();
-      await page.waitForFunction(()=>document.querySelectorAll('.sb-cat-tile')[1]?.getAttribute('aria-pressed')==='true');
-      await categories.first().click();
-      await page.waitForFunction(()=>document.querySelector('.sb-cat-tile')?.getAttribute('aria-pressed')==='true');
-    }
     if(product && width<900){
       await page.goto(`${base}/#/product/${encodeURIComponent(product.id)}`,{waitUntil:"networkidle"});
       const dots=page.locator(".pg-mobile .pg-dots button");

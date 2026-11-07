@@ -117,7 +117,7 @@ export async function catalogRoutes(app: FastifyInstance) {
 
   /** Create an unpublished product with zero opening stock. Stock must enter
    * through the two-person inventory workflow, not a catalogue form. */
-  app.post<{ Body: { name?: string; category?: string; garment?: string; description?: string; price?: number; colorName?: string; colorHex?: string; sizes?: string[]; imageUrl?: string; imageData?: string } }>("/api/admin/products", async (req, reply) => {
+  app.post<{ Body: { name?: string; category?: string; garment?: string; description?: string; price?: number; colorName?: string; colorHex?: string; sizes?: string[]; imageUrl?: string; imageData?: string; compareAt?:number|null; material?:string|null; care?:string|null; fit?:string|null; origin?:string|null } }>("/api/admin/products", async (req, reply) => {
     const session = await requirePermission(req, "catalog:edit");
     const body = req.body ?? {};
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -127,9 +127,16 @@ export async function catalogRoutes(app: FastifyInstance) {
     let imageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim() : "";
     const imageData = body.imageData;
     const description = typeof body.description === "string" ? body.description.trim() : "";
+    for (const key of ["material", "care", "fit", "origin"] as const) {
+      if (body[key] !== undefined && body[key] !== null && (typeof body[key] !== "string" || body[key]!.length > 2000)) throw validation("مشخصات محصول معتبر نیست.");
+    }
+    const optionalText = (value:string|null|undefined) => value?.trim() || null;
+    const material=optionalText(body.material), care=optionalText(body.care), fit=optionalText(body.fit), origin=optionalText(body.origin);
+    const compareAt=body.compareAt ?? null;
+    if (compareAt !== null && (typeof compareAt !== "number" || !Number.isFinite(compareAt) || compareAt > 99999999 || Number(compareAt.toFixed(2)) !== compareAt || typeof body.price !== "number" || compareAt <= body.price)) throw validation("قیمت مقایسه‌ای باید بیش از قیمت فروش و حداکثر با دو رقم اعشار باشد.");
     const garments = ["coat", "jacket", "knit", "tee", "dress", "skirt", "trousers", "bag", "loafer", "heel", "boot", "sneaker", "accessory"];
     const sizes = Array.isArray(body.sizes) ? body.sizes.map(s => typeof s === "string" ? s.trim() : "") : [];
-    if (!name || name.length > 160 || !category || category.length > 160 || !colorName || colorName.length > 80 || description.length > 5000 || !/^#[0-9a-f]{6}$/i.test(colorHex) || !garments.includes(body.garment ?? "") || typeof body.price !== "number" || !Number.isFinite(body.price) || body.price < 0 || body.price > 99999999 || !sizes.length || sizes.length > 30 || sizes.some(s => !s || s.length > 40) || new Set(sizes.map(s => s.toLowerCase())).size !== sizes.length || (imageData !== undefined && !!imageUrl) || (imageData === undefined && (!(/^https:\/\/[^\s]+$/i.test(imageUrl) || /^\/uploads\/[a-z0-9._-]+$/i.test(imageUrl)) || imageUrl.length > 2000))) {
+    if (!name || name.length > 160 || !category || category.length > 160 || !colorName || colorName.length > 80 || description.length > 5000 || !/^#[0-9a-f]{6}$/i.test(colorHex) || !garments.includes(body.garment ?? "") || typeof body.price !== "number" || !Number.isFinite(body.price) || body.price < 0 || body.price > 99999999 || Number(body.price.toFixed(2)) !== body.price || !sizes.length || sizes.length > 30 || sizes.some(s => !s || s.length > 40) || new Set(sizes.map(s => s.toLowerCase())).size !== sizes.length || (imageData !== undefined && !!imageUrl) || (imageData === undefined && (!(/^https:\/\/[^\s]+$/i.test(imageUrl) || /^\/uploads\/[a-z0-9._-]+$/i.test(imageUrl)) || imageUrl.length > 2000))) {
       throw validation("نام، دسته، نوع کالا، قیمت، رنگ، سایزهای یکتا و نشانی معتبر تصویر لازم است.");
     }
     const uploaded = imageData !== undefined ? await prepareProductImage(imageData) : null;
@@ -139,7 +146,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     const sizeRows = sizes.map((value, index) => ({ id: `size-${index + 1}`, label: value }));
     const crop = { cx: 0.5, cy: 0.5, zoom: 1 };
     const image = { id: `img-${randomUUID()}`, url: imageUrl, colorId: "*", role: "main" };
-    const product = { id, name, category, garment: body.garment!, price: body.price, description, origin: null, colors, sizes: sizeRows, stock: {}, active: false, featured: false, lookId: "look-01", crop, createdAt: Date.now() };
+    const product = { id, name, category, garment: body.garment!, price: body.price, compareAt, description, material, care, fit, origin, colors, sizes: sizeRows, stock: {}, active: false, featured: false, lookId: "look-01", crop, createdAt: Date.now() };
     try { await withTransaction(async client => {
       await client.query("select pg_advisory_xact_lock(hashtext('kv-commerce-catalog-sync'))");
       const docs = await client.query<{ key: string; value: Record<string, any> }>("select key, value from state_documents where key in ('admin','ops') order by key for update");
@@ -151,9 +158,9 @@ export async function catalogRoutes(app: FastifyInstance) {
       ops.productImages = { ...(ops.productImages ?? {}), [id]: [image] };
       await client.query("update state_documents set value=$2::jsonb, updated_at=now() where key=$1", ["admin", JSON.stringify(admin)]);
       await client.query("update state_documents set value=$2::jsonb, updated_at=now() where key=$1", ["ops", JSON.stringify(ops)]);
-      await client.query(`insert into products (id,name,category,garment,price,description,colors,sizes,stock,active,featured,is_base,look_id,crop)
-        values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,'{}'::jsonb,false,false,false,'look-01',$9::jsonb)`,
-        [id,name,category,body.garment,body.price,description,JSON.stringify(colors),JSON.stringify(sizeRows),JSON.stringify(crop)]);
+      await client.query(`insert into products (id,name,category,garment,price,description,colors,sizes,stock,active,featured,is_base,look_id,crop,compare_at,material,care,fit,origin)
+        values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,'{}'::jsonb,false,false,false,'look-01',$9::jsonb,$10,$11,$12,$13,$14)`,
+        [id,name,category,body.garment,body.price,description,JSON.stringify(colors),JSON.stringify(sizeRows),JSON.stringify(crop),compareAt,material,care,fit,origin]);
       await client.query("insert into product_images (id,product_id,url,color_id,role,position) values ($1,$2,$3,'*','main',0)", [image.id,id,imageUrl]);
       for (const size of sizeRows) {
         await client.query(`insert into product_variants (id,product_id,color_id,size_id,sku,size_mode,on_hand,last_catalog_qty,active)
