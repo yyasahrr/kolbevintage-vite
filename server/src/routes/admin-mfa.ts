@@ -4,9 +4,11 @@ import { withTransaction, query } from '../db';
 import { readSession } from '../sessions';
 import { roleForSubject } from '../http/rbac';
 import { recordAudit } from '../commerce/audit';
-import { base32, matchTotp, mfaKey, open, recoveryCodes, recoveryHash, seal, tokenHash, verifyAdminPasscode, verifyFactor, type MfaData } from '../admin-mfa';
+import { melipayamakOtpConfigured } from '../melipayamak-otp';
+import { verifyAdminFactor } from '../admin-factor';
+import { base32, matchTotp, mfaKey, open, recoveryCodes, recoveryHash, seal, tokenHash, verifyAdminPasscode, type MfaData } from '../admin-mfa';
 
-async function account(req:FastifyRequest) {
+export async function account(req:FastifyRequest) {
   const session=await readSession(req);
   if(!session || session.kind!=='admin' || session.subject==='review-owner' || session.subject==='superadmin' || !await roleForSubject(session.subject))return null;
   return session;
@@ -14,7 +16,7 @@ async function account(req:FastifyRequest) {
 const unavailable={ok:false,code:'mfa_unavailable',message:'کلید امن تأیید دومرحله‌ای سرور تنظیم نشده یا معتبر نیست.'};
 const fail={ok:false,code:'invalid_factor',message:'کد صحیح نیست، قبلاً استفاده شده یا حساب موقتاً محدود شده است.'};
 export async function adminMfaRoutes(app:FastifyInstance){
-  app.get('/api/admin/mfa',async(req,reply)=>{reply.header('cache-control','no-store');const session=await account(req);if(!session)return reply.code(401).send({message:'ابتدا با حساب مدیریت وارد شوید.'});const row=await query<{admin_mfa:MfaData|null}>('select admin_mfa from staff where subject=$1',[session.subject]);return {enabled:!!row.rows[0]?.admin_mfa,configured:!!mfaKey(),smsAvailable:false,recoveryRemaining:row.rows[0]?.admin_mfa?.recovery.length??0};});
+  app.get('/api/admin/mfa',async(req,reply)=>{reply.header('cache-control','no-store');const session=await account(req);if(!session)return reply.code(401).send({message:'ابتدا با حساب مدیریت وارد شوید.'});const row=await query<{admin_mfa:MfaData|null}>('select admin_mfa from staff where subject=$1',[session.subject]);const data=row.rows[0]?.admin_mfa;let phoneHint:string|null=null;if(data?.method==='sms')try{const p=open<{phone:string}>(data.secret,`admin-mfa:${session.subject}`).phone;if(/^09\d{9}$/.test(p))phoneHint=`09*******${p.slice(-2)}`;}catch{/* fail closed on use */}return {enabled:!!data,method:data?(data.method??'totp'):null,configured:!!mfaKey(),smsAvailable:!!mfaKey()&&melipayamakOtpConfigured(),phoneHint,recoveryRemaining:data?.recovery.length??0};});
   app.post<{Body:{passcode?:unknown}}>('/api/admin/mfa/setup',async(req,reply)=>{
     const session=await account(req);if(!session)return reply.code(401).send({message:'ابتدا با حساب مدیریت وارد شوید.'});if(!mfaKey())return reply.code(503).send(unavailable);
     const pass=typeof req.body?.passcode==='string'?req.body.passcode.trim():'';if(!await verifyAdminPasscode(session.subject,pass))return reply.code(403).send({message:'رمز مدیریت درست نیست.'});
@@ -33,10 +35,10 @@ export async function adminMfaRoutes(app:FastifyInstance){
       await client.query('update staff set admin_mfa=$2::jsonb where subject=$1',[session.subject,JSON.stringify(data)]);await client.query("delete from sessions where kind='admin' and subject=$1 and token<>$2",[session.subject,session.token]);await recordAudit({actor:session.subject,action:'security.mfa_enabled',targetType:'staff',targetId:session.subject,requestId:req.id},client);return true;});
     if(!ok)return reply.code(409).send({message:'وضعیت حساب تغییر کرده است؛ دوباره تلاش کنید.'});reply.header('cache-control','no-store');return {ok:true,recoveryCodes:codes};
   });
-  app.post<{Body:{passcode?:unknown;code?:unknown}}>('/api/admin/mfa/disable',async(req,reply)=>{
+  app.post<{Body:{passcode?:unknown;code?:unknown;challenge?:unknown}}>('/api/admin/mfa/disable',async(req,reply)=>{
     const session=await account(req);if(!session)return reply.code(401).send({message:'ابتدا با حساب مدیریت وارد شوید.'});if(!mfaKey())return reply.code(503).send(unavailable);
     const pass=typeof req.body?.passcode==='string'?req.body.passcode.trim():'';const code=typeof req.body?.code==='string'?req.body.code:'';if(!await verifyAdminPasscode(session.subject,pass))return reply.code(403).send(fail);
-    const result=await withTransaction(async client=>{const row=await client.query<{admin_mfa:MfaData|null}>('select admin_mfa from staff where subject=$1 and active and (expires_at is null or expires_at>now()) for update',[session.subject]);const active=await client.query("select 1 from sessions where token=$1 and subject=$2 and kind='admin' and expires_at>now()",[session.token,session.subject]);const mfa=row.rows[0]?.admin_mfa;if(!mfa||!active.rowCount||!await verifyAdminPasscode(session.subject,pass,client))return 'invalid';const result=verifyFactor(mfa,session.subject,code);
+    const result=await withTransaction(async client=>{const row=await client.query<{admin_mfa:MfaData|null}>('select admin_mfa from staff where subject=$1 and active and (expires_at is null or expires_at>now()) for update',[session.subject]);const active=await client.query("select 1 from sessions where token=$1 and subject=$2 and kind='admin' and expires_at>now()",[session.token,session.subject]);const mfa=row.rows[0]?.admin_mfa;if(!mfa||!active.rowCount||!await verifyAdminPasscode(session.subject,pass,client))return 'invalid';const result=await verifyAdminFactor(client,mfa,session.subject,code,{purpose:'stepup',binding:`${session.token}:disable`,challenge:typeof req.body?.challenge==='string'?req.body.challenge:''});
       if(result!=='ok'){await client.query('update staff set admin_mfa=$2::jsonb where subject=$1',[session.subject,JSON.stringify(mfa)]);return result;}
       await client.query('update staff set admin_mfa=null where subject=$1',[session.subject]);await client.query("delete from sessions where kind='admin' and subject=$1 and token<>$2",[session.subject,session.token]);await recordAudit({actor:session.subject,action:'security.mfa_disabled',targetType:'staff',targetId:session.subject,requestId:req.id},client);return 'ok';});
     if(result==='unavailable')return reply.code(503).send(unavailable);if(result!=='ok')return reply.code(403).send(fail);return {ok:true};

@@ -57,6 +57,7 @@
     "test:browser-journal-category": "node scripts/browser-journal-category-smoke.mjs",
     "test:browser-journal-video": "node scripts/browser-journal-video-smoke.mjs",
     "test:browser-admin-mfa": "node --import tsx scripts/browser-admin-mfa-smoke.mjs",
+    "test:browser-admin-sms-mfa": "node --import tsx scripts/browser-admin-sms-mfa-smoke.mjs",
     "recover:panel-path": "tsx scripts/reset-panel-path.ts",
     "test:browser-panel-path": "node --import tsx scripts/browser-panel-path-smoke.mjs",
     "test:browser-fulfillment": "node scripts/browser-fulfillment-smoke.mjs",

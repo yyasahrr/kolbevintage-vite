@@ -1,4 +1,8 @@
-import { verifyAdminPasscode, verifyFactor, type MfaData } from "../admin-mfa";
+import { verifyAdminPasscode, open, type MfaData } from "../admin-mfa";
+import { verifyAdminFactor } from "../admin-factor";
+import { issueAdminSmsChallenge, settleAdminSmsChallenge } from "../admin-sms-challenge";
+import { melipayamakOtpConfigured, sendMelipayamakOtp } from "../melipayamak-otp";
+import { normalizePhone } from "../sms";
 import { isDeepStrictEqual } from "node:util";
 import { config } from "../config";
 import type { FastifyInstance } from "fastify";
@@ -175,7 +179,8 @@ export async function authRoutes(app: FastifyInstance) {
    *   · a staff passcode — signs in as that staff row, so RBAC applies
    * Both create an `admin` session; the role travels with the subject.
    */
-  app.post<{ Body: { passcode?: string; code?: string } }>("/api/admin/login", async (req, reply) => {
+  app.post<{ Body: { passcode?: string; code?: string; requestSms?: boolean; binding?: string; challenge?: string } }>("/api/admin/login", async (req, reply) => {
+    reply.header("cache-control","no-store");
     const passcode = typeof req.body?.passcode === "string" ? req.body.passcode.trim() : "";
     if (!passcode || passcode.length > 256) return reply.code(401).send({ok:false,message:"رمز مدیریت درست نیست."});
     const admin = (await getDocument<Record<string, any>>("admin")) ?? {};
@@ -241,14 +246,41 @@ export async function authRoutes(app: FastifyInstance) {
       subject = match.subject;
     }
     const factor=typeof req.body?.code==='string'?req.body.code.slice(0,100):'';
+    const binding=typeof req.body?.binding==='string'&&/^[a-f0-9]{64}$/.test(req.body.binding)?req.body.binding:'';
+    const challenge=typeof req.body?.challenge==='string'?req.body.challenge:'';
+    const wantsSms=req.body?.requestSms===true;
     const result=await withTransaction(async client=>{
       const row=await client.query<{admin_mfa:MfaData|null}>("select admin_mfa from staff where subject=$1 and active and (expires_at is null or expires_at>now()) for update",[subject]);
       if(!row.rows[0] || !await verifyAdminPasscode(subject,passcode,client))return {state:'invalid' as const};
       const data=row.rows[0].admin_mfa;
-      if(data){if(!factor)return {state:'required' as const};const state=verifyFactor(data,subject,factor);await client.query('update staff set admin_mfa=$2::jsonb where subject=$1',[subject,JSON.stringify(data)]);if(state!=='ok')return {state};}
+      if(wantsSms){
+        if(!data||data.method!=='sms'||data.lockedUntil>Date.now()||!binding||!melipayamakOtpConfigured())return {state:'unavailable' as const};
+        let phone:string;try{phone=open<{phone:string}>(data.secret,`admin-mfa:${subject}`).phone}catch{return {state:'unavailable' as const}}
+        if(!phone||normalizePhone(phone)!==phone)return {state:'unavailable' as const};
+        const issued=await issueAdminSmsChallenge(client,subject,'login',binding);if(!issued.ok)return {state:'unavailable' as const};
+        return {state:'sms_send' as const,issued,phone,secret:data.secret};
+      }
+      if(data){
+        if(!factor)return {state:'required' as const,method:data.method==='sms'?'sms' as const:'totp' as const};
+        const state=await verifyAdminFactor(client,data,subject,factor,{purpose:'login',binding,challenge});
+        await client.query('update staff set admin_mfa=$2::jsonb where subject=$1',[subject,JSON.stringify(data)]);if(state!=='ok')return {state};
+      }
       return {state:'ok' as const,session:await createSession('admin',subject,undefined,client)};
     });
-    if(result.state==='required')return reply.code(202).send({ok:false,requiresSecondFactor:true,message:'کد برنامهٔ احراز هویت یا کد بازیابی را وارد کنید.'});
+    if(result.state==='sms_send'){
+      const delivery=await sendMelipayamakOtp(result.phone,result.issued.code);
+      const settled=await withTransaction(async client=>{
+        const row=(await client.query<{admin_mfa:MfaData|null}>("select admin_mfa from staff where subject=$1 and active and (expires_at is null or expires_at>now()) for update",[subject])).rows[0];
+        const valid=!!row&&row.admin_mfa?.method==='sms'&&row.admin_mfa.secret===result.secret&&await verifyAdminPasscode(subject,passcode,client);
+        const accepted=delivery.accepted&&valid;
+        const state=await settleAdminSmsChallenge(client,subject,'login',binding,result.issued.token,accepted);
+        await recordAudit({actor:subject,action:'security.sms_challenge_requested',targetType:'staff',targetId:subject,after:{purpose:'login',accepted:accepted&&state==='ok'},requestId:req.id},client);
+        return accepted&&state==='ok';
+      });
+      if(!settled)return reply.code(503).send({ok:false,code:'sms_unavailable',message:'ارسال کد در دسترس نیست یا نتیجه نامشخص است؛ کمی بعد دوباره تلاش کنید.'});
+      return reply.code(202).send({ok:false,requiresSecondFactor:true,method:'sms',challenge:result.issued.token,message:'درگاه درخواست کد را پذیرفت؛ تحویل پیامک تضمین نشده است.'});
+    }
+    if(result.state==='required')return reply.code(202).send({ok:false,requiresSecondFactor:true,method:result.method,message:result.method==='sms'?'کد پیامکی یا کد بازیابی را وارد کنید.':'کد برنامهٔ احراز هویت یا کد بازیابی را وارد کنید.'});
     if(result.state!=='ok'||!result.session){await recordLogin(subject,false,'mfa_failed');return reply.code(result.state==='unavailable'?503:401).send({ok:false,code:result.state==='unavailable'?'mfa_unavailable':'invalid_factor',message:result.state==='unavailable'?'تأیید دومرحله‌ای در دسترس نیست؛ با مسئول سرور تماس بگیرید.':'ورود ناموفق بود.'});}
     await recordLogin(subject, true, null);
     const session=result.session;

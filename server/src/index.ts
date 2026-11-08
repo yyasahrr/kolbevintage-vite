@@ -1,6 +1,7 @@
 import { panelPathRoutes } from "./routes/panel-path";
 import { panelPath } from "./panel-path";
 import fastifyReplyFrom from "@fastify/reply-from";
+import { adminSmsMfaRoutes } from "./routes/admin-sms-mfa";
 import { adminMfaRoutes } from "./routes/admin-mfa";
 import { studioDraftRoutes, studioPageRoutes, studioLifecycleRoutes } from "./routes/studio-drafts";
 import { customLookRoutes } from "./routes/custom-looks";
@@ -134,6 +135,7 @@ export async function buildServer() {
   await app.register(stateRoutes);
   await app.register(authRoutes);
   await app.register(adminMfaRoutes);
+  await app.register(adminSmsMfaRoutes);
   await app.register(panelPathRoutes);
   await app.register(measurementRoutes);
   await app.register(catalogRoutes);

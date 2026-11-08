@@ -32,13 +32,15 @@ export function matchTotp(secret:string,code:string,lastStep:number,now=Date.now
 export const tokenHash=(token:string)=>createHash('sha256').update(token).digest('hex');
 export function recoveryCodes():string[]{return Array.from({length:8},()=>randomBytes(10).toString('hex'));}
 export const recoveryHash=(code:string)=>createHash('sha256').update(code.trim().toLowerCase()).digest('hex');
-export interface MfaData { secret:string; lastStep:number; recovery:string[]; failures:number; lockedUntil:number }
+export interface MfaData { method?:'totp'|'sms'; secret:string; lastStep:number; recovery:string[]; failures:number; lockedUntil:number }
 
 /** Caller holds a staff row lock and must persist changes even on failure. */
 export function verifyFactor(data:MfaData,subject:string,code:string):'ok'|'invalid'|'locked'|'unavailable' {
   if(!mfaKey())return 'unavailable';if(data.lockedUntil>Date.now())return 'locked';
-  let secret:string;try { secret=open<{secret:string}>(data.secret,`admin-mfa:${subject}`).secret; } catch {return 'unavailable';}
-  const clean=code.trim();const step=matchTotp(secret,clean,Number(data.lastStep));
+  if(data.method && data.method!=='totp' && data.method!=='sms')return 'unavailable';
+  let payload:{secret?:string;phone?:string};try { payload=open(data.secret,`admin-mfa:${subject}`); } catch {return 'unavailable';}
+  if(data.method==='sms' ? typeof payload.phone!=='string' : typeof payload.secret!=='string')return 'unavailable';
+  const clean=code.trim();const step=data.method==='sms'?null:matchTotp(payload.secret!,clean,Number(data.lastStep));
   const hash=recoveryHash(clean);const idx=data.recovery.findIndex(v=>v.length===hash.length&&timingSafeEqual(Buffer.from(v),Buffer.from(hash)));
   if(step!==null||idx>=0){if(step!==null)data.lastStep=step;else data.recovery.splice(idx,1);data.failures=0;data.lockedUntil=0;return 'ok';}
   data.failures=(data.failures||0)+1;if(data.failures>=5){data.failures=0;data.lockedUntil=Date.now()+10*60*1000;}return 'invalid';

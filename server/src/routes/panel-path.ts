@@ -1,7 +1,8 @@
 import type {FastifyInstance} from 'fastify';
 import {withTransaction} from '../db';
 import {requirePermission,requireOwnerRole,OWNER_ROLE} from '../http/rbac';
-import {verifyAdminPasscode,verifyFactor,type MfaData} from '../admin-mfa';
+import {verifyAdminPasscode,type MfaData} from '../admin-mfa';
+import {verifyAdminFactor} from '../admin-factor';
 import {recordAudit} from '../commerce/audit';
 import {DEFAULT_PANEL_PATH,panelPath,validPanelPath} from '../panel-path';
 
@@ -11,10 +12,10 @@ export async function panelPathRoutes(app:FastifyInstance){
     if(session.subject==='review-owner')return reply.code(403).send({message:'این تنظیم در حالت بررسی در دسترس نیست.'});
     reply.header('cache-control','no-store');return {path:await panelPath()};
   });
-  app.patch<{Body:{path?:unknown;expectedPath?:unknown;passcode?:unknown;code?:unknown}}>('/api/admin/panel-path',async(req,reply)=>{
+  app.patch<{Body:{path?:unknown;expectedPath?:unknown;passcode?:unknown;code?:unknown;challenge?:unknown}}>('/api/admin/panel-path',async(req,reply)=>{
     const session=await requirePermission(req,'security:edit');await requireOwnerRole(session);
     if(session.subject==='review-owner'||session.subject==='superadmin')return reply.code(403).send({message:'از حساب واقعی مالک استفاده کنید.'});
-    const b=req.body;if(!b||!validPanelPath(b.path)||!validPanelPath(b.expectedPath)||typeof b.passcode!=='string'||b.passcode.length>256||typeof (b.code??'')!=='string'||String(b.code??'').length>100 || Object.keys(b).some(k=>!['path','expectedPath','passcode','code'].includes(k)))return reply.code(400).send({message:'مسیر یا اطلاعات تأیید معتبر نیست.'});
+    const b=req.body;if(!b||!validPanelPath(b.path)||!validPanelPath(b.expectedPath)||typeof b.passcode!=='string'||b.passcode.length>256||typeof (b.code??'')!=='string'||String(b.code??'').length>100 ||typeof (b.challenge??'')!=='string'||String(b.challenge??'').length>100 || Object.keys(b).some(k=>!['path','expectedPath','passcode','code','challenge'].includes(k)))return reply.code(400).send({message:'مسیر یا اطلاعات تأیید معتبر نیست.'});
     const path=b.path,expected=b.expectedPath,passcode=b.passcode.trim(),code=String(b.code??'').trim();
     const result=await withTransaction(async client=>{
       await client.query('select pg_advisory_xact_lock(144777,2026)');
@@ -25,7 +26,7 @@ export async function panelPathRoutes(app:FastifyInstance){
       const row=(await client.query<{value:{path:unknown}}>("select value from state_documents where key='panel_entry' for update")).rows[0];
       if(!row||!validPanelPath(row.value?.path))return 'invalid';if(row.value.path!==expected)return 'conflict';
       if(path===expected)return 'unchanged';
-      if(staff.admin_mfa){const factor=verifyFactor(staff.admin_mfa,session.subject,code);await client.query('update staff set admin_mfa=$2::jsonb where subject=$1',[session.subject,JSON.stringify(staff.admin_mfa)]);if(factor!=='ok')return factor==='unavailable'?'unavailable':'forbidden';}
+      if(staff.admin_mfa){const factor=await verifyAdminFactor(client,staff.admin_mfa,session.subject,code,{purpose:'stepup',binding:`${session.token}:panel-path`,challenge:String(b.challenge??'')});await client.query('update staff set admin_mfa=$2::jsonb where subject=$1',[session.subject,JSON.stringify(staff.admin_mfa)]);if(factor!=='ok')return factor==='unavailable'?'unavailable':'forbidden';}
       await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='panel_entry'",[JSON.stringify({path})]);
       await recordAudit({actor:session.subject,action:'security.panel_path_changed',targetType:'settings',targetId:'panel_entry',before:{path:expected},after:{path},requestId:req.id},client);return 'ok';
     });

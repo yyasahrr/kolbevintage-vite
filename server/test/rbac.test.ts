@@ -1929,6 +1929,68 @@ test('personal authenticator requires the second factor, stops replay and preser
   }finally{if(oldKey===undefined)delete process.env.ADMIN_MFA_KEY;else process.env.ADMIN_MFA_KEY=oldKey;await fs.rm(dir,{recursive:true,force:true});}
 });
 
+test('SMS MFA verifies phone, protects sessions, supports recovery and step-up',async()=>{
+  const envNames=['ADMIN_MFA_KEY','MELIPAYAMAK_USERNAME','MELIPAYAMAK_API_KEY','MELIPAYAMAK_OTP_TEMPLATE_ID'] as const;
+  const old=new Map(envNames.map(n=>[n,process.env[n]]));process.env.ADMIN_MFA_KEY='d1'.repeat(32);process.env.MELIPAYAMAK_USERNAME='unit-user';process.env.MELIPAYAMAK_API_KEY='unit-secret';process.env.MELIPAYAMAK_OTP_TEMPLATE_ID='123';
+  const realFetch=globalThis.fetch;let providerOk=false,revokeDuringSend=false;const sends:{to:string;code:string}[]=[];
+  globalThis.fetch=async(input,init)=>{if(String(input)==='https://rest.payamak-panel.com/api/SendSMS/BaseServiceNumber'){const body=new URLSearchParams(String(init?.body));sends.push({to:body.get('to')!,code:body.get('text')!});if(revokeDuringSend)await query("update staff set active=false where subject='sms-mfa-user'");return new Response(providerOk?'{"RetStatus":1,"Value":"12345678901234567"}':'{"RetStatus":1,"Value":"2"}',{status:200})}return realFetch(input,init)};
+  const pass='sms-mfa-pass';const {client}=await staffWith(['dashboard:view'],'sms-mfa-role','sms-mfa-user',pass);const other=makeClient();await other.login(pass);
+  const reset=async()=>query("update admin_sms_challenges set issued_at=clock_timestamp()-interval '61 seconds',window_started=clock_timestamp()-interval '11 minutes' where subject='sms-mfa-user'");
+  try{
+    const initial=await client.get('/api/admin/mfa');assert.equal(initial.body.smsAvailable,true);assert.equal(initial.body.enabled,false);
+    assert.equal((await client.post('/api/admin/mfa/sms/setup',{passcode:'wrong',phone:'09121234567'})).status,503);
+    assert.equal((await client.post('/api/admin/mfa/sms/setup',{passcode:pass,phone:'invalid'})).status,400);
+    const refused=await client.post('/api/admin/mfa/sms/setup',{passcode:pass,phone:'۰۹۱۲۱۲۳۴۵۶۷'});assert.equal(refused.status,503);assert(!JSON.stringify(refused.body).includes(sends.at(-1)!.code));
+    assert.equal((await client.get('/api/admin/mfa')).body.enabled,false);
+    await reset();providerOk=true;revokeDuringSend=true;assert.equal((await client.post('/api/admin/mfa/sms/setup',{passcode:pass,phone:'09121234567'})).status,503,'revocation while provider is responding invalidates enrollment');revokeDuringSend=false;await query("update staff set active=true where subject='sms-mfa-user'");
+    await reset();const setup=await client.post('/api/admin/mfa/sms/setup',{passcode:pass,phone:'۰۹۱۲۱۲۳۴۵۶۷'});assert.equal(setup.status,200);const enrollCode=sends.at(-1)!.code;assert.equal(sends.at(-1)!.to,'09121234567');assert(!JSON.stringify(setup.body).includes(enrollCode));assert(!JSON.stringify(setup.body).includes('09121234567'));
+    assert.equal((await other.post('/api/admin/mfa/sms/enable',{pending:setup.body.pending,code:enrollCode})).status,400);
+    assert.equal((await client.post('/api/admin/mfa/sms/enable',{pending:setup.body.pending,code:enrollCode==='000000'?'000001':'000000'})).status,403);
+    const enabled=await client.post('/api/admin/mfa/sms/enable',{pending:setup.body.pending,code:enrollCode});assert.equal(enabled.status,200,JSON.stringify(enabled.body));assert.equal(enabled.body.recoveryCodes.length,8);assert.equal((await other.get('/api/admin/me')).body.authenticated,false);
+    assert.equal((await client.post('/api/admin/mfa/sms/enable',{pending:setup.body.pending,code:enrollCode})).status,403);
+    const status=await client.get('/api/admin/mfa');assert.equal(status.body.method,'sms');assert.equal(status.body.phoneHint,'09*******67');
+    const stored=(await query("select admin_mfa::text as m from staff where subject='sms-mfa-user'")).rows[0].m;assert(!stored.includes('09121234567'));assert(!stored.includes(enabled.body.recoveryCodes[0]));
+    const guest=makeClient();const first=await guest.post('/api/admin/login',{passcode:pass});assert.equal(first.status,202);assert.equal(first.body.method,'sms');assert.equal((await guest.get('/api/admin/me')).body.authenticated,false);
+    await reset();const binding='1'.repeat(64);const issued=await guest.post('/api/admin/login',{passcode:pass,requestSms:true,binding});assert.equal(issued.status,202);const loginCode=sends.at(-1)!.code;assert(!JSON.stringify(issued.body).includes(loginCode));
+    assert.equal((await guest.post('/api/admin/login',{passcode:pass,code:loginCode,binding:'2'.repeat(64),challenge:issued.body.challenge})).status,401);
+    assert.equal((await guest.get('/api/admin/me')).body.authenticated,false);
+    const contenders=[makeClient(),makeClient()];const results=await Promise.all(contenders.map(c=>c.post('/api/admin/login',{passcode:pass,code:loginCode,binding,challenge:issued.body.challenge})));assert.deepEqual(results.map(r=>r.status).sort(),[200,401]);
+    delete process.env.MELIPAYAMAK_API_KEY;assert.equal((await makeClient().post('/api/admin/login',{passcode:pass,code:enabled.body.recoveryCodes[0]})).status,200,'recovery works without provider');process.env.MELIPAYAMAK_API_KEY='unit-secret';
+    (await import('../src/http/security')).resetRateLimits();assert.equal((await makeClient().post('/api/admin/login',{passcode:pass,code:enabled.body.recoveryCodes[0]})).status,401,'recovery code cannot be reused');
+    assert.equal((await client.post('/api/admin/mfa/sms/stepup',{passcode:pass,action:'panel-path'})).status,403,'non-owner cannot request a panel-path SMS');
+    await reset();const step=await client.post('/api/admin/mfa/sms/stepup',{passcode:pass,action:'disable'});assert.equal(step.status,200);const stepCode=sends.at(-1)!.code;
+    (await import('../src/http/security')).resetRateLimits();const winner=contenders[results.findIndex(r=>r.status===200)];assert.equal((await winner.post('/api/admin/mfa/disable',{passcode:pass,code:stepCode,challenge:step.body.challenge})).status,403,'step-up bound to the requesting session');
+    assert.equal((await client.post('/api/admin/mfa/disable',{passcode:'wrong',code:stepCode,challenge:step.body.challenge})).status,403);
+    assert.equal((await client.post('/api/admin/mfa/disable',{passcode:pass,code:stepCode,challenge:step.body.challenge})).status,200);assert.equal((await client.get('/api/admin/mfa')).body.enabled,false);
+    (await import('../src/http/security')).resetRateLimits();assert.equal((await makeClient().post('/api/admin/login',{passcode:pass})).status,200);
+    const audit=(await query("select after::text from audit_events where actor='sms-mfa-user' and action like 'security.%' order by id desc limit 10")).rows;assert(!JSON.stringify(audit).includes('09121234567'));assert(!JSON.stringify(audit).includes('unit-secret'));
+  }finally{globalThis.fetch=realFetch;for(const [name,value] of old){if(value===undefined)delete process.env[name];else process.env[name]=value}}
+});
+
+test('SMS MFA protects the panel path and backup restores',async()=>{
+  const names=['ADMIN_MFA_KEY','MELIPAYAMAK_USERNAME','MELIPAYAMAK_API_KEY','MELIPAYAMAK_OTP_TEMPLATE_ID'] as const,old=new Map(names.map(n=>[n,process.env[n]]));
+  process.env.ADMIN_MFA_KEY='d2'.repeat(32);process.env.MELIPAYAMAK_USERNAME='unit-user';process.env.MELIPAYAMAK_API_KEY='unit-secret';process.env.MELIPAYAMAK_OTP_TEMPLATE_ID='123';
+  const realFetch=globalThis.fetch;let code='';globalThis.fetch=async(input,init)=>{if(String(input)==='https://rest.payamak-panel.com/api/SendSMS/BaseServiceNumber'){code=new URLSearchParams(String(init?.body)).get('text')!;return new Response('{"RetStatus":1,"Value":"12345678901234567"}',{status:200})}return realFetch(input,init)};
+  const {dumpAll,restoreBackup}=await import('../src/backup'),{withTransaction}=await import('../src/db'),{stringify}=await import('lossless-json');
+  const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');const dir=await fs.mkdtemp(path.join(os.tmpdir(),'sms-mfa-owner-')),oldFile=path.join(dir,'old.json'),newFile=path.join(dir,'new.json');
+  const admin=owner();await admin.login(OWNER_PASSCODE);
+  await query("delete from admin_sms_challenges where subject='admin'");
+  try{
+    await fs.writeFile(oldFile,stringify(await dumpAll())!);
+    const setup=await admin.post('/api/admin/mfa/sms/setup',{passcode:OWNER_PASSCODE,phone:'09121234567'});assert.equal(setup.status,200);const enabled=await admin.post('/api/admin/mfa/sms/enable',{pending:setup.body.pending,code});assert.equal(enabled.status,200);
+    await assert.rejects(()=>restoreBackup(oldFile),/تأیید دومرحله‌ای فعال/);await fs.writeFile(newFile,stringify(await dumpAll())!);
+    await withTransaction(async tx=>{await restoreBackup(newFile,{client:tx});const row=(await tx.query("select admin_mfa from staff where subject='admin'")).rows[0].admin_mfa;assert.equal(row.method,'sms');assert.deepEqual(row.recovery,[]);throw Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'));
+    const basePath={path:'/manage/sms-test',expectedPath:'/panel',passcode:OWNER_PASSCODE};assert.equal((await admin.patch('/api/admin/panel-path',basePath)).status,403);
+    await query("update admin_sms_challenges set issued_at=clock_timestamp()-interval '61 seconds' where subject='admin'");
+    const challenge=await admin.post('/api/admin/mfa/sms/stepup',{passcode:OWNER_PASSCODE,action:'panel-path'});assert.equal(challenge.status,200);
+    assert.equal((await admin.post('/api/admin/mfa/disable',{passcode:OWNER_PASSCODE,code,challenge:challenge.body.challenge})).status,403,'panel-path code cannot disable MFA');
+    assert.equal((await admin.patch('/api/admin/panel-path',{...basePath,code,challenge:challenge.body.challenge})).status,200);
+    assert.equal((await admin.patch('/api/admin/panel-path',{path:'/panel',expectedPath:'/manage/sms-test',passcode:OWNER_PASSCODE,code,challenge:challenge.body.challenge})).status,403);
+    assert.equal((await admin.patch('/api/admin/panel-path',{path:'/panel',expectedPath:'/manage/sms-test',passcode:OWNER_PASSCODE,code:enabled.body.recoveryCodes[0]})).status,200);
+    assert.equal((await admin.post('/api/admin/mfa/disable',{passcode:OWNER_PASSCODE,code:enabled.body.recoveryCodes[1]})).status,200);
+  }finally{globalThis.fetch=realFetch;await query("update staff set admin_mfa=null where subject='admin'");await query("delete from admin_sms_challenges where subject='admin'");await query("delete from state_documents where key='panel_entry'");await fs.rm(dir,{recursive:true,force:true});for(const [name,value] of old){if(value===undefined)delete process.env[name];else process.env[name]=value}}
+});
+
 test('SMS challenges enforce durable attempt limits, binding, acceptance and single use',async()=>{
   const old=process.env.ADMIN_MFA_KEY;process.env.ADMIN_MFA_KEY='a5'.repeat(32);
   const {client}=await staffWith(['dashboard:view'],'sms-challenge-test','sms-challenge-user','sms-challenge-pass');
