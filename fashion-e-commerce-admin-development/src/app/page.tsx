@@ -93,6 +93,7 @@ export default function DashboardPage() {
   const [visualDirty,setVisualDirty]=useState(false);
   const [categoriesDirty,setCategoriesDirty]=useState(false);
   const [looksDirty,setLooksDirty]=useState(false);
+  const [journalDirty,setJournalDirty]=useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [adjusting, setAdjusting] = useState<InventoryStock | null>(null);
   const [delta, setDelta] = useState("");
@@ -155,7 +156,7 @@ export default function DashboardPage() {
     finally { setBusy(false); }
   };
   const logout = async () => {
-    if((studioDirty||visualDirty||categoriesDirty||looksDirty)&&!window.confirm("تغییرات ذخیره‌نشده کنار گذاشته شوند؟"))return;
+    if((studioDirty||visualDirty||categoriesDirty||looksDirty||journalDirty)&&!window.confirm("تغییرات ذخیره‌نشده کنار گذاشته شوند؟"))return;
     setBusy(true); setError("");
     try { await post("/api/admin/logout", {}); setSession(""); setMe(null); setProducts(null); setStock(null); setOrders(null); await load(); }
     catch (e) { setError(e instanceof Error ? e.message : "خروج ناموفق بود."); }
@@ -178,7 +179,7 @@ export default function DashboardPage() {
   const button = "rounded-xl bg-[#1813fb] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50";
   const input = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-500";
   if (!me?.authenticated) return <main className="flex min-h-screen items-center justify-center p-5"><form onSubmit={login} className={`${card} w-full max-w-md space-y-5`}><h1 className="text-xl font-bold">ورود به پنل مدیریت کلبه وینتیج</h1><p className="text-sm leading-7 text-slate-500">با رمز مدیریت فروشگاه وارد شوید. این پنل از نشست واقعی فروشگاه استفاده می‌کند.</p>{error && <p role="alert" className="text-sm text-red-600">{error}</p>}<label className="block text-sm">رمز مدیریت<input type="password" autoComplete="current-password" className={`${input} mt-2`} value={passcode} onChange={(e) => {setPasscode(e.target.value);setFactorRequired(false);setLoginFactor("");setSmsBinding('');setSmsChallenge('');setSmsNotice('');}} required /></label>{factorRequired&&<>{factorMethod==='sms'&&<><button type="button" className="rounded-xl border border-slate-300 px-4 py-2 text-sm disabled:opacity-50" disabled={busy} onClick={()=>void requestLoginSms()}>دریافت کد پیامکی</button>{smsNotice&&<p role="status" className="text-sm text-slate-700">{smsNotice}</p>}</>}<label className="block text-sm">{factorMethod==='sms'?'کد پیامکی یا کد بازیابی':'کد برنامه یا کد بازیابی'}<input className={`${input} mt-2`} autoComplete="one-time-code" value={loginFactor} onChange={e=>setLoginFactor(e.target.value)} required /></label></>}<button className={`${button} w-full`} disabled={busy}>{busy ? "در حال ورود…" : "ورود"}</button><a className="block text-center text-sm text-indigo-700" href="/">بازگشت به فروشگاه</a></form></main>;
-  const navigate = (next: string) => { if(((section==="brand"&&next!=="brand"&&(studioDirty||visualDirty))||(section==="categories"&&next!=="categories"&&categoriesDirty)||(section==="looks"&&next!=="looks"&&looksDirty))&&!window.confirm("تغییرات ذخیره‌نشده کنار گذاشته شوند؟"))return;setSection(next as Section); };
+  const navigate = (next: string) => { if(((section==="brand"&&next!=="brand"&&(studioDirty||visualDirty))||(section==="categories"&&next!=="categories"&&categoriesDirty)||(section==="looks"&&next!=="looks"&&looksDirty)||(section==="journal"&&next!=="journal"&&journalDirty))&&!window.confirm("تغییرات ذخیره‌نشده کنار گذاشته شوند؟"))return;setSection(next as Section); };
   return <LiveShell section={section} can={can} onNavigate={navigate} onCreate={() => setCreating(true)} onRefresh={() => void load()} onLogout={() => void logout()} busy={busy} identity={{name: me.openAccess ? "حالت بررسی" : me.staff?.name || me.subject || "مدیر", role: me.openAccess ? "دسترسی بررسی" : me.staff?.roleName || "حساب مدیریت", openAccess: me.openAccess}}>
       <div className="space-y-5">
         {me.openAccess && <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">حالت بررسی بدون رمز فعال است؛ برای محیط عملیاتی باید غیرفعال شود.</div>}
@@ -208,7 +209,7 @@ export default function DashboardPage() {
         {section === "customers" && <CustomersModule api={liveApi} can={can}/>}
         {section === "support" && <SupportTickets api={liveApi} can={can}/>}
         {section === "print" && <LivePrintCenter api={liveApi}/>}
-        {section === "journal" && <LiveJournal api={liveApi} can={can}/>}
+        {section === "journal" && <LiveJournal api={liveApi} can={can} onDirtyChange={setJournalDirty}/>}
         {section === "gallery" && <GalleryModule api={liveApi} can={can}/>}
         {section === "staff" && <StaffModule api={liveApi} can={can}/>}
         {section === "audit" && <AuditModule api={liveApi}/>}

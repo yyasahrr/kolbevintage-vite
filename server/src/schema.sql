@@ -628,6 +628,7 @@ alter table journal_articles add column if not exists video_url text;
 create index if not exists journal_articles_public_idx on journal_articles(status,published_at desc);
 create index if not exists journal_articles_public_page_idx on journal_articles(status,published_at desc,id desc);
 create index if not exists journal_articles_created_idx on journal_articles(created_at desc,id desc);
+create index if not exists journal_articles_admin_status_page_idx on journal_articles(status,created_at desc,id desc);
 create index if not exists journal_articles_category_page_idx on journal_articles(category,published_at desc,id desc) where status='published';
 
 -- In-app support conversations; no message text is copied into audit logs.

@@ -237,6 +237,23 @@ test("gallery pages, consent enforcement and versioned moderation are protected 
   }finally{await query('drop trigger if exists test_fail_gallery_audit on audit_events');await query('drop function if exists test_fail_gallery_audit()');await query('delete from gallery_items where id like $1',[prefix+'%'])}
 });
 
+test("journal discovery searches all articles without returning bodies and protects detail",async()=>{
+  const {client:viewer}=await staffWith(['content:view'],'journal-discovery-view','journal-discovery-user','journal-discovery-pass');const {client:denied}=await staffWith(['inventory:view'],'journal-discovery-denied','journal-discovery-denied-user','journal-discovery-denied-pass');const guest=makeClient();
+  const ids=Array.from({length:215},(_,i)=>`article-10000000-0000-0000-0000-${String(i+1).padStart(12,'0')}`);
+  try{
+    await query(`insert into journal_articles(id,slug,title,category,body,status,published_at,created_at) select ($1::text[])[n],'journal-discovery-'||lpad(n::text,4,'0'),case when n=1 then 'Unique oldest article' else 'Discovery '||n end,case when n=2 then 'rare-category' else 'category' end,'PRIVATE-DRAFT-BODY',case when n=3 then 'published' else 'draft' end,case when n=3 then '2099-01-01'::timestamptz else null end,'2000-01-01 00:00:00.123456+00'::timestamptz from generate_series(1,215)n`,[ids]);
+    const path='/api/admin/journal-page';assert.equal((await guest.get(path)).status,401);assert.equal((await denied.get(path)).status,403);assert.equal((await guest.get('/api/admin/journal-item/'+ids[0])).status,401);assert.equal((await denied.get('/api/admin/journal-item/'+ids[0])).status,403);
+    for(const suffix of ['?limit=0','?limit=101','?status=bogus','?before=bad','?search='+('x'.repeat(121))])assert.equal((await viewer.get(path+suffix)).status,422);
+    assert.equal((await viewer.get(path+'?status=published&before='+ids[0])).status,409);
+    const response=await fetch(base+path,{headers:{cookie:viewer.cookie()}});assert.match(response.headers.get('cache-control')??'',/no-store/);await response.text();
+    let cursor='',seen:string[]=[];do{const r=await viewer.get(path+'?limit=40&search=journal-discovery-'+(cursor?'&before='+cursor:''));assert.equal(r.status,200);assert(!JSON.stringify(r.body).includes('PRIVATE-DRAFT-BODY'));assert(r.body.items.every((a:any)=>!('body' in a)&&!('seoTitle' in a)&&!('version' in a)));seen.push(...r.body.items.map((x:any)=>x.id));cursor=r.body.nextCursor??''}while(cursor);
+    assert.deepEqual(seen,[...ids].reverse());assert.equal(new Set(seen).size,215);assert.deepEqual((await viewer.get(path+'?search=Unique%20oldest%20article')).body.items.map((x:any)=>x.id),[ids[0]]);assert.deepEqual((await viewer.get(path+'?search=rare-category')).body.items.map((x:any)=>x.id),[ids[1]]);assert.equal((await viewer.get(path+'?search=PRIVATE-DRAFT-BODY')).body.items.length,0);
+    const detail=await viewer.get('/api/admin/journal-item/'+ids[0]);assert.equal(detail.body.body,'PRIVATE-DRAFT-BODY');assert.equal(detail.body.version,1);assert.equal((await viewer.get('/api/admin/journal-item/'+ids[214])).status,200);assert.equal((await viewer.get('/api/admin/journal-item/article-00000000-0000-0000-0000-000000000000')).status,404);
+    assert.equal((await guest.get('/api/public/journal/journal-discovery-0001')).status,404);assert.equal((await guest.get('/api/public/journal/journal-discovery-0003')).status,404);
+    await query("update journal_articles set status='published',published_at=now() where id=$1",[ids[0]]);assert.equal((await viewer.get(path+'?status=draft&before='+ids[0])).status,409);
+  }finally{await query("delete from journal_articles where slug like 'journal-discovery-%'")}
+});
+
 test("inventory correction and movement pages cover old records, permissions and bigint anchors",async()=>{
   const {admin,client:viewer}=await staffWith(['inventory:view'],'inventory-pages-view','inventory-pages-user','inventory-pages-pass');const {client:denied}=await staffWith(['orders:view'],'inventory-pages-denied','inventory-pages-denied-user','inventory-pages-denied-pass');const guest=makeClient();const prefix='test-inventory-page-';
   await (await import('../src/commerce/variants')).syncVariants();const variant=(await query('select id,sku from product_variants limit 1')).rows[0];assert(variant);

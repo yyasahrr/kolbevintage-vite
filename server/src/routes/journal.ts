@@ -59,6 +59,22 @@ export async function journalRoutes(app:FastifyInstance) {
     if(!rows.rows[0]) throw notFound("مقاله پیدا نشد.");
     return dto(rows.rows[0]);
   });
+  // The admin list carries metadata only; long bodies and SEO fields are
+  // fetched for one selected article, never for an entire page.
+  app.get<{Querystring:{before?:unknown;limit?:unknown;status?:unknown;search?:unknown}}>("/api/admin/journal-page",async(req,reply)=>{
+    reply.header("cache-control","no-store");await requirePermission(req,"content:view");
+    const {before,limit='40',status='all',search=''}=req.query;
+    if((before!==undefined&&(typeof before!=='string'||!/^article-[a-f0-9-]{36}$/.test(before)))||typeof limit!=='string'||!/^(?:[1-9]|[1-9][0-9]|100)$/.test(limit)||typeof status!=='string'||!['all','draft','published'].includes(status)||typeof search!=='string'||search.length>120)throw validation('فیلتر یا نشانگر صفحه معتبر نیست.');
+    const term=search.trim(),filters="($2='all' or status=$2) and ($3='' or strpos(lower(id),lower($3))>0 or strpos(lower(slug),lower($3))>0 or strpos(lower(title),lower($3))>0 or strpos(lower(category),lower($3))>0)";
+    if(before&&!(await query(`select 1 from journal_articles where id=$1 and ${filters}`,[before,status,term])).rowCount)throw conflict('نشانگر صفحه دیگر معتبر نیست؛ فهرست را تازه کنید.','invalid_cursor');
+    const result=await query<Article>(`select id,slug,title,category,status,published_at,created_at,updated_at from journal_articles where ${filters} and ($1::text is null or (created_at,id)<(select created_at,id from journal_articles where id=$1)) order by created_at desc,id desc limit $4`,[before??null,status,term,Number(limit)+1]);
+    const rows=result.rows.slice(0,Number(limit));return {items:rows.map(a=>({id:a.id,slug:a.slug,title:a.title,category:a.category,status:a.status,publishedAt:a.published_at,updatedAt:a.updated_at})),enabled:await isEnabled(),nextCursor:result.rows.length>Number(limit)?rows[rows.length-1].id:null};
+  });
+  app.get<{Params:{id:string}}>("/api/admin/journal-item/:id",async(req,reply)=>{
+    reply.header("cache-control","no-store");await requirePermission(req,"content:view");
+    if(!/^article-[a-f0-9-]{36}$/.test(req.params.id))throw notFound('مقاله پیدا نشد.');
+    const article=(await query<Article>(`select ${fields} from journal_articles where id=$1`,[req.params.id])).rows[0];if(!article)throw notFound('مقاله پیدا نشد.');return dto(article);
+  });
   app.get<{Querystring:{before?:unknown}}>("/api/admin/journal",async (req,reply)=>{
     await requirePermission(req,"content:view");reply.header("cache-control","no-store");
     const before=req.query.before;

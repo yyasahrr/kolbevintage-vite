@@ -54,6 +54,8 @@ globalThis.fetch = async (request, init) => {
   const path = String(request); const method = init?.method || "GET"; const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   requests.push({ path, method, body });
   if (method === "GET" && path.startsWith("/api/commerce/admin/payment-exceptions/page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/payments?status=exception"],nextCursor:null}));
+  if (method === "GET" && path.startsWith("/api/admin/journal-page?")) {const before=new URL(path,"http://store.test").searchParams.get("before");return new Response(JSON.stringify(before?fixtures[`/api/admin/journal?before=${before}`]:fixtures["/api/admin/journal"]));}
+  if (method === "GET" && path.startsWith("/api/admin/journal-item/")) {const id=path.split("/").pop();const article=(fixtures["/api/admin/journal"] as any).items.find((x:any)=>x.id===id);return new Response(JSON.stringify(article??{}));}
   if (method === "GET" && path.startsWith("/api/commerce/admin/inventory/adjustment-page?")) return new Response(JSON.stringify({items:(fixtures["/api/commerce/admin/inventory/adjustments"] as any[]).map(v=>({...v,sku:"SAMPLE-SKU",productName:"محصول نمونه"})),nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/commerce/admin/inventory/movement-page?")) return new Response(JSON.stringify({items:[],nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/commerce/admin/audit-page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/audit?limit=200"],nextCursor:null}));
@@ -147,7 +149,7 @@ await click("برداشتن استایل آزمون از انتشار");await cl
 assert.ok(requests.some(r=>r.path==="/api/admin/custom-looks/look-test/delete"&&r.body.expectedVersion===2));
 await click("مشتریان و گروه‌بندی CRM");assert.match(document.body.textContent||"",/هنگام تعریف مخاطب کمپین/);assert.match(document.body.textContent||"",/خودکار ذخیره یا به کمپین منتقل نمی‌شود/);assert.doesNotMatch(document.body.textContent||"",/هنوز به قیمت، دسترسی زودهنگام/);
 await click("بلاگ و محتوای ویدیویی");
-assert.ok(document.body.textContent?.includes("هنوز مقاله‌ای ثبت نشده است"));
+assert.ok(document.body.textContent?.includes("مقاله‌ای پیدا نشد"));
 await click("فعال کردن ژورنال");
 assert.ok(requests.some(r=>r.path==="/api/admin/journal-settings" && r.method==="PATCH" && r.body.enabled===true && r.body.expectedEnabled===false));
 await click("مقاله جدید");
@@ -161,7 +163,7 @@ const journalCursor="article-00000000-0000-4000-8000-000000000001";
 (fixtures["/api/admin/journal"] as any).nextCursor=journalCursor;
 fixtures[`/api/admin/journal?before=${journalCursor}`]={enabled:true,items:[{id:"old-article",slug:"old-article",title:"مقاله قدیمی",excerpt:"",category:"استایل",body:"",seoTitle:"",seoDescription:"",status:"draft",coverUrl:"",publishedAt:null,version:1,updatedAt:new Date().toISOString()}],nextCursor:null};
 await click("تازه‌سازی");await click("مقالات قدیمی‌تر");assert.match(document.body.textContent||"",/مقاله قدیمی/);
-assert.ok(requests.some(r=>r.path===`/api/admin/journal?before=${journalCursor}`));
+assert.ok(requests.some(r=>r.path.startsWith("/api/admin/journal-page?")&&new URL(r.path,"http://store.test").searchParams.get("before")===journalCursor));
 await click("پک‌های ظاهری (Style Packs)");
 assert.ok(document.body.textContent?.includes("سافت UI"));
 const beforeThemeWrites=requests.filter(r=>r.path==="/api/admin/style-packs" && r.method==="PATCH").length;
