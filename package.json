@@ -56,12 +56,15 @@
     "test:browser-returns-page": "node scripts/browser-returns-page-smoke.mjs",
     "test:browser-journal-category": "node scripts/browser-journal-category-smoke.mjs",
     "test:browser-journal-video": "node scripts/browser-journal-video-smoke.mjs",
-    "test:browser-admin-mfa": "node --import tsx scripts/browser-admin-mfa-smoke.mjs"
+    "test:browser-admin-mfa": "node --import tsx scripts/browser-admin-mfa-smoke.mjs",
+    "recover:panel-path": "tsx scripts/reset-panel-path.ts",
+    "test:browser-panel-path": "node --import tsx scripts/browser-panel-path-smoke.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
     "@fastify/http-proxy": "^11.6.6",
     "@fastify/multipart": "^10.1.7",
+    "@fastify/reply-from": "^12.8.1",
     "@fastify/static": "^10.1.8",
     "@puckeditor/core": "0.24.0",
     "clsx": "2.1.1",

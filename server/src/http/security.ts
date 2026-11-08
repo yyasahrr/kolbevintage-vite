@@ -54,7 +54,7 @@ export function resetRateLimits() {
 
 function classFor(path: string, method: string): string | null {
   if (SAFE_METHODS.has(method)) return null;
-  if ((path.startsWith("/api/admin/login") || path.startsWith("/api/admin/mfa/")) || path === "/api/commerce/admin/elevate") return "admin_login";
+  if ((path.startsWith("/api/admin/login") || path.startsWith("/api/admin/mfa/") || path === "/api/admin/panel-path") || path === "/api/commerce/admin/elevate") return "admin_login";
   if (path.startsWith("/api/auth/")) return "auth";
   if (path.startsWith("/api/commerce/checkout")) return "checkout";
   if (path.startsWith("/api/commerce/payments")) return "payment";

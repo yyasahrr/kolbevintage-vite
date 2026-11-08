@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PanelPathSettings } from "@/components/admin/PanelPathSettings";
 import { AccountSecurity } from "@/components/admin/AccountSecurity";
 import { AlertTriangle } from "lucide-react";
 import { VisualStudio } from "@/components/admin/VisualStudio";
@@ -25,7 +26,7 @@ import { ReturnsModule } from "@/components/admin/ReturnsModule";
 import { GalleryModule, CustomersModule, ManualOrder, Fulfillment, StaffModule, AuditModule, ProductEditor, type Product, type Order, type Stock } from "@/components/admin/LiveModules";
 
 type Section = "accountSecurity" | "looks" | "colors" | "support" | "sizeSets" | "print" | "journal" | "dashboard" | "categories" | "products" | "inventory" | "inventoryLabels" | "inventoryActivity" | "orders" | "manual" | "fulfillment" | "gallery" | "customers" | "staff" | "audit" | "returns" | "marketing" | "brand" | "stylePacks" | "settings" | "finance" | "analytics";
-type Identity = { authenticated: boolean; subject: string | null; staff?: { name: string; roleName: string } | null; permissions: string[]; openAccess: boolean };
+type Identity = { authenticated: boolean; subject: string | null; role?:string|null; staff?: { name: string; roleName: string } | null; permissions: string[]; openAccess: boolean };
 type InventoryStock = Stock & { stockVersion:string; productId:string; reserved: number; quarantined: number; lowStock: boolean; outOfStock: boolean };
 
 const SESSION_KEY = "kv_session_token";
@@ -77,6 +78,7 @@ export default function DashboardPage() {
   const [loadRevision, setLoadRevision] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [mfaRevision,setMfaRevision] = useState(0);
   const [passcode, setPasscode] = useState("");
   const [loginFactor, setLoginFactor] = useState("");
   const [factorRequired, setFactorRequired] = useState(false);
@@ -185,7 +187,7 @@ export default function DashboardPage() {
         {section === "marketing" && <MarketingModule api={liveApi} can={can}/>}
         {section === "stylePacks" && <StylePacks api={liveApi} can={can}/>}
         {section === "brand" && <><VisualStudio api={liveApi} can={can} onDirtyChange={setVisualDirty}/><details className="rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold">پیش‌نویس‌های قدیمی و تنظیمات برند</summary><BrandModule api={liveApi} can={can}/><StudioDrafts api={liveApi} can={can} onDirtyChange={setStudioDirty}/></details></>}
-        {section === "accountSecurity" && <AccountSecurity api={liveApi}/>}
+        {section === "accountSecurity" && <><AccountSecurity api={liveApi} onChange={()=>setMfaRevision(v=>v+1)}/>{me.role==="owner"&&!me.openAccess&&<PanelPathSettings key={mfaRevision} api={liveApi}/>}</>}
         {section === "settings" && <SettingsModule api={liveApi} can={can}/>}
         {section === "finance" && <FinanceModule api={liveApi} can={can}/>}
         {section === "analytics" && <AnalyticsModule api={liveApi} can={can}/>}

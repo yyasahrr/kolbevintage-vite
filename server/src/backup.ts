@@ -219,6 +219,12 @@ export async function restoreBackup(
       if(hasSale!==hasVersion) throw new Error("نسخه وضعیت فروش تنوع در پشتیبان ناقص است.");
       if(!hasSale && !options.allowLegacyVariantSales) throw new Error("پشتیبان قدیمی وضعیت فروش تنوع‌ها را ندارد؛ بازیابی فقط با تأیید صریح allow-legacy-variant-sales مجاز است.");
     }
+    await client.query('select pg_advisory_xact_lock(144777,2026)');
+    // Old restores must not silently re-open the default panel address or
+    // change the active entry point. An operator can explicitly reset first.
+    const currentPanel=(await client.query<{value:{path?:unknown}}>("select value from state_documents where key='panel_entry' for update")).rows[0]?.value?.path ?? '/panel';
+    const savedPanel=(payload.data.state_documents as Array<{key?:unknown;value?:{path?:unknown}}>).find(row=>row?.key==='panel_entry')?.value?.path ?? '/panel';
+    if(currentPanel!==savedPanel)throw new Error("مسیر پنل در پشتیبان با مقصد متفاوت است؛ ابتدا با روش بازیابی مدیریت مسیر را آگاهانه تنظیم کنید.");
     // Never silently remove/replace an enabled second factor through an old
     // backup. Recovery codes and time-step replay state cannot safely be rolled back.
     const currentMfa=await client.query<{subject:string;admin_mfa:MfaData}>("select subject,admin_mfa from staff where admin_mfa is not null for update");

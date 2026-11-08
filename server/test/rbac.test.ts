@@ -1902,3 +1902,35 @@ test('MFA fails closed without server key and limits incorrect factors per accou
     assert.equal((await makeClient().post('/api/admin/login',{passcode:'mfa-lock-pass',code:enabled.body.recoveryCodes[0]})).status,200);
   }finally{if(old===undefined)delete process.env.ADMIN_MFA_KEY;else process.env.ADMIN_MFA_KEY=old;}
 });
+
+test('panel path is owner-only, reauthenticated, conflict-safe, recoverable and never bypassed by old documents',async()=>{
+  const keyBefore=process.env.ADMIN_MFA_KEY;process.env.ADMIN_MFA_KEY='b7'.repeat(32);
+  const {client:staff}=await staffWith(['security:edit'],'path-sec-staff','path-staff','path-staff-pass');const admin=owner();await admin.login(OWNER_PASSCODE);
+  const {totpAt}=await import('../src/admin-mfa');const {dumpAll,restoreBackup}=await import('../src/backup');const {stringify}=await import('lossless-json');const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');const tmp=await fs.mkdtemp(path.join(os.tmpdir(),'panel-path-'));const file=path.join(tmp,'old.json');
+  const http=await import('node:http');const fake=http.createServer((req,res)=>{res.setHeader('content-type','text/html');res.end(`UPSTREAM ${req.url}`)});await new Promise<void>(resolve=>fake.listen(0,'127.0.0.1',resolve));const address=fake.address();const previousUpstream=process.env.ADMIN_PANEL_UPSTREAM;process.env.ADMIN_PANEL_UPSTREAM=`http://127.0.0.1:${typeof address==='object'&&address?address.port:0}`;
+  const {buildServer}=await import('../src/index');const proxied=await buildServer();
+  try{
+    await fs.writeFile(file,stringify(await dumpAll())!);
+    assert.equal((await makeClient().get('/api/admin/panel-path')).status,401);assert.equal((await staff.get('/api/admin/panel-path')).status,403);assert.equal((await admin.get('/api/admin/panel-path')).body.path,'/panel');
+    assert.equal((await admin.patch('/api/admin/panel-path',{path:'/api/admin',expectedPath:'/panel',passcode:OWNER_PASSCODE})).status,400);
+    assert.equal((await admin.patch('/api/admin/panel-path',{path:'/manage/admin-test',expectedPath:'/panel',passcode:'wrong'})).status,403);
+    assert.equal((await staff.patch('/api/admin/panel-path',{path:'/manage/admin-test',expectedPath:'/panel',passcode:'path-staff-pass'})).status,403);
+    const noCsrf=await fetch(base+'/api/admin/panel-path',{method:'PATCH',headers:{cookie:admin.cookie(),'content-type':'application/json'},body:JSON.stringify({path:'/manage/admin-test',expectedPath:'/panel',passcode:OWNER_PASSCODE})});assert.equal(noCsrf.status,403);
+    const setup=await admin.post('/api/admin/mfa/setup',{passcode:OWNER_PASSCODE});const enabled=await admin.post('/api/admin/mfa/enable',{pending:setup.body.pending,code:totpAt(setup.body.secret,Math.floor(Date.now()/30000))});assert.equal(enabled.status,200);const codes=enabled.body.recoveryCodes as string[];
+    assert.equal((await admin.patch('/api/admin/panel-path',{path:'/manage/admin-test',expectedPath:'/panel',passcode:OWNER_PASSCODE})).status,403,'requires active MFA');
+    const changed=await admin.patch('/api/admin/panel-path',{path:'/manage/admin-test',expectedPath:'/panel',passcode:OWNER_PASSCODE,code:codes[0]});assert.equal(changed.status,200,JSON.stringify(changed.body));
+    assert.equal((await proxied.inject({method:'GET',url:'/panel'})).statusCode,404);assert.equal((await proxied.inject({method:'GET',url:'/panel/content/blog'})).statusCode,404);assert.equal((await proxied.inject({method:'GET',url:'/manage/wrong'})).statusCode,404);
+    const entry=await proxied.inject({method:'GET',url:'/manage/admin-test?view=studio'});assert.equal(entry.statusCode,200,entry.body);assert.match(entry.body,/UPSTREAM \/panel\?view=studio/);assert.match(String(entry.headers['cache-control']),/no-store/);
+    const asset=await proxied.inject({method:'GET',url:'/panel/_next/static/test.js'});assert.equal(asset.statusCode,200,'public static assets must still work');
+    assert.equal((await proxied.inject({method:'GET',url:'/panel/%5fnext/static/../admin'})).statusCode,404);
+    assert.equal((await proxied.inject({method:'GET',url:'/panel/_next/static/../../panel'})).statusCode,404);
+    await assert.rejects(()=>restoreBackup(file),/مسیر پنل/);
+    const results=await Promise.all([admin.patch('/api/admin/panel-path',{path:'/manage/new-one',expectedPath:'/manage/admin-test',passcode:OWNER_PASSCODE,code:codes[1]}),admin.patch('/api/admin/panel-path',{path:'/manage/new-two',expectedPath:'/manage/admin-test',passcode:OWNER_PASSCODE,code:codes[2]})]);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);const actual=results.find(r=>r.status===200)!.body.path;
+    assert.ok((await query("select 1 from audit_events where action='security.panel_path_changed' and target_id='panel_entry'")).rowCount);
+    assert.equal((await admin.patch('/api/admin/panel-path',{path:'/panel',expectedPath:actual,passcode:OWNER_PASSCODE,code:codes[3]})).status,200);
+    assert.equal((await proxied.inject({method:'GET',url:'/panel'})).statusCode,200);
+    assert.equal((await admin.post('/api/admin/mfa/disable',{passcode:OWNER_PASSCODE,code:codes[4]})).status,200);
+  } finally {
+    await query("update staff set admin_mfa=null where subject='admin'");await query("delete from state_documents where key='panel_entry'");await proxied.close();await new Promise<void>(resolve=>fake.close(()=>resolve()));await fs.rm(tmp,{recursive:true,force:true});if(previousUpstream===undefined)delete process.env.ADMIN_PANEL_UPSTREAM;else process.env.ADMIN_PANEL_UPSTREAM=previousUpstream;if(keyBefore===undefined)delete process.env.ADMIN_MFA_KEY;else process.env.ADMIN_MFA_KEY=keyBefore;
+  }
+});

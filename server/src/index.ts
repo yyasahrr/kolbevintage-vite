@@ -1,3 +1,6 @@
+import { panelPathRoutes } from "./routes/panel-path";
+import { panelPath } from "./panel-path";
+import fastifyReplyFrom from "@fastify/reply-from";
 import { adminMfaRoutes } from "./routes/admin-mfa";
 import { studioDraftRoutes, studioPageRoutes, studioLifecycleRoutes } from "./routes/studio-drafts";
 import { customLookRoutes } from "./routes/custom-looks";
@@ -131,6 +134,7 @@ export async function buildServer() {
   await app.register(stateRoutes);
   await app.register(authRoutes);
   await app.register(adminMfaRoutes);
+  await app.register(panelPathRoutes);
   await app.register(measurementRoutes);
   await app.register(catalogRoutes);
   await app.register(categoryRoutes);
@@ -156,6 +160,24 @@ export async function buildServer() {
   await app.register(studioLifecycleRoutes);
   await app.register(studioPageRoutes);
   await app.register(journalRoutes);
+
+  // The old Next basePath remains necessary for immutable public static assets,
+  // but documents and RSC under /panel stop being entry points when changed.
+  app.addHook("onRequest",async(req,reply)=>{
+    let pathname:string;try{pathname=decodeURIComponent(req.url.split("?")[0]).replace(/\\/g,'/');}catch{return reply.code(400).send({error:'invalid path'});}
+    const raw=req.url.split('?')[0];
+    const staticAsset=/^\/panel\/_next\/static\/[A-Za-z0-9_./-]+$/.test(raw) && !raw.split('/').some(part=>part==='.'||part==='..');
+    if(/^\/panel(?:\/|$)/.test(pathname) && !staticAsset) {
+      if(await panelPath()!=="/panel")return reply.code(404).send({error:'not found'});
+    }
+  });
+  await app.register(fastifyReplyFrom,{base:process.env.ADMIN_PANEL_UPSTREAM ?? "http://127.0.0.1:3000"});
+  app.get<{Params:{slug:string}}>("/manage/:slug",async(req,reply)=>{
+    const requested=`/manage/${req.params.slug}`;
+    if(requested!==await panelPath())return reply.code(404).send({error:'not found'});
+    reply.header('cache-control','no-store');
+    return reply.from('/panel',{rewriteHeaders:(headers)=>({...headers,'cache-control':'no-store'})});
+  });
 
   // Same-origin entry keeps the storefront session and CSRF protection intact.
   await app.register(fastifyProxy, { upstream: process.env.ADMIN_PANEL_UPSTREAM ?? "http://127.0.0.1:3000", prefix: "/panel", rewritePrefix: "/panel" });
