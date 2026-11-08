@@ -300,6 +300,7 @@ create table if not exists payment_attempts (
 );
 create index if not exists payment_attempts_checkout_idx on payment_attempts (checkout_id);
 create index if not exists payment_attempts_status_idx on payment_attempts (status, created_at);
+create index if not exists payment_exception_page_idx on payment_attempts (created_at desc, id desc) where status='exception';
 
 -- wallet deduction captured with the payment attempt (order total never changes)
 alter table payment_attempts add column if not exists wallet_applied numeric(12, 2) not null default 0;
@@ -598,6 +599,9 @@ create table if not exists gallery_items (
   moderated_by text
 );
 create index if not exists gallery_items_status_idx on gallery_items (moderation_status, submitted_at desc);
+alter table gallery_items add column if not exists moderation_version integer not null default 0;
+create index if not exists gallery_items_page_idx on gallery_items (submitted_at desc, id desc);
+create index if not exists gallery_items_status_page_idx on gallery_items (moderation_status, submitted_at desc, id desc);
 
 -- Editorial content lives in the store database, never the prototype panel DB.
 create table if not exists journal_articles (

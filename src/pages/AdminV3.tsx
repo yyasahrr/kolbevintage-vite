@@ -545,6 +545,7 @@ interface GalleryItem {
   status: "pending" | "approved" | "rejected";
   consentVerified: boolean;
   submittedAt: string;
+  version: number;
   moderatedBy?: string | null;
 }
 
@@ -557,8 +558,8 @@ export function GalleryModerationPanel() {
     catch (error) { setMessage({ ok: false, text: error instanceof Error ? error.message : "گالری خوانده نشد." }); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-  const moderate = async (id: string, status: GalleryItem["status"]) => {
-    try { await api.patch(`/api/admin/gallery/${id}`, { status }); await load(); setMessage({ ok: true, text: "وضعیت انتشار ذخیره شد." }); }
+  const moderate = async (item: GalleryItem, status: GalleryItem["status"]) => {
+    try { await api.patch(`/api/admin/gallery/${encodeURIComponent(item.id)}`, { status, expectedVersion:item.version }); await load(); setMessage({ ok: true, text: "وضعیت انتشار ذخیره شد." }); }
     catch (error) { setMessage({ ok: false, text: error instanceof Error ? error.message : "بازبینی ثبت نشد." }); }
   };
   const rows = items.filter((item) => filter === "all" || item.status === filter);
@@ -567,7 +568,7 @@ export function GalleryModerationPanel() {
       <Head title="گالری استایل مشتریان" sub="تصاویر ارسالی مشتری ابتدا در صف بازبینی می‌ماند؛ فقط تصویر تأییدشده با رضایت ثبت‌شده در صفحهٔ عمومی گالری دیده می‌شود." action={<Link className="ad-btn is-sm" to="/gallery" target="_blank">مشاهدهٔ صفحهٔ عمومی<ArrowLeft width={13} height={13} /></Link>} />
       <Notice message={message} />
       <div className="ad-filters">{[["pending", "در انتظار"], ["approved", "منتشرشده"], ["rejected", "ردشده"], ["all", "همه"]].map(([id, label]) => <button type="button" key={id} className={cn("ad-chip", filter === id && "is-on")} onClick={() => setFilter(id)}>{label} ({fa(id === "all" ? items.length : items.filter((item) => item.status === id).length)})</button>)}</div>
-      {rows.length === 0 ? <p className="ad-empty">در این صف تصویری نیست.</p> : <div className="ad-media-grid">{rows.map((item) => <article className="ad-media-card" key={item.id}><img src={item.imageUrl} alt={item.caption || `استایل ${item.handle}`} /><span className="ad-media-name">{item.handle}</span><p>{item.caption}</p><small>{dateTime(item.submittedAt)} · {item.consentVerified ? "رضایت انتشار ثبت‌شده" : "بدون رضایت"}</small><div className="ad-actions">{item.status !== "approved" && <button type="button" className="ad-btn is-sm is-primary" onClick={() => void moderate(item.id, "approved")}><Check width={13} height={13} /> تأیید انتشار</button>}{item.status !== "rejected" && <button type="button" className="ad-btn is-sm is-danger" onClick={() => void moderate(item.id, "rejected")}><X width={13} height={13} /> رد</button>}{item.status !== "pending" && <button type="button" className="ad-btn is-sm" onClick={() => void moderate(item.id, "pending")}>بازگشت به صف</button>}</div></article>)}</div>}
+      {rows.length === 0 ? <p className="ad-empty">در این صف تصویری نیست.</p> : <div className="ad-media-grid">{rows.map((item) => <article className="ad-media-card" key={item.id}><img src={item.imageUrl} alt={item.caption || `استایل ${item.handle}`} referrerPolicy="no-referrer" /><span className="ad-media-name">{item.handle}</span><p>{item.caption}</p><small>{dateTime(item.submittedAt)} · {item.consentVerified ? "رضایت انتشار ثبت‌شده" : "بدون رضایت"}</small><div className="ad-actions">{item.status !== "approved" && <button type="button" className="ad-btn is-sm is-primary" onClick={() => void moderate(item, "approved")}><Check width={13} height={13} /> تأیید انتشار</button>}{item.status !== "rejected" && <button type="button" className="ad-btn is-sm is-danger" onClick={() => void moderate(item, "rejected")}><X width={13} height={13} /> رد</button>}{item.status !== "pending" && <button type="button" className="ad-btn is-sm" onClick={() => void moderate(item, "pending")}>بازگشت به صف</button>}</div></article>)}</div>}
     </>
   );
 }

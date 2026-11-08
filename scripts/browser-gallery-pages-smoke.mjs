@@ -1,0 +1,25 @@
+// Destructive: submits and moderates gallery items. Only for a local disposable
+// DB, fake images and opt-in. Fixture format documented in readiness guide.
+import assert from 'node:assert/strict';import {chromium} from 'playwright-core';
+const base=process.env.BROWSER_TEST_BASE;
+if(process.env.BROWSER_MUTATING_TEST!=='1'||!base||!/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(base)||!process.env.PLAYWRIGHT_CHROMIUM_PATH)throw Error('Requires opt-in, disposable local server and Chromium');
+const browser=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_PATH,args:['--no-sandbox']});const context=await browser.newContext({viewport:{width:390,height:900},reducedMotion:'reduce'});const errors=[];
+const page=await context.newPage();page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
+try{
+ let fail=true;const failPage=async r=>{if(fail){fail=false;await r.fulfill({status:503,contentType:'application/json',body:'{}'})}else await r.continue()};await page.route('**/api/gallery/page?*',failPage);
+ await page.goto(base+'/#/gallery',{waitUntil:'networkidle'});await page.getByRole('alert').filter({hasText:'دریافت گالری ناموفق'}).waitFor();assert.equal(await page.getByText('هنوز تصویر تأییدشده‌ای منتشر نشده است.').count(),0);await page.getByRole('button',{name:'تازه‌سازی گالری'}).click();await page.getByText('gallery-user-0100',{exact:true}).waitFor();await page.unroute('**/api/gallery/page?*',failPage);
+ for(const id of ['0088','0076','0064','0052','0040','0028','0016','0004']){await page.getByRole('button',{name:'تصاویر قدیمی‌تر'}).click();await page.getByText('gallery-user-'+id,{exact:true}).waitFor()}
+ await page.getByText('gallery-user-0001',{exact:true}).waitFor();assert.equal(await page.locator('figure').count(),100);assert.equal(await page.getByRole('button',{name:'تصاویر قدیمی‌تر'}).count(),0);
+ await page.getByLabel('نام نمایشی').fill('gallery-browser-submission');await page.getByLabel('دربارهٔ استایلت').fill('تصویر آزمایشی');
+ await page.locator('input[type=file]').setInputFiles({name:'test.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zz7kAAAAASUVORK5CYII=','base64')});
+ await page.getByAltText('پیش‌نمایش تصویر ارسالی').waitFor();await page.getByRole('checkbox').check();await page.getByRole('button',{name:'ارسال برای بازبینی'}).click();await page.getByRole('status').filter({hasText:'تصویرت رسید'}).waitFor();assert.equal(await page.getByText('gallery-browser-submission',{exact:true}).count(),0);
+ const a=await context.newPage(),b=await context.newPage();for(const tab of [a,b]){tab.setDefaultTimeout(15000);tab.on('pageerror',e=>errors.push(e.message));await tab.goto(base+'/panel',{waitUntil:'networkidle'});await tab.getByRole('button',{name:'باز کردن منوی ناوبری'}).click();await tab.getByRole('button',{name:'محتوا و ظاهر سایت'}).click();await tab.getByRole('button',{name:'گالری مشتریان و نظرات'}).click();await tab.getByLabel('جستجوی گالری').fill('gallery-user-0101');await tab.getByRole('button',{name:'جستجو',exact:true}).click();await tab.getByText('gallery-user-0101',{exact:true}).waitFor()}
+ const card=tab=>tab.locator('article').filter({hasText:'gallery-user-0101'});await card(a).getByRole('button',{name:'تأیید انتشار'}).click();await a.getByRole('status').filter({hasText:'وضعیت تصویر ثبت شد'}).waitFor();
+ await card(b).getByRole('button',{name:'رد',exact:true}).click();await b.getByRole('alert').filter({hasText:'هم‌زمان تغییر کرده'}).waitFor();await b.getByText('تصویری در این صف پیدا نشد.').waitFor();
+ await a.getByRole('button',{name:'منتشرشده',exact:true}).click();await a.getByText('gallery-user-0101',{exact:true}).waitFor();
+ await b.getByLabel('جستجوی گالری').fill('gallery-browser-submission');await b.getByRole('button',{name:'جستجو',exact:true}).click();await b.getByText('gallery-browser-submission',{exact:true}).waitFor();
+ // Moving focus revalidates the public feed; the freshly approved image appears.
+ await page.bringToFront();await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await page.getByText('gallery-user-0101',{exact:true}).waitFor();assert.equal(await page.getByText('gallery-browser-submission',{exact:true}).count(),0);
+ for(const tab of [page,a]){await tab.addScriptTag({path:'node_modules/axe-core/axe.min.js'});for(const width of [320,390,768,1440]){await tab.setViewportSize({width,height:900});assert(await tab.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`overflow ${width}`);if(width===390){const violations=await tab.evaluate(()=>window.axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}).then(r=>r.violations.filter(v=>['serious','critical'].includes(v.impact)).map(v=>v.id)));assert.deepEqual(violations,[])}}}
+ assert.deepEqual(errors,[]);console.log('Gallery browser: 100 public images, submission, moderation, two-tab conflict, focus refresh, four widths and axe OK');
+}finally{await context.close();await browser.close()}

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "./ui/PageHeader";
 import { StatusBadge } from "./ui/StatusBadge";
+import { PaymentExceptionQueue } from "./PaymentExceptionQueue";
 
 type API = { get<T>(path:string):Promise<T>; post<T>(path:string,body:object):Promise<T>; patch<T>(path:string,body:object):Promise<T>; put<T>(path:string,body:object):Promise<T> };
 type Props = {api:API; can:(p:string)=>boolean};
@@ -59,13 +60,12 @@ export function SettingsModule({api,can}:Props) {
 }
 
 interface Finance {groups:{currency:string;payment_status:string;orders:number;total:number}[];note:string}
-interface PaymentReview {id:string;checkoutId:string;orderId:string|null;provider:string;amount:number;status:string;lastError:string|null;createdAt:string}
 export function FinanceModule({api}:Props){
-  const [data,setData]=useState<Finance|null>(null),[payments,setPayments]=useState<PaymentReview[]|null>(null);
-  const [error,setError]=useState(""),[paymentError,setPaymentError]=useState("");
-  useEffect(()=>{api.get<Finance>("/api/admin/finance/summary").then(setData).catch(e=>setError(errorMessage(e)));api.get<PaymentReview[]>("/api/commerce/admin/payments?status=exception").then(setPayments).catch(e=>setPaymentError(errorMessage(e)))},[api]);
+  const [data,setData]=useState<Finance|null>(null);
+  const [error,setError]=useState("");
+  useEffect(()=>{api.get<Finance>("/api/admin/finance/summary").then(setData).catch(e=>setError(errorMessage(e)))},[api]);
   return <div className="space-y-4"><section tabIndex={0} aria-label="خلاصه مالی سفارش‌ها" className={`${card} space-y-4 overflow-x-auto`}><h2 className="text-xl font-bold">خلاصه مالی سفارش‌ها</h2><p className="text-sm leading-7 text-slate-500">{data?.note}</p><Feedback error={error} success=""/>{data?.groups.length?<table className="w-full min-w-[500px] text-right text-sm"><thead><tr><th>ارز</th><th>وضعیت پرداخت</th><th>تعداد</th><th>مبلغ ثبت‌شده</th></tr></thead><tbody>{data.groups.map(g=><tr key={`${g.currency}-${g.payment_status}`} className="border-t border-slate-100"><td className="py-3">{g.currency}</td><td>{g.payment_status}</td><td>{number(g.orders)}</td><td>{number(g.total)}</td></tr>)}</tbody></table>:data?<p>سفارشی ثبت نشده است.</p>:!error?<p>در حال دریافت…</p>:null}</section>
-    <section tabIndex={0} aria-label="پرداخت‌های نیازمند بررسی مالی" className={`${card} space-y-3 overflow-x-auto`}><h2 className="text-lg font-bold">پرداخت‌های نیازمند بررسی مالی</h2><p className="text-sm leading-7 text-slate-600">این فهرست حداکثر ۲۰۰ تراکنش اخیرِ نیازمند بررسی را نشان می‌دهد. پرداخت اضافه به معنی بازگشت خودکار وجه نیست؛ آن را با درگاه تطبیق دهید.</p><Feedback error={paymentError} success=""/>{payments===null?!paymentError&&<p>در حال دریافت…</p>:payments.length?<table className="w-full min-w-[700px] text-right text-sm"><thead><tr><th>شناسه تراکنش</th><th>سفارش مرتبط</th><th>مبلغ به واحد پایه</th><th>دلیل</th><th>درگاه</th></tr></thead><tbody>{payments.map(p=><tr key={p.id} className="border-t border-slate-100"><td className="py-3"><bdi>{p.id}</bdi></td><td><bdi>{p.orderId??"—"}</bdi></td><td>{number(p.amount)}</td><td>{p.lastError==="duplicate_checkout_capture"?"پرداخت تکراری برای یک تسویه":p.lastError==="payment_initiation_unconfirmed"?"نتیجه شروع پرداخت نامشخص است":"نیازمند بررسی درگاه"}</td><td><bdi>{p.provider}</bdi></td></tr>)}</tbody></table>:<p>تراکنش نیازمند بررسی ثبت نشده است.</p>}</section></div>;
+    <PaymentExceptionQueue api={api}/></div>;
 }
 
 interface Analytics {days:number;totals:{views:number;visits:number;orders:number};top:{path:string;views:number}[];sampleTooSmall:boolean}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle2, ImagePlus, ShieldCheck, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -34,7 +34,9 @@ async function imageData(file: File): Promise<string> {
 }
 
 export function GalleryPage() {
-  const [items, setItems] = useState<GalleryItem[]>([]);
+  const [items, setItems] = useState<GalleryItem[]|null>(null);
+  const [cursor,setCursor]=useState<string|null>(null),[loading,setLoading]=useState(true),[loadError,setLoadError]=useState(""),[moreBusy,setMoreBusy]=useState(false);
+  const generation=useRef(0),moreLock=useRef(false);
   const [handle, setHandle] = useState("");
   const [email, setEmail] = useState("");
   const [caption, setCaption] = useState("");
@@ -43,9 +45,19 @@ export function GalleryPage() {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
-    try { setItems(await api.get<GalleryItem[]>("/api/gallery")); } catch { /* the submission form remains available */ }
+    const g=++generation.current;moreLock.current=false;setLoading(true);setItems(null);setCursor(null);setLoadError("");setMoreBusy(false);
+    try{const page=await api.get<{items:GalleryItem[];nextCursor:string|null}>("/api/gallery/page?limit=12");if(g===generation.current){setItems(page.items);setCursor(page.nextCursor)}}
+    catch{if(g===generation.current)setLoadError("دریافت گالری ناموفق بود؛ دوباره تلاش کنید.")}
+    finally{if(g===generation.current)setLoading(false)}
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(()=>{void load();const focus=()=>void load();window.addEventListener("focus",focus);return()=>{generation.current++;window.removeEventListener("focus",focus)}},[load]);
+  async function more(){
+    if(!cursor||moreLock.current)return;moreLock.current=true;setMoreBusy(true);setLoadError("");const g=generation.current;
+    try{const page=await api.get<{items:GalleryItem[];nextCursor:string|null}>(`/api/gallery/page?limit=12&before=${encodeURIComponent(cursor)}`);if(g!==generation.current)return;
+      setItems(previous=>{const existing=new Set((previous??[]).map(v=>v.id));return [...(previous??[]),...page.items.filter(v=>!existing.has(v.id))]});setCursor(page.nextCursor);
+    }catch{if(g===generation.current)setLoadError("دریافت تصاویر قدیمی‌تر ناموفق بود. دوباره تلاش کنید یا گالری را تازه کنید.")}
+    finally{if(g===generation.current){moreLock.current=false;setMoreBusy(false)}}
+  }
 
   const choose = async (file: File | undefined) => {
     if (!file) return;
@@ -75,22 +87,25 @@ export function GalleryPage() {
           <p className="mt-5 leading-8 text-ink-soft">عکس خودت را با لباس‌های کلبه بفرست. هر اثر پیش از انتشار بازبینی می‌شود و بدون تأیید رضایت انتشار، عمومی نمی‌شود.</p>
         </div>
 
-        {items.length > 0 ? (
+        {loadError&&<p role="alert" className="mt-6 text-sm text-burgundy">{loadError} <button type="button" className="underline" onClick={()=>void load()}>تازه‌سازی گالری</button></p>}
+        {loading&&<p role="status" className="mt-6">در حال دریافت گالری…</p>}
+        {items&&items.length > 0 ? (
           <div className="mt-12 columns-1 gap-5 sm:columns-2 lg:columns-3">
             {items.map((item) => (
               <figure key={item.id} className="mb-5 break-inside-avoid overflow-hidden rounded-2xl border border-black/[0.07] bg-white shadow-soft">
-                <img src={item.imageUrl} alt={item.caption || `استایل ${item.handle}`} className="w-full object-cover" loading="lazy" />
+                <img src={item.imageUrl} alt={item.caption || `استایل ${item.handle}`} className="w-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
                 <figcaption className="p-4"><b>{item.handle}</b>{item.caption && <p className="mt-2 text-sm leading-7 text-ink-soft">{item.caption}</p>}</figcaption>
               </figure>
             ))}
           </div>
-        ) : (
+        ) : items && items.length===0 && !loading ? (
           <div className="mt-12 rounded-2xl border border-dashed border-burgundy/25 bg-white/60 px-6 py-14 text-center">
             <Camera className="mx-auto text-burgundy" width={32} height={32} />
             <h2 className="mt-4 font-display text-2xl font-bold">اولین قاب این گالری می‌تواند از تو باشد</h2>
             <p className="mt-2 text-sm text-ink-soft">هنوز تصویر تأییدشده‌ای منتشر نشده است.</p>
           </div>
-        )}
+        ) : null}
+        {cursor&&<button type="button" disabled={moreBusy} onClick={()=>void more()} className="mt-6 rounded-full border border-burgundy px-5 py-3 text-sm font-bold text-burgundy disabled:opacity-50">{moreBusy?"در حال دریافت…":"تصاویر قدیمی‌تر"}</button>}
       </section>
 
       <section className="border-t border-black/[0.06] bg-white/60">

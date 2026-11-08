@@ -2074,7 +2074,7 @@ test("customer gallery requires consent and publishes only moderated images", as
   const queue = await admin.get("/api/admin/gallery");
   assert.equal(queue.status, 200);
   assert.equal(queue.body[0].status, "pending");
-  const approved = await admin.patch(`/api/admin/gallery/${submitted.body.id}`, { status: "approved" });
+  const approved = await admin.patch(`/api/admin/gallery/${submitted.body.id}`, { status: "approved",expectedVersion:0 });
   assert.equal(approved.status, 200);
   const published = await visitor.get("/api/gallery");
   assert.equal(published.body.length, 1);

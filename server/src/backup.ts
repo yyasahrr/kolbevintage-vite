@@ -184,7 +184,7 @@ export async function readBackup(id: string): Promise<{ meta: BackupRow; buffer:
  */
 export async function restoreBackup(
   file: string,
-  options: { client?: pg.PoolClient; allowEmptyJournalFromOlderBackup?: boolean; allowEmptySupportFromOlderBackup?: boolean; allowLegacyVariantSales?: boolean } = {},
+  options: { client?: pg.PoolClient; allowEmptyJournalFromOlderBackup?: boolean; allowEmptySupportFromOlderBackup?: boolean; allowLegacyVariantSales?: boolean; allowGalleryRepublish?: boolean } = {},
 ): Promise<{ tables: number; rows: number }> {
   const raw = await fsp.readFile(file);
   const buffer = file.endsWith(".gz") ? gunzipSync(raw) : raw;
@@ -232,6 +232,23 @@ export async function restoreBackup(
     const staff=payload.data.staff as Array<Record<string,unknown>>;
     for(const current of currentMfa.rows){const prior=staff.find(row=>row && row.subject===current.subject);const mfa=prior?.admin_mfa as MfaData|null|undefined;if(!mfa || mfa.secret!==current.admin_mfa.secret)throw new Error("بازیابی این پشتیبان تأیید دومرحله‌ای فعال را حذف یا جایگزین می‌کند و مسدود شد.");}
     for(const row of staff){if(!row || typeof row!=='object' || !row.admin_mfa)continue;const mfa=row.admin_mfa as MfaData;if(!mfaKey()||typeof row.subject!=='string'||typeof mfa.secret!=='string')throw new Error("کلید تأیید دومرحله‌ای برای بازیابی حساب‌ها موجود نیست.");try{open(mfa.secret,`admin-mfa:${row.subject}`)}catch{throw new Error("کلید تأیید دومرحله‌ای با پشتیبان سازگار نیست.")}}
+    // Restore must not silently re-publish an image that was removed,
+    // rejected, had consent withdrawn, or had its content changed since the
+    // backup. Lock the table through truncate to serialize moderation with this
+    // comparison. A disaster-recovery operator may explicitly override only
+    // after reviewing the public images and consent records.
+    await client.query('lock table gallery_items in access exclusive mode');
+    if(!options.allowGalleryRepublish){
+      const current=(await client.query<{id:string;moderation_status:string;consent_verified:boolean;image_url:string;caption:string;customer_handle:string}>("select id,moderation_status,consent_verified,image_url,caption,customer_handle from gallery_items")).rows;
+      const byId=new Map(current.map(row=>[row.id,row]));
+      for(const raw of payload.data.gallery_items??[]){
+        if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error("ردیف گالری در پشتیبان معتبر نیست.");
+        const saved=raw as Record<string,unknown>;if(saved.moderation_status!=='approved'||saved.consent_verified!==true)continue;
+        const row=typeof saved.id==='string'?byId.get(saved.id):undefined;
+        if(!row||row.moderation_status!=='approved'||!row.consent_verified||row.image_url!==saved.image_url||row.caption!==saved.caption||row.customer_handle!==saved.customer_handle)
+          throw new Error("این پشتیبان ممکن است تصویر گالری حذف‌شده، ردشده یا تغییرکرده را دوباره منتشر کند؛ ابتدا تصاویر و رضایت را بازبینی کنید.");
+      }
+    }
     const ident = (name:string) => `"${name.replace(/"/g, '""')}"`;
     // Foreign keys and append-only triggers must not block a full replace;
     // this requires an appropriately privileged database maintenance role.
@@ -247,6 +264,9 @@ export async function restoreBackup(
       const restored = table === "price_rules" ? list.map(row => {
         if (!row || typeof row !== "object" || Array.isArray(row)) return row;
         return Object.prototype.hasOwnProperty.call(row, "free_shipping") ? row : { ...row, free_shipping: false };
+      }) : table === "gallery_items" ? list.map(row => {
+        if(!row || typeof row!=="object" || Array.isArray(row)) return row;
+        return Object.hasOwn(row,"moderation_version") ? row : {...row,moderation_version:0};
       }) : table === "staff" ? list.map(row => {
         if(!row || typeof row!=="object" || Array.isArray(row)) return row;
         const obj=row as Record<string,unknown>;if(!obj.admin_mfa)return row;

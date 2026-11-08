@@ -32,7 +32,7 @@ const fixtures: Record<string, unknown> = {
   "/api/commerce/admin/inventory/adjustments": [{ id: "adj-1", variantId: "v-1", delta: 2, reason: "شمارش", requestedBy: "warehouse", status: "pending", approvedBy: null, note: "", createdAt: new Date().toISOString() }],
   "/api/commerce/admin/inventory/movements?limit=200": [],
   "/api/admin/journal": {enabled:false,items:[]},
-  "/api/admin/gallery": [{ id: "gal-1", handle: "کاربر", imageUrl: "/uploads/test.jpg", caption: "تصویر", status: "pending", consentVerified: true, submittedAt: new Date().toISOString() }],
+  "/api/admin/gallery": [{ id: "gal-1", handle: "کاربر", imageUrl: "/uploads/test.jpg", caption: "تصویر", status: "pending", consentVerified: true, version:0, submittedAt: new Date().toISOString() }],
   "/api/admin/customer-labels": {labels:[],customers:[{ email:"customer@example.test", name:"مشتری",phone:null,createdAt:new Date().toISOString(),deliveredOrders:0,manualLabels:[],automaticLabels:[],labels:[] }]},
   "/api/admin/staff": { staff: [], roles: [] },
   "/api/admin/roles": { groups: [] },
@@ -52,6 +52,8 @@ const fixtures: Record<string, unknown> = {
 globalThis.fetch = async (request, init) => {
   const path = String(request); const method = init?.method || "GET"; const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   requests.push({ path, method, body });
+  if (method === "GET" && path.startsWith("/api/commerce/admin/payment-exceptions/page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/payments?status=exception"],nextCursor:null}));
+  if (method === "GET" && path.startsWith("/api/admin/gallery/page?")) return new Response(JSON.stringify({items:fixtures["/api/admin/gallery"],nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/commerce/admin/refund-page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/refunds"],nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/commerce/admin/order-page?")) {
     const q=new URLSearchParams(path.split("?")[1]);
@@ -276,7 +278,7 @@ await click("کنترل کیفیت: قرنطینه");
 assert.ok(requests.some(r => r.path === "/api/commerce/admin/refunds/rfd-1/qc" && r.body?.result === "defective"));
 await click("گالری مشتریان و نظرات");
 await click("تأیید انتشار");
-assert.ok(requests.some(r => r.path === "/api/admin/gallery/gal-1" && r.method === "PATCH" && r.body?.status === "approved"));
+assert.ok(requests.some(r => r.path === "/api/admin/gallery/gal-1" && r.method === "PATCH" && r.body?.status === "approved" && r.body?.expectedVersion === 0));
 console.log("OK inventory approval and gallery moderation requests (mock transport)");
 await act(async () => root.unmount());
 fixtures["/api/admin/me"] = { authenticated:true, subject:"review-owner", permissions, openAccess:true };

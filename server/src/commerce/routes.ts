@@ -863,6 +863,16 @@ export async function commerceRoutes(app: FastifyInstance) {
     return rows.rows;
   });
 
+  app.get<{Querystring:{before?:string;limit?:string;search?:string}}>("/api/commerce/admin/payment-exceptions/page",async(req,reply)=>{
+    reply.header("cache-control","private, no-store");await requirePermission(req,"finance:view");
+    const {before,limit='40',search=''}=req.query;
+    if((before!==undefined&&(typeof before!=='string'||!before||before.length>200))||typeof limit!=='string'||!/^(?:[1-9]|[1-9][0-9]|100)$/.test(limit)||typeof search!=='string'||search.length>120)throw new CommerceError("فیلتر یا نشانگر صفحه معتبر نیست.",422,"validation_error");
+    const term=search.trim();const matches="status='exception' and ($2='' or strpos(lower(id),lower($2))>0 or strpos(lower(checkout_id),lower($2))>0 or strpos(lower(coalesce(order_id,'')),lower($2))>0)";
+    if(before&&!(await query(`select 1 from payment_attempts where id=$1 and ${matches}`,[before,term])).rowCount)throw new CommerceError("نشانگر صفحه معتبر نیست؛ فهرست را تازه کنید.",422,"invalid_cursor");
+    const rows=await query<{id:string;checkout_id:string;order_id:string|null;provider:string;amount:string;last_error:string|null;created_at:Date}>(`select id,checkout_id,order_id,provider,amount,last_error,created_at from payment_attempts where ${matches} and ($1::text is null or (created_at,id)<(select created_at,id from payment_attempts where id=$1)) order by created_at desc,id desc limit $3`,[before??null,term,Number(limit)+1]);
+    const items=rows.rows.slice(0,Number(limit));return {items:items.map(r=>({id:r.id,checkoutId:r.checkout_id,orderId:r.order_id,provider:r.provider,amount:Number(r.amount),lastError:['duplicate_checkout_capture','payment_initiation_unconfirmed'].includes(r.last_error??'')?r.last_error:null,createdAt:r.created_at})),nextCursor:rows.rows.length>Number(limit)?items[items.length-1].id:null};
+  });
+
   app.get<{ Querystring: { status?: string } }>("/api/commerce/admin/payments", async (req) => {
     await requirePermission(req,"finance:view");
     const rows = await query<PaymentAttemptRow>(

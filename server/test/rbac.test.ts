@@ -185,6 +185,58 @@ test("admin order pages cover older orders, filters, access and stable timestamp
   } finally {await query("delete from orders where id like $1",[prefix+"%"]);}
 });
 
+test("finance exception queue pages and searches all records without sensitive provider data",async()=>{
+  const {client:viewer}=await staffWith(['finance:view'],'finance-page-viewer','finance-page-user','finance-page-pass');const {client:denied}=await staffWith(['orders:view'],'finance-page-denied','finance-page-denied-user','finance-page-denied-pass');const guest=makeClient(),prefix='test-finance-page-',checkout=prefix+'checkout';
+  try{
+    await query("insert into checkout_sessions(id,quote,quote_version) values ($1,'{}','v1')",[checkout]);
+    await query(`insert into payment_attempts(id,checkout_id,order_id,provider,amount,status,provider_ref,last_error,raw,created_at)
+      select $1||lpad(n::text,4,'0'),$2,case when n=1 then 'old-order-marker' else null end,'mock',10,case when n=216 then 'settled' else 'exception' end,'PRIVATE-REFERENCE',case when n=2 then 'duplicate_checkout_capture' else 'PRIVATE-ERROR' end,'{"secret":"PRIVATE-RAW"}', '2020-01-01 00:00:00.123456+00'::timestamptz from generate_series(1,216)n`,[prefix,checkout]);
+    const path='/api/commerce/admin/payment-exceptions/page';assert.equal((await guest.get(path)).status,401);assert.equal((await denied.get(path)).status,403);
+    for(const suffix of ['?limit=0','?limit=101','?before=missing','?before='+prefix+'0216'])assert.equal((await viewer.get(path+suffix)).status,422);
+    const headers=await fetch(base+path,{headers:{cookie:viewer.cookie()}});assert.match(headers.headers.get('cache-control')??'',/no-store/);await headers.text();
+    let cursor='',ids:string[]=[];do{const r=await viewer.get(path+'?limit=40&search='+prefix+(cursor?'&before='+cursor:''));assert.equal(r.status,200);assert(!JSON.stringify(r.body).includes('PRIVATE-'));ids.push(...r.body.items.map((x:any)=>x.id));cursor=r.body.nextCursor??''}while(cursor);
+    assert.equal(ids.length,215);assert.equal(new Set(ids).size,215);assert.equal(ids[0],prefix+'0215');assert.equal(ids[214],prefix+'0001');
+    const old=await viewer.get(path+'?search=old-order-marker');assert.deepEqual(old.body.items.map((x:any)=>x.id),[prefix+'0001']);
+    const known=await viewer.get(path+'?search='+prefix+'0002');assert.equal(known.body.items[0].lastError,'duplicate_checkout_capture');
+    await query("update payment_attempts set status='settled' where id=$1",[prefix+'0040']);assert.equal((await viewer.get(path+'?before='+prefix+'0040')).status,422);
+  }finally{await query('delete from checkout_sessions where id=$1',[checkout])}
+});
+
+test("gallery pages, consent enforcement and versioned moderation are protected and atomic",async()=>{
+  const {admin,client:viewer}=await staffWith(['content:view'],'gallery-page-viewer','gallery-page-user','gallery-page-pass');
+  const {client:denied}=await staffWith(['dashboard:view'],'gallery-page-denied','gallery-page-denied-user','gallery-page-denied-pass');
+  const guest=makeClient(),prefix='test-gallery-page-';
+  try{
+    await query(`insert into gallery_items(id,customer_handle,email,image_url,caption,moderation_status,consent_verified,submitted_at,moderated_by)
+      select $1||lpad(n::text,4,'0'),'user-'||n,'private@example.com','/uploads/test.jpg','caption '||n,
+      case when n<=74 then 'approved' else 'pending' end,n<>74,'2020-01-01 00:00:00.123456+00'::timestamptz,'PRIVATE-MODERATOR' from generate_series(1,215)n`,[prefix]);
+    const legacyPublic=await fetch(base+'/api/gallery');assert.match(legacyPublic.headers.get('cache-control')??'',/no-store/);await legacyPublic.text();
+    const path='/api/admin/gallery/page';assert.equal((await guest.get(path)).status,401);assert.equal((await denied.get(path)).status,403);
+    assert.equal((await viewer.patch('/api/admin/gallery/'+prefix+'0215',{status:'rejected',expectedVersion:0})).status,403);
+    for(const suffix of ['?limit=21','?limit=0','?status=bogus','?before=missing'])assert.equal((await viewer.get(path+suffix)).status,422);
+    assert.equal((await viewer.get(path+'?status=pending&before='+prefix+'0001')).status,422);
+    const header=await fetch(base+path,{headers:{cookie:viewer.cookie()}});assert.match(header.headers.get('cache-control')??'',/no-store/);await header.text();
+    let cursor='',ids:string[]=[];do{const r=await viewer.get(path+'?status=all&search='+prefix+'&limit=12'+(cursor?'&before='+cursor:''));assert.equal(r.status,200);assert(!JSON.stringify(r.body).includes('private@example.com'));ids.push(...r.body.items.map((item:any)=>item.id));cursor=r.body.nextCursor??''}while(cursor);
+    assert.equal(ids.length,215);assert.equal(new Set(ids).size,215);assert.equal(ids[0],prefix+'0215');assert.equal(ids[214],prefix+'0001');
+    const pending=await viewer.get(path+'?status=pending&search=user-215');assert.deepEqual(pending.body.items.map((x:any)=>x.id),[prefix+'0215']);
+    assert.equal((await guest.get('/api/gallery/page?before='+prefix+'0215')).status,422);
+    cursor='';ids=[];do{const r=await guest.get('/api/gallery/page?limit=12'+(cursor?'&before='+cursor:''));assert.equal(r.status,200);assert(!JSON.stringify(r.body).includes('PRIVATE-MODERATOR'));assert(!JSON.stringify(r.body).includes('private@example.com'));assert(r.body.items.every((x:any)=>!('status' in x)&&!('version' in x)));ids.push(...r.body.items.map((x:any)=>x.id));cursor=r.body.nextCursor??''}while(cursor);
+    assert.equal(ids.length,73);assert.equal(new Set(ids).size,73);assert(!ids.includes(prefix+'0074'));
+    const unconsented=await admin.patch('/api/admin/gallery/'+prefix+'0074',{status:'approved',expectedVersion:0});assert.equal(unconsented.status,409);assert.equal(unconsented.body.code,'consent_required');
+    assert.equal((await admin.patch('/api/admin/gallery/'+prefix+'0215',{status:'approved'})).status,400);
+    const priorEvents=Number((await query("select count(*)::int as n from audit_events where target_id=$1 and action like 'gallery.%'",[prefix+'0215'])).rows[0].n);
+    const pathItem='/api/admin/gallery/'+prefix+'0215';const race=await Promise.all([admin.patch(pathItem,{status:'approved',expectedVersion:0}),admin.patch(pathItem,{status:'rejected',expectedVersion:0})]);assert.deepEqual(race.map(r=>r.status).sort(),[200,409]);const winner=race.find(r=>r.status===200)!;assert.equal(winner.body.item.version,1);
+    assert.equal((await admin.patch(pathItem,{status:'pending',expectedVersion:1})).status,200);assert.equal((await admin.patch(pathItem,{status:'approved',expectedVersion:0})).status,409,'ABA is prevented by version');
+    const events=await query("select before::text,after::text from audit_events where target_id=$1 and action like 'gallery.%'",[prefix+'0215']);assert.equal(events.rows.length,priorEvents+2);assert(!JSON.stringify(events.rows).includes('private@example.com'));
+    await query(`create or replace function test_fail_gallery_audit() returns trigger language plpgsql as $$ begin if new.target_id='test-gallery-page-0214' and new.action like 'gallery.%' then raise exception 'injected audit failure'; end if; return new; end $$`);
+    await query('create trigger test_fail_gallery_audit before insert on audit_events for each row execute function test_fail_gallery_audit()');
+    try{assert.equal((await admin.patch('/api/admin/gallery/'+prefix+'0214',{status:'approved',expectedVersion:0})).status,500);const row=(await query('select moderation_status,moderation_version from gallery_items where id=$1',[prefix+'0214'])).rows[0];assert.equal(row.moderation_status,'pending');assert.equal(row.moderation_version,0)}finally{await query('drop trigger if exists test_fail_gallery_audit on audit_events');await query('drop function if exists test_fail_gallery_audit()')}
+    const {dumpAll,restoreBackup}=await import('../src/backup'),{withTransaction}=await import('../src/db'),{stringify}=await import('lossless-json');const fs=await import('node:fs/promises'),os=await import('node:os'),pathlib=await import('node:path');const dir=await fs.mkdtemp(pathlib.join(os.tmpdir(),'gallery-backup-'));try{const backup=await dumpAll();for(const row of backup.data.gallery_items as Record<string,unknown>[])delete row.moderation_version;const file=pathlib.join(dir,'old.json');await fs.writeFile(file,stringify(backup)!);await withTransaction(async client=>{await restoreBackup(file,{client});const row=(await client.query('select moderation_version from gallery_items where id=$1',[prefix+'0215'])).rows[0];assert.equal(row.moderation_version,0);throw Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'));
+      await withTransaction(async client=>{await client.query("update gallery_items set moderation_status='rejected' where id=$1",[prefix+'0001']);await assert.rejects(()=>restoreBackup(file,{client}),/دوباره منتشر/);const row=(await client.query('select moderation_status from gallery_items where id=$1',[prefix+'0001'])).rows[0];assert.equal(row.moderation_status,'rejected');throw Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'));
+      await withTransaction(async client=>{await client.query("delete from gallery_items where id=$1",[prefix+'0001']);await restoreBackup(file,{client,allowGalleryRepublish:true});const row=(await client.query('select moderation_status from gallery_items where id=$1',[prefix+'0001'])).rows[0];assert.equal(row.moderation_status,'approved');throw Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'))}finally{await fs.rm(dir,{recursive:true,force:true})}
+  }finally{await query('drop trigger if exists test_fail_gallery_audit on audit_events');await query('drop function if exists test_fail_gallery_audit()');await query('delete from gallery_items where id like $1',[prefix+'%'])}
+});
+
 test("SMS endpoint requires permission and rejects ambiguous provider responses",async()=>{
   const {client:editor}=await staffWith(["customers:edit"],"sms-editor-test","sms-editor-user","sms-editor-pass");
   const {client:reader}=await staffWith(["customers:view"],"sms-reader-test","sms-reader-user","sms-reader-pass");

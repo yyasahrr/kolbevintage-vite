@@ -24,7 +24,8 @@ import { LiveDashboard } from "@/components/admin/LiveDashboard";
 import { MarketingModule, BrandModule, SettingsModule, FinanceModule, AnalyticsModule } from "@/components/admin/CommerceModules";
 import { ProductCreate } from "@/components/admin/ProductCreate";
 import { ReturnsModule } from "@/components/admin/ReturnsModule";
-import { GalleryModule, CustomersModule, ManualOrder, StaffModule, AuditModule, ProductEditor, type Product, type Order, type Stock } from "@/components/admin/LiveModules";
+import { GalleryModule } from "@/components/admin/GalleryModeration";
+import { CustomersModule, ManualOrder, StaffModule, AuditModule, ProductEditor, type Product, type Order, type Stock } from "@/components/admin/LiveModules";
 
 type Section = "accountSecurity" | "looks" | "colors" | "support" | "sizeSets" | "print" | "journal" | "dashboard" | "categories" | "products" | "inventory" | "inventoryLabels" | "inventoryActivity" | "orders" | "manual" | "fulfillment" | "gallery" | "customers" | "staff" | "audit" | "returns" | "marketing" | "brand" | "stylePacks" | "settings" | "finance" | "analytics";
 type Identity = { authenticated: boolean; subject: string | null; role?:string|null; staff?: { name: string; roleName: string } | null; permissions: string[]; openAccess: boolean };
