@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { validateVisual, type VisualData } from "../../../shared/visual-schema";
 import type { FastifyInstance } from "fastify";
 import { query, withTransaction } from "../db";
 import { requirePermission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
 import { conflict, notFound, validation } from "../commerce/errors";
+import { prepareProductImage } from "../image-upload";
 import { hasUnsupportedCampaignRestrictions } from "../commerce/promotions";
 
 type Block = {
@@ -22,6 +24,7 @@ type Draft = {
   title: string;
   version: number;
   blocks: Block[];
+  visual?: VisualData;
   updatedAt: string;
   archived?: boolean;
 };
@@ -119,6 +122,12 @@ function data(raw: unknown): Draft[] {
   return raw.drafts as Draft[];
 }
 export async function studioDraftRoutes(app: FastifyInstance) {
+  app.post<{Body:unknown}>("/api/admin/studio/image",async req=>{
+    const actor=await requirePermission(req,"design:edit");
+    if(!obj(req.body)||Object.keys(req.body).join(",")!=="imageData")throw validation("فایل تصویر معتبر نیست.");
+    const upload=await prepareProductImage(req.body.imageData);
+    try{await recordAudit({actor:actor.subject,action:"design.studio_image_uploaded",targetType:"upload",targetId:upload.url,requestId:req.id});return {url:upload.url};}catch(e){await upload.discard();throw e;}
+  });
   app.get("/api/admin/studio/drafts", async (req, reply) => {
     await requirePermission(req, "design:view");
     reply.header("cache-control", "private, no-store");
@@ -196,6 +205,7 @@ export async function studioDraftRoutes(app: FastifyInstance) {
           index = drafts.findIndex((d) => d.id === req.params.id);
         if (index < 0) throw notFound("پیش‌نویس پیدا نشد.");
         const old = drafts[index];
+        if (old.visual) throw conflict("این پیش‌نویس با صفحه‌ساز تصویری ساخته شده و در ویرایشگر قدیمی قابل تغییر نیست.", "studio_visual_draft");
         if (old.archived)
           throw conflict(
             "پیش‌نویس بایگانی شده است؛ ابتدا آن را بازگردانید.",
@@ -239,6 +249,29 @@ export async function studioDraftRoutes(app: FastifyInstance) {
       });
     },
   );
+  app.patch<{ Params: { id: string }; Body: unknown }>("/api/admin/studio/drafts/:id/visual", async (req) => {
+    const actor = await requirePermission(req,"design:edit");
+    const body=req.body;
+    if(!obj(body)||Object.keys(body).sort().join(",")!=="expectedVersion,title,visual"||!Number.isSafeInteger(body.expectedVersion)||Number(body.expectedVersion)<0)throw validation("نسخه و اطلاعات پیش‌نویس لازم است.");
+    const name=title(body.title);let visual:VisualData;
+    try { visual=validateVisual(body.visual); } catch { throw validation("ساختار صفحه یا تنظیمات ویجت معتبر نیست."); }
+    if(Buffer.byteLength(JSON.stringify(visual),"utf8")>300_000)throw validation("حجم صفحه بیش از حد مجاز است.");
+    return withTransaction(async client=>{
+      const locked=await client.query<{value:unknown}>("select value from state_documents where key='studio_drafts' for update");
+      if(!locked.rows.length)throw notFound("پیش‌نویس پیدا نشد.");
+      const drafts=data(locked.rows[0].value);const index=drafts.findIndex(d=>d.id===req.params.id);
+      if(index<0)throw notFound("پیش‌نویس پیدا نشد.");const old=drafts[index];
+      if(old.archived)throw conflict("پیش‌نویس بایگانی شده است.","studio_draft_archived");
+      if(old.version!==body.expectedVersion)throw conflict("پیش‌نویس هم‌زمان تغییر کرده است؛ ابتدا آن را تازه کنید.","studio_draft_stale");
+      if(old.version>=2147483647)throw conflict("نسخه بیش از حد مجاز است.","studio_version_exhausted");
+      if(!old.visual&&old.blocks.length)throw conflict("پیش‌نویس قدیمی را نمی‌توان بدون مهاجرت بازنویسی کرد. یک پیش‌نویس تازه بسازید.","studio_legacy_draft");
+      const next:Draft={...old,title:name,visual,version:old.version+1,updatedAt:new Date().toISOString()};drafts[index]=next;
+      if(Buffer.byteLength(JSON.stringify({drafts}),"utf8")>4_000_000)throw conflict("حجم پیش‌نویس‌ها به سقف رسیده است.","studio_storage_limit");
+      await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='studio_drafts'",[JSON.stringify({drafts})]);
+      await recordAudit({actor:actor.subject,action:"design.studio_visual_updated",targetType:"studio_draft",targetId:next.id,before:{version:old.version},after:{version:next.version,widgets:visual.content.length},requestId:req.id},client);
+      return next;
+    });
+  });
 }
 
 // A dedicated namespace never replaces an existing store page. Published
@@ -250,6 +283,7 @@ type Snapshot = {
   draftVersion: number;
   title: string;
   blocks: Block[];
+  visual?: VisualData;
   publishedAt: string;
 };
 type Page = {
@@ -432,7 +466,47 @@ export async function studioLifecycleRoutes(app: FastifyInstance) {
     },
   );
 }
+type HomeSelection = {slug:string; pageRevision:number} | null;
+type StudioHome = {revision:number; selection:HomeSelection};
+function homeData(value:unknown):StudioHome {
+  if(!obj(value)||!Number.isSafeInteger(value.revision)||Number(value.revision)<0||Number(value.revision)>=2147483647)throw conflict("تنظیم صفحهٔ اصلی معتبر نیست.","studio_home_invalid");
+  if(value.selection!==null){if(!obj(value.selection)||typeof value.selection.slug!=='string'||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.selection.slug)||value.selection.slug.length>64||!Number.isSafeInteger(value.selection.pageRevision)||Number(value.selection.pageRevision)<1)throw conflict("تنظیم صفحهٔ اصلی معتبر نیست.","studio_home_invalid");}
+  return value as StudioHome;
+}
 export async function studioPageRoutes(app: FastifyInstance) {
+  // The binding is pinned to one published revision. Republish, restore or
+  // unpublish automatically falls back to the previous home, not a new design.
+  app.get("/api/studio/home",async (_req,reply)=>{
+    reply.header("cache-control","no-store");
+    const res=await query<{key:string;value:unknown}>("select key,value from state_documents where key in ('studio_home','studio_pages')");
+    const docs=Object.fromEntries(res.rows.map(r=>[r.key,r.value]));
+    if(!docs.studio_home||!docs.studio_pages)return {page:null};
+    const selection=homeData(docs.studio_home).selection;if(!selection)return {page:null};
+    const page=pagesData(docs.studio_pages).find(p=>p.slug===selection.slug&&p.active&&p.revision===selection.pageRevision);
+    if(!page?.current.visual)return {page:null};
+    try{return {page:{title:page.current.title,visual:validateVisual(page.current.visual)}}}catch{return {page:null}};
+  });
+  app.get("/api/admin/studio/home",async (req,reply)=>{
+    await requirePermission(req,"design:view");reply.header("cache-control","private, no-store");
+    const res=await query<{value:unknown}>("select value from state_documents where key='studio_home'");
+    return res.rows.length?homeData(res.rows[0].value):{revision:0,selection:null};
+  });
+  app.patch<{Body:unknown}>("/api/admin/studio/home",async req=>{
+    const actor=await requirePermission(req,"design:edit");await requirePermission(req,"content:publish");const body=req.body;
+    if(!obj(body)||Object.keys(body).sort().join(',')!=='expectedRevision,pageRevision,slug'||!Number.isSafeInteger(body.expectedRevision)||Number(body.expectedRevision)<0||Number(body.expectedRevision)>=2147483647)throw validation("اطلاعات اتصال صفحهٔ اصلی معتبر نیست.");
+    const slug=body.slug===null?null:slugValue(body.slug);const pageRevision=body.pageRevision;
+    if(slug===null?pageRevision!==null:(!Number.isSafeInteger(pageRevision)||Number(pageRevision)<1))throw validation("نسخهٔ انتشار معتبر نیست.");
+    return withTransaction(async client=>{
+      await client.query("insert into state_documents(key,value) values('studio_home','{\"revision\":0,\"selection\":null}'::jsonb) on conflict(key) do nothing");
+      const old=homeData((await client.query<{value:unknown}>("select value from state_documents where key='studio_home' for update")).rows[0].value);
+      if(old.revision!==body.expectedRevision)throw conflict("اتصال صفحهٔ اصلی هم‌زمان تغییر کرده است؛ ابتدا تازه کنید.","studio_home_stale");
+      if(old.revision>=2147483646)throw conflict("نسخه بیش از حد مجاز است.","studio_home_version_exhausted");
+      if(slug){const pages=await lockedPages(client);const page=pages.find(p=>p.slug===slug&&p.active&&p.revision===pageRevision);if(!page?.current.visual)throw conflict("نسخهٔ تصویری منتشرشده پیدا نشد یا تغییر کرده است.","studio_home_page_stale");try{validateVisual(page.current.visual)}catch{throw validation("ساختار صفحه تصویری معتبر نیست.")}}
+      const next:StudioHome={revision:old.revision+1,selection:slug?{slug,pageRevision:Number(pageRevision)}:null};
+      await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='studio_home'",[JSON.stringify(next)]);
+      await recordAudit({actor:actor.subject,action:"design.studio_home_updated",targetType:"studio_home",targetId:"home",before:old,after:next,requestId:req.id},client);return next;
+    });
+  });
   app.get("/api/studio/pages/:slug", async (req, reply) => {
     const slug = slugValue((req.params as { slug: string }).slug);
     const result = await query<{ value: unknown }>(
@@ -483,6 +557,7 @@ export async function studioPageRoutes(app: FastifyInstance) {
           b.type !== "campaign" ||
           (!!b.campaignId && eligible.has(b.campaignId)),
       ),
+      ...(page.current.visual ? {visual: page.current.visual} : {}),
       publishedAt: page.current.publishedAt,
     };
   });
@@ -526,8 +601,10 @@ export async function studioPageRoutes(app: FastifyInstance) {
         if (draft.archived)
           throw conflict("پیش‌نویس بایگانی شده است.", "studio_draft_archived");
         const blocks = checkedBlocks(draft.blocks);
-        if (!blocks.length)
-          throw validation("برای انتشار دست‌کم یک بلوک لازم است.");
+        let visual:VisualData|undefined;
+        if(draft.visual){try{visual=validateVisual(draft.visual);}catch{throw validation("ساختار صفحه تصویری معتبر نیست.");}}
+        if (!(visual ? visual.content.length : blocks.length))
+          throw validation("برای انتشار دست‌کم یک ویجت لازم است.");
         const pages = await lockedPages(client),
           index = pages.findIndex((p) => p.slug === slug),
           old = pages[index];
@@ -550,6 +627,7 @@ export async function studioPageRoutes(app: FastifyInstance) {
           draftVersion: draft.version,
           title: title(draft.title),
           blocks,
+          ...(visual ? {visual} : {}),
           publishedAt: new Date().toISOString(),
         };
         const page: Page = {

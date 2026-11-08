@@ -1,0 +1,10 @@
+.kv-visual-heading { font-size: var(--kv-heading-desktop); }
+.kv-visual-section { padding: var(--kv-padding-desktop); }
+@media (max-width: 1023px) {
+  .kv-visual-heading { font-size: var(--kv-heading-tablet); }
+  .kv-visual-section { padding: var(--kv-padding-tablet); }
+}
+@media (max-width: 639px) {
+  .kv-visual-heading { font-size: var(--kv-heading-mobile); }
+  .kv-visual-section { padding: var(--kv-padding-mobile); }
+}

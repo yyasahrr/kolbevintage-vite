@@ -20,6 +20,7 @@ type Draft = {
   blocks: Block[];
   updatedAt: string;
   archived?: boolean;
+  visual?: unknown;
 };
 type API = {
   get<T>(path: string): Promise<T>;
@@ -130,15 +131,16 @@ export function StudioDrafts({
   }, [dirty]);
   const load = useCallback(async () => {
     const list = await api.get<Draft[]>("/api/admin/studio/drafts");
-    setRows(list);
-    return list;
+    const legacy = list.filter(d => !d.visual);
+    setRows(legacy);
+    return legacy;
   }, [api]);
   useEffect(() => {
     let mounted = true;
     api
       .get<Draft[]>("/api/admin/studio/drafts")
       .then((r) => {
-        if (mounted) setRows(r);
+        if (mounted) setRows(r.filter(d => !d.visual));
       })
       .catch((e) => {
         if (mounted)

@@ -1,4 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Render } from "@puckeditor/core/rsc";
+import { makeVisualConfig } from "../../shared/visual-config";
+import "../../shared/visual.css";
+import { validateVisual, type VisualData } from "../../shared/visual-schema";
+import { useOps } from "@/state/ops";
+import { Link } from "react-router-dom";
 import { useLiveCatalog } from "@/state/live-catalog";
 import { visibleProducts } from "@/data/catalog";
 import { ProductCard } from "@/components/ProductCard";
@@ -14,7 +20,7 @@ type Block = {
   image: string;
   video?: string;
 };
-type Page = { title: string; blocks: Block[] };
+type Page = { title: string; blocks: Block[]; visual?: VisualData };
 function safe(value: string | undefined, media = false) {
   if (!value || /[\u0000-\u0020\\]/.test(value)) return "";
   if (value.startsWith("/"))
@@ -29,9 +35,9 @@ function safe(value: string | undefined, media = false) {
     return "";
   }
 }
-function StudioProducts({ block }: { block: Block }) {
+function StudioProducts({ block, count = 8 }: { block: Block; count?: number }) {
   const catalog = useLiveCatalog();
-  const products = visibleProducts().slice(0, 8);
+  const products = visibleProducts().slice(0, count);
   return (
     <section
       style={{ maxWidth: "80rem", margin: "auto", padding: "3rem 1.25rem" }}
@@ -203,6 +209,23 @@ function StudioBlock({ block }: { block: Block }) {
     </section>
   );
 }
+function VisualCategories({heading,count}:{heading:string;count:number}) {
+  const ops=useOps();const categories=ops.categories.filter(c=>c.active).sort((a,b)=>a.order-b.order).slice(0,count);
+  return <section style={{maxWidth:'80rem',margin:'auto',padding:'3rem 1.25rem'}}><h2 style={{fontSize:'1.75rem',fontWeight:700}}>{heading}</h2><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:12,marginTop:20}}>{categories.map(c=><Link key={c.id} to={`/products?collection=${encodeURIComponent(c.id)}`} style={{padding:'20px',border:'1px solid #dedbe1',borderRadius:12,textAlign:'center'}}>{c.name}</Link>)}</div>{!categories.length&&<p>دستهٔ فعالی وجود ندارد.</p>}</section>;
+}
+const visualConfig = makeVisualConfig(({heading,count}) => <StudioProducts count={count} block={{id:'visual-products',type:'products',heading,text:'',buttonText:'',href:'',image:''}}/>,p=><VisualCategories {...p}/>);
+
+export function VisualStudioContent({title,visual}:{title:string;visual:VisualData}) {
+  return <div aria-label={title}><Render config={visualConfig} data={visual}/></div>;
+}
+export function VisualHomeSlot({children}:{children:React.ReactNode}) {
+  const [page,setPage]=useState<{title:string;visual:VisualData}|null>(null);
+  useEffect(()=>{let alive=true;let controller:AbortController|undefined;
+    const refresh=()=>{controller?.abort();controller=new AbortController();fetch('/api/studio/home',{cache:'no-store',signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('request');const data=await r.json();if(!data.page)return null;if(typeof data.page.title!=='string')throw Error('invalid');return {title:data.page.title,visual:validateVisual(data.page.visual)}}).then(v=>{if(alive)setPage(v)}).catch(e=>{if(alive&&e.name!=='AbortError')setPage(null)});};
+    const visible=()=>{if(document.visibilityState==='visible')refresh()};refresh();const timer=window.setInterval(visible,30000);window.addEventListener('focus',visible);document.addEventListener('visibilitychange',visible);return()=>{alive=false;controller?.abort();clearInterval(timer);window.removeEventListener('focus',visible);document.removeEventListener('visibilitychange',visible)};
+  },[]);
+  return page?<VisualStudioContent {...page}/>:<>{children}</>;
+}
 export function StudioPublicPage() {
   const { slug } = useParams();
   const [page, setPage] = useState<Page | null>(null),
@@ -266,6 +289,7 @@ export function StudioPublicPage() {
       document.title = old;
     };
   }, [page]);
+  const visual = useMemo(() => { if (!page?.visual) return null; try { return validateVisual(page.visual); } catch { return null; } }, [page]);
   if (state !== "ready")
     return (
       <div role="status" className="mx-auto max-w-3xl px-5 py-16 text-center">
@@ -278,7 +302,7 @@ export function StudioPublicPage() {
     );
   return (
     <div aria-label={page?.title}>
-      {page?.blocks.map((b) => (
+      {page?.visual ? visual ? <Render config={visualConfig} data={visual} /> : <p role="alert">ساختار صفحه معتبر نیست.</p> : page?.blocks.map((b) => (
         <StudioBlock key={b.id} block={b} />
       ))}
     </div>

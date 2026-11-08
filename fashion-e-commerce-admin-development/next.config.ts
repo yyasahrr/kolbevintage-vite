@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     "3000-ihweweh4oxtr7biflfpru.e2b.app",
     "*.e2b.app",
   ],
-  turbopack: { root: path.resolve(".") },
+  turbopack: { root: path.resolve("..") },
   images: {
     unoptimized: true,
   },

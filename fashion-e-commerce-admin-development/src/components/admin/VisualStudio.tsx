@@ -1,0 +1,44 @@
+"use client";
+import {useCallback,useEffect,useState} from 'react';
+import {createPortal} from 'react-dom';
+import dynamic from 'next/dynamic';
+import type {Data} from '@puckeditor/core';
+import {StudioPublishing} from './StudioPublishing';
+import {StudioHomeBinding} from './StudioHomeBinding';
+import {readProductImage} from './productImage';
+import type {VisualData} from '../../../../shared/visual-schema';
+const PuckEditor=dynamic(()=>import('./PuckEditor'),{ssr:false,loading:()=> <p className="p-8">در حال آماده‌سازی صفحه‌ساز…</p>});
+type Draft={id:string;title:string;version:number;blocks:unknown[];visual?:VisualData;archived?:boolean};
+type API={get<T>(p:string):Promise<T>;post<T>(p:string,b:object):Promise<T>;patch<T>(p:string,b:object):Promise<T>};
+const blank=():Data=>({root:{props:{}},content:[]});
+// Puck may include empty zones or editor-only metadata. Persist only the
+// component tree; the server independently validates every component/field.
+function clean(data:Data):unknown{
+  function item(v:Record<string,any>):unknown{const props:Record<string,unknown>={};for(const [k,value] of Object.entries(v.props||{}))props[k]=Array.isArray(value)?value.map(x=>item(x as Record<string,any>)):value;return {type:v.type,props};}
+  return {root:{props:{}},content:data.content.map(v=>item(v))};
+}
+export function VisualStudio({api,can,onDirtyChange}:{api:API;can:(p:string)=>boolean;onDirtyChange:(d:boolean)=>void}){
+  const [rows,setRows]=useState<Draft[]|null>(null),[selected,setSelected]=useState<Draft|null>(null),[title,setTitle]=useState(''),[name,setName]=useState('');
+  const [content,setContent]=useState<Data>(blank),[baseline,setBaseline]=useState(''),[editing,setEditing]=useState(false),[busy,setBusy]=useState(false),[uploading,setUploading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+  const snapshot=JSON.stringify({title,visual:clean(content)});const dirty=!!selected&&snapshot!==baseline;
+  useEffect(()=>{onDirtyChange(dirty);return()=>onDirtyChange(false)},[dirty,onDirtyChange]);
+  useEffect(()=>{if(!dirty)return;const warn=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue=''};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn)},[dirty]);
+  const load=useCallback(async()=>{const list=await api.get<Draft[]>('/api/admin/studio/drafts');setRows(list.filter(d=>!!d.visual||d.blocks.length===0));return list},[api]);
+  useEffect(()=>{let alive=true;api.get<Draft[]>('/api/admin/studio/drafts').then(list=>{if(alive)setRows(list.filter(d=>!!d.visual||d.blocks.length===0))}).catch(e=>{if(alive)setError(e instanceof Error?e.message:'دریافت پیش‌نویس‌ها ناموفق بود.')});return()=>{alive=false}},[api]);
+  function select(d:Draft|null){if(dirty&&!window.confirm('تغییرات ذخیره‌نشده کنار گذاشته شوند؟'))return;const visual=(d?.visual??blank()) as Data;setSelected(d);setTitle(d?.title??'');setContent(visual);setBaseline(d?JSON.stringify({title:d.title,visual:clean(visual)}):'');setNotice('');setError('');}
+  async function create(e:React.FormEvent){e.preventDefault();if(dirty&&!window.confirm('تغییرات ذخیره‌نشده کنار گذاشته شوند؟'))return;setBusy(true);setError('');try{const d=await api.post<Draft>('/api/admin/studio/drafts',{title:name.trim()});setRows(old=>[...(old??[]),d]);selectAfterCreate(d);setName('');setEditing(true);setNotice('پیش‌نویس ساخته شد. صفحه هنوز منتشر نشده است.')}catch(e){setError(e instanceof Error?e.message:'ساخت ناموفق بود.')}finally{setBusy(false)}}
+  function selectAfterCreate(d:Draft){const v=blank();setSelected(d);setTitle(d.title);setContent(v);setBaseline(JSON.stringify({title:d.title,visual:clean(v)}));}
+  async function save(data:Data=content){if(!selected||busy||uploading)return;setBusy(true);setError('');setNotice('');try{const visual=clean(data);const d=await api.patch<Draft>(`/api/admin/studio/drafts/${encodeURIComponent(selected.id)}/visual`,{title,visual,expectedVersion:selected.version});setRows(old=>old?.map(x=>x.id===d.id?d:x)??null);setSelected(d);setContent(d.visual as Data);setBaseline(JSON.stringify({title:d.title,visual:d.visual}));setNotice('پیش‌نویس ذخیره شد؛ انتشار جداگانه انجام می‌شود.')}catch(e){setError(`${e instanceof Error?e.message:'ذخیره ناموفق بود.'} در قطعی شبکه نتیجه ممکن است نامشخص باشد؛ پیش از تلاش دوباره اطلاعات را تازه کنید.`)}finally{setBusy(false)}}
+  const upload=useCallback(async(file:File)=>{setUploading(true);try{const imageData=await readProductImage(file);const result=await api.post<{url:string}>('/api/admin/studio/image',{imageData});return result.url}finally{setUploading(false)}},[api]);
+  function close(){if(busy||uploading)return;if(dirty&&!window.confirm('تغییرات ذخیره‌نشده کنار گذاشته شوند و ویرایشگر بسته شود؟'))return;if(dirty&&selected){const v=(selected.visual??blank()) as Data;setTitle(selected.title);setContent(v);setBaseline(JSON.stringify({title:selected.title,visual:clean(v)}));}setEditing(false)}
+  async function refresh(){if(dirty&&!window.confirm('تغییرات ذخیره‌نشده کنار گذاشته و فهرست تازه شود؟'))return;setBusy(true);setError('');try{const list=await load();const d=selected?list.find(x=>x.id===selected.id)??null:null;const v=(d?.visual??blank()) as Data;setSelected(d);setTitle(d?.title??'');setContent(v);setBaseline(d?JSON.stringify({title:d.title,visual:clean(v)}):'');setNotice('فهرست تازه شد.')}catch(e){setError(e instanceof Error?e.message:'دریافت ناموفق بود.')}finally{setBusy(false)}}
+  return <section aria-label="صفحه‌ساز تصویری" className="space-y-4 rounded-2xl border border-indigo-200 bg-white p-4">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-bold">صفحه‌ساز تصویری</h2><p className="mt-2 text-sm leading-7 text-slate-600">ویجت‌ها را روی بوم بکشید، انتخاب کنید و تنظیماتشان را تغییر دهید. ذخیره و انتشار دو مرحلهٔ جدا هستند.</p></div><button type="button" onClick={()=>void refresh()} disabled={busy} className="rounded-lg border px-3 py-2 text-sm">تازه‌سازی صفحه‌ها</button></div>
+    {error&&!editing&&<p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}{notice&&!editing&&<p role="status" className="rounded-lg bg-indigo-50 p-3 text-sm text-indigo-900">{notice}</p>}
+    <div className="grid gap-4 md:grid-cols-2"><label className="text-sm">پیش‌نویس تصویری<select aria-label="انتخاب پیش‌نویس تصویری" value={selected?.id??''} disabled={busy||!rows} onChange={e=>select(rows?.find(d=>d.id===e.target.value)??null)} className="mt-2 w-full rounded-lg border p-2"><option value="">انتخاب کنید…</option>{rows?.map(d=><option value={d.id} key={d.id}>{d.title} · نسخه {d.version}{d.archived?' · بایگانی':''}</option>)}</select></label>
+    {can('design:edit')&&<form onSubmit={e=>void create(e)} className="flex items-end gap-2"><label className="flex-1 text-sm">نام صفحه جدید<input required maxLength={120} disabled={!rows||busy} value={name} onChange={e=>setName(e.target.value)} className="mt-2 w-full rounded-lg border p-2"/></label><button disabled={!rows||busy} className="rounded-lg bg-indigo-700 px-3 py-2 text-sm text-white disabled:opacity-50">ساخت صفحه</button></form>}</div>
+    {selected&&<><p className="text-xs text-slate-600">پیش‌نویس نسخه {selected.version} {selected.archived?'· بایگانی':''}</p>{can('design:edit')&&!selected.archived&&<button type="button" className="rounded-lg bg-indigo-700 px-4 py-3 text-sm text-white" onClick={()=>setEditing(true)}>باز کردن صفحه‌ساز</button>}<StudioPublishing api={api} can={can} draft={selected} dirty={dirty||!selected.visual}/></>}
+    <p className="text-xs leading-6 text-slate-600">انتشار مستقل، صفحهٔ اصلی را تغییر نمی‌دهد. پیش‌نویس‌های قدیمی دست‌نخورده در ویرایشگر قبلی باقی می‌مانند.</p><StudioHomeBinding api={api} can={can}/>
+    {editing&&selected&&typeof document!=='undefined'&&createPortal(<div className="kv-puck-modal" role="dialog" aria-modal="true" aria-label="ویرایشگر تصویری صفحه"><div className="kv-puck-topbar"><button type="button" onClick={close} disabled={busy||uploading}>بازگشت</button><label>نام صفحه <input aria-label="نام صفحه تصویری" maxLength={120} value={title} onChange={e=>setTitle(e.target.value)} disabled={busy}/></label><span>{uploading?'در حال بارگذاری تصویر…':dirty?'تغییرات ذخیره نشده':!selected.visual?'هنوز ذخیرهٔ تصویری نشده':'ذخیره‌شده'}</span><button type="button" onClick={()=>void save()} disabled={busy||uploading}>ذخیره پیش‌نویس</button></div>{error&&<p role="alert" className="kv-puck-feedback">{error}</p>}{notice&&<p role="status" className="kv-puck-feedback">{notice}</p>}<div className="kv-puck-canvas" inert={busy}><PuckEditor key={selected.id} data={content} onChange={setContent} onSave={v=>void save(v)} upload={upload}/></div>{busy&&<div className="kv-puck-busy" role="status">در حال ذخیره…</div>}</div>,document.body)}
+  </section>
+}

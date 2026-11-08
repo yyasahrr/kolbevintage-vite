@@ -40,6 +40,7 @@ const fixtures: Record<string, unknown> = {
   "/api/admin/marketing": { rules: [], coupons: [] },
   "/api/admin/studio/drafts": [],
   "/api/admin/studio/pages": [],
+  "/api/admin/studio/home": {revision:0,selection:null},
   "/api/admin/store-brand": { name:"نام فروشگاه", logoText:"لوگو", tagline:"شعار", announcement:"اعلان", announcementActive:true, footerNote:"فوتر" },
   "/api/commerce/admin/settings": {shippingFlat:10,shippingExpress:20,freeShippingThreshold:100,reservationHoldMinutes:10,paymentWindowMinutes:10,quoteTtlMinutes:10,currency:"EUR"},
   "/api/admin/finance/summary": { groups: [], note:"مبالغ ثبت‌شده" },

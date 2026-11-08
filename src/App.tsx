@@ -21,7 +21,7 @@ import { AboutPage } from "@/pages/AboutPage";
 import { WishlistPage } from "@/pages/WishlistPage";
 import { CheckoutPage } from "@/pages/CheckoutPage";
 import { PaymentReturnPage } from "@/pages/PaymentReturnPage";
-import { StudioPublicPage } from "@/pages/StudioPublicPage";
+import { StudioPublicPage, VisualHomeSlot } from "@/pages/StudioPublicPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { adminUnlocked, openPanelForReview } from "@/state/admin";
@@ -123,7 +123,7 @@ function SiteRoutes() {
     <SiteShell>
       <Routes>
         {/* an owner-built page wins over the hand-written one, once published */}
-        <Route path="/" element={<CorePageSlot slug="home"><HomePage /></CorePageSlot>} />
+        <Route path="/" element={<VisualHomeSlot><CorePageSlot slug="home"><HomePage /></CorePageSlot></VisualHomeSlot>} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/product/:productId" element={<ProductPage />} />
         <Route path="/style" element={<StylePage />} />

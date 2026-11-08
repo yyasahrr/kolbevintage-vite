@@ -1,0 +1,21 @@
+"use client";
+import {useCallback,useEffect,useState} from 'react';
+type Selection={slug:string;pageRevision:number}|null;
+type Home={revision:number;selection:Selection};
+type Page={slug:string;revision:number;active:boolean;current:{title:string;visual?:unknown}};
+type API={get<T>(p:string):Promise<T>;patch<T>(p:string,b:object):Promise<T>};
+export function StudioHomeBinding({api,can}:{api:API;can:(p:string)=>boolean}){
+  const [home,setHome]=useState<Home|null>(null),[pages,setPages]=useState<Page[]>([]),[choice,setChoice]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+  const load=useCallback(async()=>{const [h,p]=await Promise.all([api.get<Home>('/api/admin/studio/home'),api.get<Page[]>('/api/admin/studio/pages')]);setHome(h);setPages(p);setChoice(h.selection?.slug??'')},[api]);
+  useEffect(()=>{let alive=true;Promise.all([api.get<Home>('/api/admin/studio/home'),api.get<Page[]>('/api/admin/studio/pages')]).then(([h,p])=>{if(alive){setHome(h);setPages(p);setChoice(h.selection?.slug??'')}}).catch(e=>{if(alive)setError(e instanceof Error?e.message:'دریافت اتصال ناموفق بود.')});return()=>{alive=false}},[api]);
+  const available=pages.filter(p=>p.active&&p.current.visual);const bound=home?.selection&&available.find(p=>p.slug===home.selection!.slug&&p.revision===home.selection!.pageRevision);const selected=available.find(p=>p.slug===choice);const allowed=can('design:edit')&&can('content:publish');
+  async function refresh(){setBusy(true);setError('');try{await load();setNotice('وضعیت تازه شد.')}catch(e){setError(e instanceof Error?e.message:'دریافت ناموفق بود.')}finally{setBusy(false)}}
+  async function apply(reset:boolean){if(!home||busy||!allowed||(!reset&&!selected))return;const msg=reset?'صفحهٔ اصلی به طرح قبلی برگردد؟':`نسخهٔ منتشرشدهٔ «${selected!.current.title}» جای محتوای فعلی صفحهٔ اصلی نمایش داده شود؟`;if(!window.confirm(msg))return;setBusy(true);setError('');setNotice('');try{const next=await api.patch<Home>('/api/admin/studio/home',{expectedRevision:home.revision,slug:reset?null:selected!.slug,pageRevision:reset?null:selected!.revision});setHome(next);setChoice(next.selection?.slug??'');setNotice(reset?'طرح قبلی صفحهٔ اصلی بازگردانده شد.':'نسخهٔ انتخاب‌شده به صفحهٔ اصلی متصل شد.')}catch(e){setError(`${e instanceof Error?e.message:'عملیات ناموفق بود.'} پیش از تلاش مجدد وضعیت را تازه کنید.`)}finally{setBusy(false)}}
+  return <section aria-label="اتصال صفحه اصلی" className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><div className="flex flex-wrap justify-between gap-2"><h3 className="font-bold">اتصال اختیاری به صفحهٔ اصلی</h3><button type="button" onClick={()=>void refresh()} disabled={busy} className="rounded-lg border bg-white px-3 py-2">تازه‌سازی اتصال</button></div>
+    <p className="leading-7">فقط نسخهٔ منتشرشده انتخاب می‌شود. طرح قبلی حذف نمی‌شود و با بازگشت قابل بازیابی است. انتشار مجدد، بازگردانی یا لغو انتشار صفحه باعث بازگشت خودکار به طرح قبلی می‌شود؛ برای نمایش نسخهٔ جدید دوباره آن را انتخاب کنید.</p>
+    {error&&<p role="alert" className="text-red-700">{error}</p>}{notice&&<p role="status">{notice}</p>}
+    <p>{!home?'در حال دریافت وضعیت…':!home.selection?'طرح قبلی صفحهٔ اصلی فعال است.':bound?`فعال: ${bound.current.title} · نسخهٔ انتشار ${bound.revision}`:'نسخهٔ انتخاب‌شده دیگر فعال نیست؛ طرح قبلی نمایش داده می‌شود.'}</p>
+    <label className="block">صفحهٔ تصویری منتشرشده<select aria-label="صفحه تصویری برای صفحه اصلی" className="mt-2 w-full rounded-lg border bg-white p-2" value={choice} disabled={busy||!allowed||!home} onChange={e=>setChoice(e.target.value)}><option value="">انتخاب کنید…</option>{available.map(p=><option value={p.slug} key={p.slug}>{p.current.title} · /{p.slug} · نسخه {p.revision}</option>)}</select></label>
+    {allowed?<div className="flex flex-wrap gap-2"><button type="button" onClick={()=>void apply(false)} disabled={busy||!home||!selected} className="rounded-lg bg-indigo-700 px-4 py-2 text-white disabled:opacity-50">نمایش در صفحهٔ اصلی</button><button type="button" onClick={()=>void apply(true)} disabled={busy||!home?.selection} className="rounded-lg border bg-white px-4 py-2 disabled:opacity-50">بازگرداندن طرح قبلی</button></div>:<p>برای تغییر، مجوز ویرایش طراحی و انتشار محتوا لازم است.</p>}
+  </section>;
+}

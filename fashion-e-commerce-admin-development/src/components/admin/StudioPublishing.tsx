@@ -31,6 +31,7 @@ export function StudioPublishing({
     title: string;
     version: number;
     blocks: unknown[];
+    visual?: unknown;
     archived?: boolean;
   } | null;
   dirty: boolean;
@@ -237,7 +238,7 @@ export function StudioPublishing({
                   !pages ||
                   dirty ||
                   !!draft.archived ||
-                  !draft.blocks.length ||
+                  !(draft.visual && typeof draft.visual === 'object' && 'content' in draft.visual && Array.isArray(draft.visual.content) ? draft.visual.content.length : draft.blocks.length) ||
                   !slug ||
                   (!!page && page.current.draftId !== draft.id)
                 }

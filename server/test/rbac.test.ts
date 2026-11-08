@@ -1624,6 +1624,47 @@ test('panel proxy never shared-caches the shell or RSC but keeps hashed static a
   }finally{if(proxy)await proxy.close();if(prev===undefined)delete process.env.ADMIN_PANEL_UPSTREAM;else process.env.ADMIN_PANEL_UPSTREAM=prev;await new Promise<void>((resolve,reject)=>server.close(err=>err?reject(err):resolve()))}
 });
 
+test('visual studio preserves legacy, validates widgets, permissions, version and publication', async () => {
+ const {admin,client:viewer}=await staffWith(['design:view'],'visual-viewer','visual-viewer-user','visual-viewer-pass');
+ const guest=makeClient();const path='/api/admin/studio/drafts';const slug=`visual-${Date.now()}`;
+ const draft=(await admin.post(path,{title:'صفحه تصویری آزمون'})).body;
+ const endpoint=`${path}/${draft.id}/visual`;
+ const visual={root:{props:{}},content:[{type:'Section',props:{id:'section-1',background:'#ffffff',padding:24,content:[{type:'Heading',props:{id:'heading-1',text:'عنوان واقعی',size:36,color:'#171429',align:'right'}},{type:'Button',props:{id:'button-1',text:'محصولات',url:'/products',align:'center',background:'#21184b',color:'#ffffff'}}]}},{type:'Products',props:{id:'products-1',heading:'محصولات',count:4}},{type:'Categories',props:{id:'categories-1',heading:'دسته‌ها',count:4}},{type:'Video',props:{id:'video-1',url:'https://example.com/video.mp4',poster:'',label:'ویدیو'}}]};
+ assert.equal((await guest.patch(endpoint,{title:'صفحه',visual,expectedVersion:0})).status,401);
+ assert.equal((await viewer.patch(endpoint,{title:'صفحه',visual,expectedVersion:0})).status,403);
+ assert.equal((await admin.patch(endpoint,{title:'صفحه',visual:{...visual,content:[{type:'Button',props:{id:'x',text:'x',url:'javascript:alert(1)',align:'right',background:'#ffffff',color:'#000000'}}]},expectedVersion:0})).status,422);
+ assert.equal((await admin.patch(endpoint,{title:'صفحه',visual:{...visual,content:[{type:'Heading',props:{id:'x',text:'x',size:999,color:'#000000',align:'right'}}]},expectedVersion:0})).status,422);
+ assert.equal((await admin.patch(endpoint,{title:'صفحه',visual:{...visual,content:[{type:'Unknown',props:{id:'x'}}]},expectedVersion:0})).status,422);
+ const saved=await admin.patch(endpoint,{title:'صفحه تصویری آزمون',visual,expectedVersion:0});assert.equal(saved.status,200,JSON.stringify(saved.body));assert.deepEqual(saved.body.visual,visual);
+ assert.equal((await admin.patch(endpoint,{title:'صفحه',visual,expectedVersion:0})).status,409);
+ assert.equal((await admin.patch(`${path}/${draft.id}`,{title:'ویرایش قدیمی',blocks:[],expectedVersion:1})).body.code,'studio_visual_draft');
+ const publish={slug,draftId:draft.id,expectedDraftVersion:1,expectedPageRevision:0};
+ assert.equal((await viewer.post('/api/admin/studio/pages/publish',publish)).status,403);
+ assert.equal((await guest.get(`/api/studio/pages/${slug}`)).status,404);
+ assert.equal((await admin.post('/api/admin/studio/pages/publish',publish)).status,200);
+ const publicPage=await guest.get(`/api/studio/pages/${slug}`);assert.deepEqual(publicPage.body.visual,visual);
+ const homePath='/api/admin/studio/home';const original=await admin.get(homePath);assert.equal(original.status,200);assert.equal(original.body.selection,null);
+ const binding={slug,pageRevision:1,expectedRevision:original.body.revision};
+ assert.equal((await guest.patch(homePath,binding)).status,401);assert.equal((await viewer.patch(homePath,binding)).status,403);
+ assert.equal((await admin.patch(homePath,{...binding,pageRevision:2})).status,409);
+ const bound=await admin.patch(homePath,binding);assert.equal(bound.status,200);assert.deepEqual(bound.body.selection,{slug,pageRevision:1});
+ assert.equal((await admin.patch(homePath,binding)).body.code,'studio_home_stale');assert.deepEqual((await guest.get('/api/studio/home')).body.page.visual,visual);
+
+ const changed:any=structuredClone(visual);changed.content[0].props.content[0].props.text='ویرایش نشده در انتشار';
+ assert.equal((await admin.patch(endpoint,{title:'بعدی',visual:changed,expectedVersion:1})).status,200);
+ assert.deepEqual((await guest.get(`/api/studio/pages/${slug}`)).body.visual,visual);
+ assert.equal((await admin.post(`/api/admin/studio/pages/${slug}/unpublish`,{expectedPageRevision:1})).status,200);
+ assert.equal((await guest.get(`/api/studio/pages/${slug}`)).status,404);
+ assert.equal((await guest.get('/api/studio/home')).body.page,null);
+ assert.equal((await admin.patch(homePath,{slug:null,pageRevision:null,expectedRevision:bound.body.revision})).status,200);
+ const old=(await admin.post(path,{title:'پیش نویس قدیمی'})).body;const block={id:'legacy',type:'text',heading:'قبلی',text:'',buttonText:'',href:'',image:''};
+ assert.equal((await admin.patch(`${path}/${old.id}`,{title:'قدیمی',blocks:[block],expectedVersion:0})).status,200);
+ assert.equal((await admin.patch(`${path}/${old.id}/visual`,{title:'قدیمی',visual,expectedVersion:1})).body.code,'studio_legacy_draft');
+ assert.deepEqual((await admin.get(path)).body.find((d:any)=>d.id===old.id).blocks,[block]);
+ const audit=await query("select action from audit_events where target_id=$1",[draft.id]);assert.ok(audit.rows.some(r=>r.action==='design.studio_visual_updated'));
+ assert.equal((await viewer.post('/api/admin/studio/image',{imageData:'invalid'})).status,403);
+});
+
 test('studio drafts are private, versioned, validated and cannot publish to the storefront', async () => {
   const {admin,client:viewer}=await staffWith(['design:view'],'studio-viewer','studio-viewer-user','studio-viewer-pass');const guest=makeClient();const path='/api/admin/studio/drafts';const before=(await query("select value from state_documents where key='ops'")).rows[0].value;
   assert.equal((await guest.get(path)).status,401);assert.equal((await viewer.post(path,{title:'unauthorized'})).status,403);
