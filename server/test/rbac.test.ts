@@ -185,6 +185,24 @@ test("admin order pages cover older orders, filters, access and stable timestamp
   } finally {await query("delete from orders where id like $1",[prefix+"%"]);}
 });
 
+test("SMS endpoint requires permission and rejects ambiguous provider responses",async()=>{
+  const {client:editor}=await staffWith(["customers:edit"],"sms-editor-test","sms-editor-user","sms-editor-pass");
+  const {client:reader}=await staffWith(["customers:view"],"sms-reader-test","sms-reader-user","sms-reader-pass");
+  const oldUrl=process.env.SMS_PROVIDER_URL,oldToken=process.env.SMS_PROVIDER_TOKEN,originalFetch=globalThis.fetch;
+  const endpoint="https://sms.example.test/send";let answer='{"RetStatus":1,"Value":"2"}',calls=0;
+  process.env.SMS_PROVIDER_URL=endpoint;process.env.SMS_PROVIDER_TOKEN="private-test-token";
+  globalThis.fetch=async(input,init)=>{if(String(input)===endpoint){calls++;return new Response(answer,{status:200})}return originalFetch(input,init)};
+  try{
+    assert.equal((await reader.post('/api/admin/sms',{to:'09121234567',body:'hello'})).status,403);
+    assert.equal((await editor.post('/api/admin/sms',{to:123,body:'hello'})).status,400);
+    const failed=await editor.post('/api/admin/sms',{to:'09121234567',body:'private message'});assert.equal(failed.status,502);assert.equal(failed.body.ok,false);
+    answer='{"accepted":true,"messageId":"fixture-123"}';const accepted=await editor.post('/api/admin/sms',{to:'۰۹۱۲۱۲۳۴۵۶۷',body:'private message'});
+    assert.deepEqual(accepted.body,{ok:true,messageId:'fixture-123',delivery:'unknown'});assert.equal(calls,2);
+    const events=(await query("select target_id, after::text from audit_events where action='sms.send' and actor='sms-editor-user' order by id desc limit 2")).rows;
+    assert.equal(events.length,2);for(const event of events)assert.doesNotMatch(JSON.stringify(event),/private message|private-test-token|09121234567/);
+  }finally{globalThis.fetch=originalFetch;if(oldUrl===undefined)delete process.env.SMS_PROVIDER_URL;else process.env.SMS_PROVIDER_URL=oldUrl;if(oldToken===undefined)delete process.env.SMS_PROVIDER_TOKEN;else process.env.SMS_PROVIDER_TOKEN=oldToken;}
+});
+
 test("dashboard order summary covers all orders, isolates stages and enforces view access", async () => {
   const {client:reader}=await staffWith(["orders:view"],"summary-reader","summary-user","summary-pass");
   const {client:denied}=await staffWith(["dashboard:view"],"summary-denied","summary-denied-user","summary-denied-pass");

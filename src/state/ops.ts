@@ -105,7 +105,7 @@ export interface SmsCampaign {
   /** 0 until a real provider confirms delivery — the panel never claims a send */
   sent: number;
   /** "prepared" = text is ready and handed to the phone's SMS app */
-  status?: "prepared" | "sent";
+  status?: "prepared" | "sent" | "accepted";
 }
 
 export interface IssueReport {

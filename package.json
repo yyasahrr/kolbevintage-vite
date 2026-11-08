@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
     "start": "SERVE_STATIC=1 REQUIRE_ADMIN_AUTH=1 NODE_ENV=production tsx server/src/index.ts",
     "test:commerce": "node --import tsx --test --test-force-exit --test-timeout=30000 server/test/commerce.test.ts",
-    "test": "npm run test:commerce && npm run test:rbac",
+    "test": "npm run test:sms && npm run test:commerce && npm run test:rbac",
     "audit:contrast": "node scripts/contrast-check.mjs",
     "audit:mobile": "node scripts/mobile-audit.mjs",
     "audit:purge": "node scripts/purge-dryrun.mjs",
@@ -60,7 +60,8 @@
     "recover:panel-path": "tsx scripts/reset-panel-path.ts",
     "test:browser-panel-path": "node --import tsx scripts/browser-panel-path-smoke.mjs",
     "test:browser-fulfillment": "node scripts/browser-fulfillment-smoke.mjs",
-    "test:browser-dashboard-summary": "node scripts/browser-dashboard-summary-smoke.mjs"
+    "test:browser-dashboard-summary": "node scripts/browser-dashboard-summary-smoke.mjs",
+    "test:sms": "node --import tsx --test server/test/melipayamak-otp.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

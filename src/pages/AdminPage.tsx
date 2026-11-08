@@ -3974,7 +3974,7 @@ function SmsPanel() {
     try {
       const { api } = await import("@/lib/api");
       const res = await api.post<{ ok: boolean; messageId: string | null }>("/api/admin/sms", { to, body });
-      setSendState({ busy: false, ok: true, text: res.messageId ? `ارسال شد — شناسهٔ درگاه ${res.messageId}` : "ارسال شد." });
+      setSendState({ busy: false, ok: true, text: res.messageId ? `درگاه درخواست را پذیرفت — شناسه ${res.messageId}؛ تحویل تأیید نشده است.` : "درگاه درخواست را پذیرفت؛ تحویل تأیید نشده است." });
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "ارسال ناموفق بود.";
@@ -4197,7 +4197,7 @@ function SmsPanel() {
                   }
                   setBulkProgress({ done: sent + failed, sent, failed });
                 }
-                // only a real 2xx count lands in the history
+                // Count only explicit provider acceptance; handset delivery is not confirmed.
                 logSmsCampaign({
                   id: `sms-${uid()}`,
                   at: Date.now(),
@@ -4206,7 +4206,7 @@ function SmsPanel() {
                   audience: audience === "all" ? "همهٔ مشتریان" : audience,
                   recipients: list.length,
                   sent,
-                  status: "sent",
+                  status: "accepted",
                 });
                 setConfirmed(false);
                 setBulkName("");
@@ -4218,7 +4218,7 @@ function SmsPanel() {
           </div>
           {bulkProgress && (
             <p className="ad-hint">
-              {fa(bulkProgress.done)} از {fa(audienceList.length)} پردازش شد — موفق {fa(bulkProgress.sent)}، ناموفق {fa(bulkProgress.failed)}.
+              {fa(bulkProgress.done)} از {fa(audienceList.length)} پردازش شد — پذیرفته‌شده توسط درگاه {fa(bulkProgress.sent)}، تأییدنشده {fa(bulkProgress.failed)}؛ تحویل به گیرنده بررسی نشده است.
             </p>
           )}
           {prepared && (
@@ -4235,7 +4235,7 @@ function SmsPanel() {
             </div>
           )}
           <p className="ad-hint">
-            تاریخچهٔ آماده‌سازی‌ها پایین همین صفحه است؛ تعداد «ارسال‌شده» تا وقتی درگاه تأیید نکند صفر می‌ماند.
+            تاریخچهٔ آماده‌سازی‌ها پایین همین صفحه است؛ پذیرش درگاه اثبات تحویل نیست و نتیجهٔ درخواست ناموفق ممکن است نامشخص باشد.
           </p>
         </Card>
       )}
@@ -4252,7 +4252,7 @@ function SmsPanel() {
                     <td>{c.name}</td>
                     <td>{c.audience}</td>
                     <td className="ad-num">{fa(c.recipients)}</td>
-                    <td>{c.status === "sent" ? `ارسال‌شده (${fa(c.sent)})` : "آماده — ارسال دستی"}</td>
+                    <td>{c.status === "accepted" ? `پذیرفته‌شده در درگاه (${fa(c.sent)})؛ تحویل نامشخص` : c.status === "sent" ? `تاریخچه قدیمی (${fa(c.sent)})؛ تحویل نامشخص` : "آماده — ارسال دستی"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -6,9 +6,9 @@ import { sendSms, smsConfigured, smsSender } from "../sms";
 /* =====================================================================
    SMS endpoint (decisions 46 + 72).
 
-   One message per call. The panel loops for a bulk send and only counts the
-   answers that really came back ok — a missing provider is reported, never
-   simulated. Every attempt is written to the audit trail.
+   One message per call. The legacy panel loops for a bulk send; only an
+   explicit provider acceptance is counted, never assumed to be delivery.
+   A missing provider is reported; every attempt is audited without message text.
    ===================================================================== */
 
 export async function smsRoutes(app: FastifyInstance) {
@@ -19,8 +19,8 @@ export async function smsRoutes(app: FastifyInstance) {
 
   app.post<{ Body: { to?: string; body?: string } }>("/api/admin/sms", async (req, reply) => {
     const session = await requirePermission(req, "customers:edit");
-    const to = (req.body?.to ?? "").trim();
-    const body = (req.body?.body ?? "").trim();
+    const to = typeof req.body?.to === "string" ? req.body.to.trim() : "";
+    const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
 
     if (!to || !body) return reply.code(400).send({ error: "شماره و متن پیام لازم است.", code: "missing_fields" });
     if (body.length > 480) return reply.code(400).send({ error: "متن پیام بیش از ۴۸۰ نویسه است.", code: "body_too_long" });
@@ -47,7 +47,7 @@ export async function smsRoutes(app: FastifyInstance) {
       after: { ok: result.ok, code: result.code ?? null, chars: body.length },
       requestId: req.id,
     });
-    if (!result.ok) return reply.code(result.code === "invalid_number" ? 400 : 502).send(result);
-    return { ok: true, messageId: result.messageId ?? null };
+    if (!result.ok) return reply.code(result.code === "invalid_number" ? 400 : result.code === "provider_not_configured" ? 503 : 502).send(result);
+    return { ok: true, messageId: result.messageId ?? null, delivery: "unknown" };
   });
 }
