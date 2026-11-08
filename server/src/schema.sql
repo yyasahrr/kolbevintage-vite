@@ -529,6 +529,24 @@ create index if not exists backups_created_idx on backups (created_at desc);
 alter table staff add column if not exists expires_at timestamptz;
 alter table staff add column if not exists admin_mfa jsonb;
 
+-- Ephemeral SMS challenges are excluded from backups and invalidated by restore.
+-- No phone numbers or plaintext OTPs are stored here.
+create table if not exists admin_sms_challenges (
+  subject text primary key references staff(subject) on delete cascade,
+  purpose text not null check (purpose in ('enroll','login','stepup')),
+  token_hash text not null,
+  code_mac text not null,
+  binding_mac text not null,
+  state text not null check (state in ('sending','ready','used','cancelled')),
+  issued_at timestamptz not null,
+  expires_at timestamptz not null,
+  window_started timestamptz not null,
+  issued_count integer not null check (issued_count between 1 and 3),
+  failures integer not null default 0 check (failures between 0 and 5),
+  locked_until timestamptz
+);
+
+
 -- login history (decision 88): every admin sign-in attempt, refused ones too
 create table if not exists login_events (
   id bigserial primary key,

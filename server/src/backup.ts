@@ -66,8 +66,8 @@ async function listTables(client?: pg.PoolClient): Promise<string[]> {
                 order by c.relname`;
   const res = client ? await client.query(sql) : await query(sql);
   const names = res.rows.map((row) => String(row.name));
-  // the backup table itself is bookkeeping, not shop data
-  return names.filter((name) => name !== "backups" && name !== "schema_migrations" && name !== "sessions");
+  // Bookkeeping, bearer sessions and ephemeral MFA challenges are never backed up.
+  return names.filter((name) => name !== "backups" && name !== "schema_migrations" && name !== "sessions" && name !== "admin_sms_challenges");
 }
 
 export async function dumpAll(client?: pg.PoolClient): Promise<BackupPayload> {
@@ -195,7 +195,8 @@ export async function restoreBackup(
   const run = async (client: pg.PoolClient) => {
     // Validate names against the current schema before using any identifier or
     // truncating anything. Older backups may contain sessions, which are always
-    // invalidated on restore rather than reviving bearer tokens.
+    // invalidated on restore rather than reviving bearer tokens. SMS challenges
+    // are also excluded from both old/new backup payloads and cleared on restore.
     const existing = await listTables(client);
     const backupTables = payload.tables.filter(t => t !== "sessions");
     const expected = new Set(existing), supplied = new Set(backupTables);
@@ -235,7 +236,7 @@ export async function restoreBackup(
     // Foreign keys and append-only triggers must not block a full replace;
     // this requires an appropriately privileged database maintenance role.
     await client.query("set local session_replication_role = replica");
-    await client.query(`truncate ${[...existing,"sessions"].map(t => `public.${ident(t)}`).join(", ")} restart identity cascade`);
+    await client.query(`truncate ${[...existing,"sessions","admin_sms_challenges"].map(t => `public.${ident(t)}`).join(", ")} restart identity cascade`);
     let rows = 0;
     for (const table of backupTables) {
       const list = payload.data[table];

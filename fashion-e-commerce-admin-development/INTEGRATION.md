@@ -153,3 +153,5 @@ The fulfillment workstation discovers all orders through the permission-gated `a
 
 ### SMS transport status
 The legacy generic SMS gateway requires HTTPS and an explicit JSON `{accepted:true}` response; 2xx by itself is not enough, and acceptance is not proof of delivery. Existing adapters expecting the earlier 2xx-only contract need updating. The separately tested MeliPayamak OTP-pattern transport is not connected to MFA, enrollment or customer login. No real provider transaction has been tested. SMS MFA, verified numbers, abuse controls, opt-in/out and delivery/operations remain open.
+
+SMS challenge primitives now persist per-account rate limits and HMAC-protected one-use, purpose/binding-scoped OTP state in PostgreSQL; they are intentionally not exposed as an authentication API. Failed attempts must be committed and successful challenge consumption and privileged action/session creation must share a transaction. Challenges are excluded from backups and cleared on restore. They do not replace caller authentication, per-IP/per-phone abuse controls, verified-number enrollment, real-provider tests or SMS MFA integration.

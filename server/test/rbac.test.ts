@@ -1929,6 +1929,58 @@ test('personal authenticator requires the second factor, stops replay and preser
   }finally{if(oldKey===undefined)delete process.env.ADMIN_MFA_KEY;else process.env.ADMIN_MFA_KEY=oldKey;await fs.rm(dir,{recursive:true,force:true});}
 });
 
+test('SMS challenges enforce durable attempt limits, binding, acceptance and single use',async()=>{
+  const old=process.env.ADMIN_MFA_KEY;process.env.ADMIN_MFA_KEY='a5'.repeat(32);
+  const {client}=await staffWith(['dashboard:view'],'sms-challenge-test','sms-challenge-user','sms-challenge-pass');
+  const {client:other}=await staffWith(['dashboard:view'],'sms-challenge-other','sms-challenge-other-user','sms-challenge-other-pass');
+  const {withTransaction}=await import('../src/db');const {issueAdminSmsChallenge:issue,settleAdminSmsChallenge:settle,consumeAdminSmsChallenge:consume}=await import('../src/admin-sms-challenge');
+  const subject='sms-challenge-user',otherSubject='sms-challenge-other-user',binding='session-binding-0123456789',badBinding='different-binding-0123456789';
+  try {
+    assert.equal((await client.get('/api/admin/mfa')).body.smsAvailable,false,'primitives alone must not enable SMS MFA');
+    const issued=await Promise.all([withTransaction(tx=>issue(tx,subject,'enroll',binding)),withTransaction(tx=>issue(tx,subject,'enroll',binding))]);
+    assert.equal(issued.filter(v=>v.ok).length,1,'concurrent issue only permits one SMS');const first=issued.find(v=>v.ok);assert(first?.ok);
+    assert.match(first.code,/^\d{6}$/);assert.match(first.token,/^[a-f0-9]{64}$/);
+    const stored=(await query('select * from admin_sms_challenges where subject=$1',[subject])).rows[0];assert(!Object.values(stored).some(v=>v===first.code||v===first.token||v===binding));assert.match(stored.code_mac,/^[a-f0-9]{64}$/);
+    assert.equal(await withTransaction(tx=>consume(tx,subject,'enroll',binding,first.token,first.code)),'invalid','not ready until provider acceptance');
+    assert.equal(await withTransaction(tx=>settle(tx,subject,'enroll',badBinding,first.token,true)),'invalid');
+    assert.equal(await withTransaction(tx=>settle(tx,subject,'enroll',binding,first.token,true)),'ok');
+    assert.equal(await withTransaction(tx=>settle(tx,subject,'enroll',binding,first.token,true)),'invalid');
+    assert.equal(await withTransaction(tx=>consume(tx,subject,'login',binding,first.token,first.code)),'invalid');
+    assert.equal(await withTransaction(tx=>consume(tx,subject,'enroll',badBinding,first.token,first.code)),'invalid');
+    assert.equal(await withTransaction(tx=>consume(tx,subject,'enroll',binding,'f'.repeat(64),'123456')),'invalid');
+    assert.equal((await query('select failures from admin_sms_challenges where subject=$1',[subject])).rows[0].failures,0);
+    assert.equal((await withTransaction(tx=>issue(tx,subject,'enroll',binding))).ok,false,'cooldown');
+    const results=await Promise.all([withTransaction(tx=>consume(tx,subject,'enroll',binding,first.token,first.code)),withTransaction(tx=>consume(tx,subject,'enroll',binding,first.token,first.code))]);assert.deepEqual(results.sort(),['invalid','ok']);
+    await query("update admin_sms_challenges set issued_at=clock_timestamp()-interval '61 seconds' where subject=$1",[subject]);
+    const second=await withTransaction(tx=>issue(tx,subject,'login',binding));assert(second.ok);assert.equal(await withTransaction(tx=>settle(tx,subject,'login',binding,second.token,false)),'ok');assert.equal(await withTransaction(tx=>consume(tx,subject,'login',binding,second.token,second.code)),'invalid','unconfirmed send not usable');
+    await query("update admin_sms_challenges set issued_at=clock_timestamp()-interval '61 seconds' where subject=$1",[subject]);
+    const third=await withTransaction(tx=>issue(tx,subject,'stepup',binding));assert(third.ok);assert.equal(await withTransaction(tx=>settle(tx,subject,'stepup',binding,third.token,true)),'ok');
+    const wrong=third.code==='000000'?'000001':'000000';for(let i=0;i<5;i++)assert.equal(await withTransaction(tx=>consume(tx,subject,'stepup',binding,third.token,wrong)),'invalid');
+    assert.equal(await withTransaction(tx=>consume(tx,subject,'stepup',binding,third.token,third.code)),'locked');
+    assert.deepEqual(await withTransaction(tx=>issue(tx,subject,'stepup',binding)),{ok:false,reason:'limited'});
+    await query("update admin_sms_challenges set locked_until=clock_timestamp()-interval '1 second',issued_at=clock_timestamp()-interval '61 seconds' where subject=$1",[subject]);
+    assert.deepEqual(await withTransaction(tx=>issue(tx,subject,'stepup',binding)),{ok:false,reason:'limited'},'three-issue budget remains durable');
+    // A different account has its own challenge and budget.
+    const fourth=await withTransaction(tx=>issue(tx,otherSubject,'login',binding));assert(fourth.ok);assert.equal(await withTransaction(tx=>settle(tx,otherSubject,'login',binding,fourth.token,true)),'ok');
+    process.env.ADMIN_MFA_KEY='ff'.repeat(32);assert.equal(await withTransaction(tx=>consume(tx,otherSubject,'login',binding,fourth.token,fourth.code)),'invalid','wrong key cannot verify');process.env.ADMIN_MFA_KEY='a5'.repeat(32);
+    await query("update admin_sms_challenges set expires_at=clock_timestamp()-interval '1 second' where subject=$1",[otherSubject]);
+    assert.equal(await withTransaction(tx=>consume(tx,otherSubject,'login',binding,fourth.token,fourth.code)),'invalid');
+    process.env.ADMIN_MFA_KEY='ff'.repeat(32);assert.equal(await withTransaction(tx=>settle(tx,subject,'stepup',binding,third.token,true)),'invalid');delete process.env.ADMIN_MFA_KEY;assert.deepEqual(await withTransaction(tx=>issue(tx,otherSubject,'enroll',binding)),{ok:false,reason:'unavailable'});
+    void other;
+  } finally {if(old===undefined)delete process.env.ADMIN_MFA_KEY;else process.env.ADMIN_MFA_KEY=old;}
+});
+
+test('SMS challenges are excluded from backup and invalidated on restore',async()=>{
+  const old=process.env.ADMIN_MFA_KEY;process.env.ADMIN_MFA_KEY='ac'.repeat(32);
+  await staffWith(['dashboard:view'],'sms-backup-test','sms-backup-user','sms-backup-pass');
+  const {withTransaction}=await import('../src/db'),{issueAdminSmsChallenge:issue}=await import('../src/admin-sms-challenge'),{dumpAll,restoreBackup}=await import('../src/backup');
+  const {stringify}=await import('lossless-json'),fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');const dir=await fs.mkdtemp(path.join(os.tmpdir(),'sms-backup-')),file=path.join(dir,'backup.json');
+  try {const challenge=await withTransaction(tx=>issue(tx,'sms-backup-user','enroll','session-binding-123456789'));assert(challenge.ok);
+    const data=await dumpAll();assert.equal(data.tables.includes('admin_sms_challenges'),false);assert(!stringify(data)!.includes(challenge.token));
+    await fs.writeFile(file,stringify(data)!);await withTransaction(async tx=>{await restoreBackup(file,{client:tx});assert.equal((await tx.query('select count(*)::int as n from admin_sms_challenges')).rows[0].n,0);throw Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'));
+  } finally {if(old===undefined)delete process.env.ADMIN_MFA_KEY;else process.env.ADMIN_MFA_KEY=old;await fs.rm(dir,{recursive:true,force:true});}
+});
+
 test('authenticator algorithms match RFC 6238 SHA-1 test vector',async()=>{
   const {base32,totpAt}=await import('../src/admin-mfa');const secret=base32(Buffer.from('12345678901234567890'));
   assert.equal(totpAt(secret,Math.floor(59/30)),'287082');assert.equal(totpAt(secret,Math.floor(1111111109/30)),'081804');
