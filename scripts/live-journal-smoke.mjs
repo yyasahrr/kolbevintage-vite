@@ -15,10 +15,12 @@ const cursor='article-00000000-0000-4000-8000-000000000001';
 let mode='empty',resolveDelayed,resolveFirst;
 globalThis.fetch=async url=>{
  const p=String(url);
+ if(p==='/api/public/journal-categories')return new Response(JSON.stringify({categories:mode==='disabled'?[]:['راهنما','قدیمی']}));
  if(p.startsWith('/api/public/journal')){
    if(mode==='offline')throw new Error('offline');
    if(p.endsWith('/real'))return mode==='published'?new Response(JSON.stringify(row)):new Response('{}',{status:404});
    if(mode==='first-delayed' && p==='/api/public/journal')return new Promise(resolve=>{resolveFirst=resolve});
+   if(p.includes('category=')){ const cat=new URL(p,'http://store.test').searchParams.get('category'); return new Response(JSON.stringify({enabled:true,items:cat==='قدیمی'?[older]:[row],nextCursor:null}));}
    if(p.includes('?before=')) {
      if(mode==='delayed')return new Promise(resolve=>{resolveDelayed=resolve});
      return new Response(JSON.stringify({enabled:mode!=='disabled',items:mode==='pages'?[older]:[],nextCursor:null}));
@@ -39,6 +41,11 @@ try{
  await act(async()=>{await journal.refreshJournal()});assert.match(document.body.textContent,/هنوز مقاله‌ای منتشر نشده/);
  mode='published';await act(async()=>{await journal.refreshJournal()});assert.match(document.body.textContent,/مقاله واقعی/);assert.match(document.body.textContent,/راهنما/);
  mode='pages';await act(async()=>{await journal.refreshJournal()});
+ await act(async()=>new Promise(r=>setTimeout(r,30)));
+ let categoryButton=[...document.querySelectorAll('button')].find(b=>b.textContent?.trim()==='قدیمی');assert.ok(categoryButton,'all-page category is offered');
+ await act(async()=>{categoryButton.click();await new Promise(r=>setTimeout(r,30))});assert.match(document.body.textContent,/مقاله قدیمی/);assert.doesNotMatch(document.body.textContent,/مقاله واقعی/);
+ categoryButton=[...document.querySelectorAll('button')].find(b=>b.textContent?.trim()==='همه');await act(async()=>{categoryButton.click();await new Promise(r=>setTimeout(r,30))});
+
  let button=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('مقالات قدیمی‌تر'));assert.ok(button);
  await act(async()=>{button.click();await new Promise(r=>setTimeout(r,30))});assert.match(document.body.textContent,/مقاله قدیمی/);assert.match(document.body.textContent,/صفحهٔ ۲/);
  button=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('صفحهٔ قبل'));assert.ok(button);

@@ -1,22 +1,22 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, BookOpen } from "lucide-react";
-import { useJournalPage } from "@/data/journal";
+import { useJournalCategories, useJournalPage } from "@/data/journal";
 import { Chip, EmptyState, PageIntro, Reveal } from "@/components/ui";
 
 
 
 export function JournalPage() {
-  const [category, setCategory] = useState<string>("همه");
+  const [category, setCategory] = useState<string|null>(null);
   const [cursors,setCursors]=useState<(string|null)[]>([null]);
   const [navigationKey,setNavigationKey]=useState(0);
   const cursor=cursors[cursors.length-1];
-  const journal=useJournalPage(cursor,navigationKey);
-  const categories=["همه",...new Set(journal.items.map(p=>p.category))];
-  const posts=category === "همه" ? journal.items : journal.items.filter(p=>p.category===category);
+  const journal=useJournalPage(cursor,navigationKey,category);
+  const {categories,error:categoriesError}=useJournalCategories();
+  const posts=journal.items;
   const featured=cursor===null ? journal.items.find(p=>p.featured) ?? journal.items[0] : undefined;
-  const back=()=>{setCursors(old=>old.slice(0,-1));setNavigationKey(v=>v+1);setCategory("همه")};
-  const next=()=>{if(journal.nextCursor){setCursors(old=>[...old,journal.nextCursor]);setNavigationKey(v=>v+1);setCategory("همه")}};
+  const back=()=>{setCursors(old=>old.slice(0,-1));setNavigationKey(v=>v+1)};
+  const next=()=>{if(journal.nextCursor){setCursors(old=>[...old,journal.nextCursor]);setNavigationKey(v=>v+1)}};
 
   // the owner can switch the journal off from the panel; when it is off the
   // section is really gone instead of showing an empty shell (decision 62)
@@ -33,7 +33,7 @@ export function JournalPage() {
     );
   }
 
-  if (!journal.items.length) return <div className="p-10"><EmptyState icon={<BookOpen className="h-5 w-5" />} title={cursor?"مقاله‌ای در این صفحه پیدا نشد":"هنوز مقاله‌ای منتشر نشده"} body={cursor?"فهرست ممکن است تغییر کرده باشد؛ به صفحهٔ قبل برگردید.":"به‌زودی دوباره سر بزنید."} />{cursor&&<button type="button" onClick={back} className="mt-4 rounded-full border px-4 py-2">صفحهٔ قبل</button>}</div>;
+  if (!journal.items.length && !category) return <div className="p-10"><EmptyState icon={<BookOpen className="h-5 w-5" />} title={cursor?"مقاله‌ای در این صفحه پیدا نشد":"هنوز مقاله‌ای منتشر نشده"} body={cursor?"فهرست ممکن است تغییر کرده باشد؛ به صفحهٔ قبل برگردید.":"به‌زودی دوباره سر بزنید."} />{cursor&&<button type="button" onClick={back} className="mt-4 rounded-full border px-4 py-2">صفحهٔ قبل</button>}</div>;
   return (
     <div className="pb-14">
       <PageIntro
@@ -71,7 +71,7 @@ export function JournalPage() {
               </span>
             </div>
             <div className="flex flex-col justify-center px-6 py-7 sm:px-9">
-              <p className="flex items-center gap-2 text-[10px] text-ink-45">
+              <p className="flex items-center gap-2 text-[10px] text-[#5b534c]">
                 <BookOpen className="h-3 w-3" /> {featured.category} · {featured.readTime.toLocaleString("fa-IR")} دقیقه
                 مطالعه
               </p>
@@ -89,15 +89,18 @@ export function JournalPage() {
 
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1.5">
+            <Chip active={category===null} onClick={()=>{setCategory(null);setCursors([null]);setNavigationKey(v=>v+1)}}>همه</Chip>
             {categories.map((c) => (
-              <Chip key={c} active={category === c} onClick={() => setCategory(c)}>
+              <Chip key={c} active={category === c} onClick={() => {setCategory(c);setCursors([null]);setNavigationKey(v=>v+1)}}>
                 {c}
               </Chip>
             ))}
           </div>
-          <p className="text-[11px] text-ink-45">{posts.length.toLocaleString("fa-IR")} مقاله در این صفحه · فیلتر دسته فقط همین صفحه را پوشش می‌دهد</p>
+          <p className="text-[11px] text-ink-45">{posts.length.toLocaleString("fa-IR")} مقاله در این صفحه</p>
         </div>
 
+        {categoriesError && <p role="alert" className="mt-2 text-sm">دریافت دسته‌ها ناموفق بود؛ صفحه را تازه کنید.</p>}
+        {!posts.length && <p className="mt-5 text-sm">مقاله‌ای در این دسته یا صفحه پیدا نشد.</p>}
         <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {posts.map((post, i) => (
             <Reveal key={post.slug} delay={i * 0.05}>

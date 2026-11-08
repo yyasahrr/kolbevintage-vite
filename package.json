@@ -53,7 +53,8 @@
     "test:browser-order-page": "node scripts/browser-order-page-smoke.mjs",
     "test:browser-visual-studio": "node scripts/browser-visual-studio-smoke.mjs",
     "test:browser-product-video": "node scripts/browser-product-video-smoke.mjs",
-    "test:browser-returns-page": "node scripts/browser-returns-page-smoke.mjs"
+    "test:browser-returns-page": "node scripts/browser-returns-page-smoke.mjs",
+    "test:browser-journal-category": "node scripts/browser-journal-category-smoke.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../config";
 import { requirePermission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
@@ -14,17 +14,17 @@ const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
  * the store origin. Images are now decoded/re-encoded; videos require a known
  * media signature and are served with nosniff. */
 export async function uploadRoutes(app: FastifyInstance) {
-  app.post("/api/uploads", async (req, reply) => {
-    const session = await requirePermission(req, "catalog:edit");
+  async function upload(req:FastifyRequest, reply:FastifyReply, permission:"catalog:edit"|"design:edit", videoOnly:boolean) {
+    const session = await requirePermission(req, permission);
     const part = await req.file({ limits: { fileSize: MAX_VIDEO_BYTES } });
     if (!part) return reply.code(400).send({ error: "فایلی ارسال نشد." });
     const mime = part.mimetype.toLowerCase();
     const imageType = mime === "image/jpg" ? "image/jpeg" : mime;
     const images = ["image/jpeg", "image/png", "image/webp"];
     const videoExt: Record<string, string> = { "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov" };
-    if (!images.includes(imageType) && !Object.hasOwn(videoExt, mime)) {
+    if ((videoOnly && !Object.hasOwn(videoExt,mime)) || (!videoOnly && !images.includes(imageType) && !Object.hasOwn(videoExt, mime))) {
       part.file.resume();
-      return reply.code(415).send({ error: "فقط JPEG، PNG، WebP یا ویدیوی MP4، WebM و MOV مجاز است." });
+      return reply.code(415).send({ error: videoOnly ? "فقط ویدیوی MP4، WebM و MOV مجاز است." : "فقط JPEG، PNG، WebP یا ویدیوی MP4، WebM و MOV مجاز است." });
     }
     let bytes: Buffer;
     try { bytes = await part.toBuffer(); }
@@ -56,5 +56,7 @@ export async function uploadRoutes(app: FastifyInstance) {
         after: { kind: images.includes(imageType) ? "image" : "video", size: bytes.length }, requestId: req.id });
     } catch (error) { await discard(); throw error; }
     return { url, size: bytes.length, mime: images.includes(imageType) ? "image/webp" : mime, kind: images.includes(imageType) ? "image" : "video" };
-  });
+  }
+  app.post("/api/uploads", (req,reply) => upload(req,reply,"catalog:edit",false));
+  app.post("/api/admin/studio/video", (req,reply) => upload(req,reply,"design:edit",true));
 }

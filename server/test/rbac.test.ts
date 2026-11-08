@@ -1417,10 +1417,18 @@ test('public journal pages expose only currently published articles and respect 
   await query(`insert into journal_articles(id,slug,title,category,status,body,published_at,created_at)
     select 'article-'||gen_random_uuid(), 'public-page-'||g, 'مقاله عمومی '||g,'test','published','متن',now()-interval '1 hour',now()-interval '1 day' from generate_series(1,105) g`);
   await query(`insert into journal_articles(id,slug,title,category,status,body,published_at) values
-    ('article-'||gen_random_uuid(),'public-page-secret','draft','test','draft','secret',now()-interval '1 day'),
-    ('article-'||gen_random_uuid(),'public-page-future','future','test','published','future',now()+interval '1 day')`);
+    ('article-'||gen_random_uuid(),'public-page-secret','draft','private-test','draft','secret',now()-interval '1 day'),
+    ('article-'||gen_random_uuid(),'public-page-future','future','future-test','published','future',now()+interval '1 day'),
+    ('article-'||gen_random_uuid(),'public-page-rare','older rare','rare-category','published','old',now()-interval '20 days')`);
   try {
     assert.equal((await guest.get('/api/public/journal?before=bad!')).status,422);
+    assert.equal((await guest.get('/api/public/journal?category='+encodeURIComponent('x'.repeat(81)))).status,422);
+    const cats=await guest.get('/api/public/journal-categories');assert.equal(cats.status,200);assert.ok(cats.body.categories.includes('rare-category'));assert.ok(!cats.body.categories.includes('private-test'));assert.ok(!cats.body.categories.includes('future-test'));
+    const rare=await guest.get('/api/public/journal?category=rare-category');assert.equal(rare.status,200);assert.deepEqual(rare.body.items.map((a:any)=>a.slug),['public-page-rare']);
+    const matchingFirst=await guest.get('/api/public/journal?category=test');assert.equal(matchingFirst.body.items.length,100);assert.ok(matchingFirst.body.nextCursor);
+    const matchingNext=await guest.get(`/api/public/journal?category=test&before=${matchingFirst.body.nextCursor}`);assert.equal(matchingNext.body.items.length,5);assert.ok(matchingNext.body.items.every((a:any)=>a.category==='test'));
+    const mismatched=await guest.get(`/api/public/journal?category=rare-category&before=${matchingFirst.body.nextCursor}`);assert.equal(mismatched.body.items.length,0);
+
     const first=await guest.get('/api/public/journal');assert.equal(first.status,200);assert.equal(first.body.items.length,100);assert.ok(first.body.nextCursor);
     const second=await guest.get(`/api/public/journal?before=${first.body.nextCursor}`);assert.equal(second.status,200);
     const fixtures=[...first.body.items,...second.body.items].filter((a:any)=>/^public-page-\d+$/.test(a.slug));
@@ -1429,6 +1437,7 @@ test('public journal pages expose only currently published articles and respect 
     await query("update journal_articles set status='draft' where id=$1",[first.body.nextCursor]);
     const revoked=await guest.get(`/api/public/journal?before=${first.body.nextCursor}`);assert.deepEqual(revoked.body.items,[]);
     assert.equal((await admin.patch('/api/admin/journal-settings',{enabled:false,expectedEnabled:true})).status,200);
+    assert.deepEqual((await guest.get('/api/public/journal-categories')).body.categories,[]);
     const disabled=await guest.get(`/api/public/journal?before=${first.body.nextCursor}`);assert.equal(disabled.body.enabled,false);assert.deepEqual(disabled.body.items,[]);assert.equal(disabled.body.nextCursor,null);
     assert.equal((await guest.get(`/api/public/journal/${fixtures[0].slug}`)).status,404);
   } finally {await query("delete from journal_articles where slug like 'public-page-%'");await query("update state_documents set value=$1::jsonb where key='ops'",[JSON.stringify(original)]);}
@@ -1774,4 +1783,30 @@ test("return pages search and traverse older records with permissions and stable
     assert.equal(made.status,201,JSON.stringify(made.body));
     assert.equal((await reader.get(path+"?search="+encodeURIComponent(made.body.refund.id))).body.items[0].id,made.body.refund.id);
   } finally {await query("delete from orders where id=$1",[orderId]);}
+});
+
+test('visual studio video upload is scoped, bounded and validates media signatures', async () => {
+  const {client:designer}=await staffWith(['design:view','design:edit'],'studio-video-editor','studio-video-editor-user','studio-video-editor-pass');
+  const {client:viewer}=await staffWith(['design:view'],'studio-video-viewer','studio-video-viewer-user','studio-video-viewer-pass');
+  const {client:catalog}=await staffWith(['catalog:edit'],'studio-video-catalog','studio-video-catalog-user','studio-video-catalog-pass');
+  const guest=makeClient();const fs=await import('node:fs/promises');const path=await import('node:path');const {config}=await import('../src/config');let url='';
+  async function send(client:ReturnType<typeof makeClient>,content:Buffer,mime:string,csrf=true){
+    // get() initializes no CSRF cookie; login has already initialized it for signed-in clients
+    const form=new FormData();form.append('file',new Blob([new Uint8Array(content)],{type:mime}),'test.webm');
+    return fetch(base+'/api/admin/studio/video',{method:'POST',headers:{cookie:client.cookie(),...(csrf?{'x-csrf-token':client.csrf()}: {})},body:form});
+  }
+  try {
+    const webm=Buffer.from([0x1a,0x45,0xdf,0xa3,0x00]);
+    assert.equal((await send(guest,webm,'video/webm')).status,403); // CSRF first
+    assert.equal((await send(viewer,webm,'video/webm')).status,403);
+    assert.equal((await send(catalog,webm,'video/webm')).status,403);
+    assert.equal((await send(designer,webm,'video/webm',false)).status,403);
+    assert.equal((await send(designer,Buffer.from('fake'),'video/webm')).status,415);
+    assert.equal((await send(designer,Buffer.from('fake'),'image/png')).status,415);
+    assert.equal((await send(designer,Buffer.alloc(20*1024*1024+1),'video/webm')).status,413);
+    const response=await send(designer,webm,'video/webm');assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json() as {url:string;kind:string};url=result.url;assert.equal(result.kind,'video');assert.match(url,/^\/uploads\/[\w-]+\.webm$/);
+    const file=await fetch(base+url);assert.equal(file.status,200);assert.equal(file.headers.get('x-content-type-options'),'nosniff');
+    assert.ok((await query("select id from audit_events where action='media.upload' and target_id=$1",[url])).rowCount);
+  } finally {if(url)await fs.unlink(path.join(config.uploadsDir,path.basename(url))).catch(()=>{});}
 });

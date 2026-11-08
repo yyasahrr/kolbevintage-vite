@@ -27,9 +27,10 @@ function cleanFields(b:Record<string,unknown>) {
 }
 
 export async function journalRoutes(app:FastifyInstance) {
-  app.get<{Querystring:{before?:unknown}}>("/api/public/journal",async (req,reply)=>{
+  app.get<{Querystring:{before?:unknown;category?:unknown}}>("/api/public/journal",async (req,reply)=>{
     reply.header("cache-control","no-store");
-    const before=req.query.before;
+    const before=req.query.before,category=req.query.category;
+    if(category!==undefined && (typeof category!=="string" || !category.trim() || category.length>80 || category!==category.trim())) throw validation("دستهٔ مقاله معتبر نیست.");
     if(before!==undefined && (typeof before!=="string" || !/^article-[a-f0-9-]{36}$/.test(before))) throw validation("نشانگر صفحه معتبر نیست.");
     if(!await isEnabled()) return {items:[],enabled:false,nextCursor:null};
     // Recheck visibility in the same statement as the list so an intervening
@@ -37,10 +38,18 @@ export async function journalRoutes(app:FastifyInstance) {
     const rows=await query<Article>(`select ${fields} from journal_articles
       where status='published' and published_at<=now()
         and exists(select 1 from state_documents where key='ops' and value->'features'->>'journal'='true')
-        and ($1::text is null or (published_at,id)<(select published_at,id from journal_articles where id=$1 and status='published' and published_at<=now()))
-      order by published_at desc,id desc limit 101`,[before ?? null]);
+        and ($2::text is null or category=$2)
+        and ($1::text is null or (published_at,id)<(select published_at,id from journal_articles where id=$1 and status='published' and published_at<=now() and ($2::text is null or category=$2)))
+      order by published_at desc,id desc limit 101`,[before ?? null,category ?? null]);
     const page=rows.rows.slice(0,100);
     return {items:page.map(dto),enabled:true,nextCursor:rows.rows.length>100?page[page.length-1].id:null};
+  });
+  app.get("/api/public/journal-categories",async (_req,reply)=>{
+    reply.header("cache-control","no-store");
+    const result=await query<{category:string}>(`select distinct category from journal_articles
+      where status='published' and published_at<=now() and category<>''
+      and exists(select 1 from state_documents where key='ops' and value->'features'->>'journal'='true') order by category`);
+    return {categories:result.rows.map(r=>r.category)};
   });
   app.get<{Params:{slug:string}}>("/api/public/journal/:slug",async (req,reply)=>{
     reply.header("cache-control","no-store");
