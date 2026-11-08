@@ -22,6 +22,8 @@ import { useDialogFocus, useEscape, useScrollLock } from "@/hooks/useOverlay";
 import { useLiveCatalog } from "@/state/live-catalog";
 import { useOps } from "@/state/ops";
 import { useAdmin } from "@/state/admin";
+import { stockOf, tomanRate } from "@/data/looks";
+import { toLatinDigits } from "@/utils/date";
 import { resolveImg } from "@/builder/stock";
 
 const VALID_SORTS = new Set<string>(SORTS.map((s) => s.id));
@@ -55,6 +57,10 @@ export function ProductsPage() {
   const sortParam = params.get("sort") ?? ownerSort ?? "featured";
   const sort = (VALID_SORTS.has(sortParam) ? sortParam : "featured") as SortKey;
   const query = params.get("q") ?? "";
+  const validPrice = (v:string|null) => v && /^\d{1,12}$/.test(v) ? v : "";
+  const minPrice = validPrice(params.get("minPrice")), maxPrice = validPrice(params.get("maxPrice"));
+  const [priceFrom, setPriceFrom] = useState(minPrice), [priceTo, setPriceTo] = useState(maxPrice), [priceError, setPriceError] = useState("");
+  useEffect(() => { setPriceFrom(minPrice); setPriceTo(maxPrice); setPriceError(""); }, [minPrice,maxPrice]);
 
   const patch = (patchObj: Record<string, string | null | undefined>) => {
     const next = new URLSearchParams(params);
@@ -65,11 +71,11 @@ export function ProductsPage() {
     setParams(next, { replace: true });
   };
 
-  const reset = () => setParams(new URLSearchParams(), { replace: true });
+  const reset = () => { setPriceFrom(""); setPriceTo(""); setPriceError(""); setParams(new URLSearchParams(), { replace: true }); };
 
   const list = useMemo(
-    () => filterProducts({ collection, category, size, color, sort, query }),
-    [collection, category, size, color, sort, query, admin, ops, live],
+    () => filterProducts({ collection, category, size, color, sort, query }).filter(p => (!minPrice || Math.round(p.price*tomanRate()) >= Number(minPrice)) && (!maxPrice || Math.round(p.price*tomanRate()) <= Number(maxPrice))),
+    [collection, category, size, color, sort, query, minPrice, maxPrice, admin, ops, live],
   );
 
   const activeCollection = selectedCategory ? { id: selectedCategory.id, label: selectedCategory.name } : COLLECTIONS.find((c) => c.id === collection);
@@ -97,6 +103,8 @@ export function ProductsPage() {
     size && { key: "size", label: `سایز ${size}` },
     color && { key: "color", label: `رنگ ${selectedColor?.name ?? color}` },
     query && { key: "q", label: `جست‌وجو: ${query}` },
+    minPrice && { key: "minPrice", label: `از ${Number(minPrice).toLocaleString("fa-IR")} تومان` },
+    maxPrice && { key: "maxPrice", label: `تا ${Number(maxPrice).toLocaleString("fa-IR")} تومان` },
   ].filter(Boolean) as { key: string; label: string }[];
 
   const filterPanel = (
@@ -112,6 +120,13 @@ export function ProductsPage() {
           <option value="">همهٔ رنگ‌ها</option>{color && !selectedColor && <option value={color}>{color}</option>}{selectedColor && selectedColor.filterKey !== color && <option value={color}>{selectedColor.name}</option>}{colorOptions.map(c => <option key={c.filterKey} value={c.filterKey}>{c.name}</option>)}
         </select>
       </label>
+      <form className="space-y-2 border-t border-black/10 pt-4" onSubmit={e => {e.preventDefault();if(priceFrom && priceTo && Number(priceFrom)>Number(priceTo)){setPriceError("حداقل قیمت نمی‌تواند بیشتر از حداکثر باشد.");return}setPriceError("");patch({minPrice:priceFrom,maxPrice:priceTo})}}>
+        <p className="text-[12px] font-medium">بازهٔ قیمت <span className="font-normal text-ink-70">(تومان)</span></p>
+        <label className="block text-[11px] text-ink-70">از<input aria-label="حداقل قیمت به تومان" inputMode="numeric" value={priceFrom} onChange={e=>setPriceFrom(toLatinDigits(e.target.value).replace(/[^0-9]/g,"").slice(0,12))} placeholder="بدون حداقل" className="mt-1 min-h-10 w-full rounded-lg border border-black/15 bg-white px-3 text-ink"/></label>
+        <label className="block text-[11px] text-ink-70">تا<input aria-label="حداکثر قیمت به تومان" inputMode="numeric" value={priceTo} onChange={e=>setPriceTo(toLatinDigits(e.target.value).replace(/[^0-9]/g,"").slice(0,12))} placeholder="بدون حداکثر" className="mt-1 min-h-10 w-full rounded-lg border border-black/15 bg-white px-3 text-ink"/></label>
+        {priceError && <p role="alert" className="text-xs text-ember">{priceError}</p>}
+        <button className={buttonStyles("outline","sm","min-h-10 w-full")}>اعمال بازهٔ قیمت</button>
+      </form>
       <p className="text-[11px] leading-5 text-ink-70">نتیجه‌ها فقط گزینه‌های موجود با رنگ و سایز انتخاب‌شده را نشان می‌دهند.</p>
     </div>
   );
@@ -206,7 +221,7 @@ export function ProductsPage() {
               <div className="product-list-grid grid grid-cols-2 gap-x-3 gap-y-7 sm:gap-x-4 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                 {list.map((product, i) => (
                   <Reveal key={product.id} delay={Math.min(i, 5) * 0.03}>
-                    <ProductCard product={product} />
+                    <ProductCard product={product} filterColorId={color ? product.colors.find(c => (color.startsWith("tone:") ? colorFilterKey(c) === color : c.id === color) && product.sizes.some(s => (!size || s.label === size) && stockOf(product,c.id,s.id)>0))?.id : undefined} />
                   </Reveal>
                 ))}
               </div>

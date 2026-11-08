@@ -316,7 +316,7 @@ export const ALL_COLORS: ColorOption[] = [
 export type SortKey = "featured" | "newest" | "price-asc" | "price-desc";
 
 export const SORTS: { id: SortKey; label: string }[] = [
-  { id: "featured", label: "پیشنهاد ولور" },
+  { id: "featured", label: "پیشنهاد کلبه وینتیج" },
   { id: "newest", label: "جدیدترین" },
   { id: "price-asc", label: "ارزان‌ترین" },
   { id: "price-desc", label: "گران‌ترین" },

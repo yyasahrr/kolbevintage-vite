@@ -28,13 +28,12 @@ import { adminUnlocked, openPanelForReview } from "@/state/admin";
 import { StyleBuilderPage } from "@/pages/StyleBuilderPage";
 import { BuilderApp } from "@/builder/BuilderApp";
 import { CorePageSlot, PublishedPage, SiteShell } from "@/builder/SiteIntegration";
-import { IssueButton } from "@/pages/AdminLaunch";
 
 function BrandMeta() {
   const { brand, seo } = useOps();
   /* the owner's search title + description are the real document head (decision 64) */
   useEffect(() => {
-    if (seo.title) document.title = seo.title;
+    if (seo.title) document.title = seo.title.replace(/ولور/g, "کلبه وینتیج");
     let meta = document.querySelector("meta[name='description']") as HTMLMetaElement | null;
     if (!meta) {
       meta = document.createElement("meta");
@@ -50,7 +49,7 @@ function BrandMeta() {
       document.head.appendChild(el);
       return el;
     })();
-    if (brand.favicon) link.href = brand.favicon;
+    link.href = brand.favicon || "/kolbe-mark.png";
     if (!document.title || document.title.includes("ولور")) document.title = brand.name + " — فروشگاه پوشاک آماده";
   }, [brand.favicon, brand.name]);
   return null;
@@ -118,7 +117,6 @@ function ScrollToTop() {
 }
 
 function SiteRoutes() {
-  const { pathname } = useLocation();
   return (
     <SiteShell>
       <Routes>
@@ -143,8 +141,6 @@ function SiteRoutes() {
         <Route path="/payment/:attemptId" element={<PaymentReturnPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
-      {/* the report button belongs to the shop floor as much as to the panel (decision 96) */}
-      <IssueButton page={pathname} />
       <ViewTracker />
     </SiteShell>
   );

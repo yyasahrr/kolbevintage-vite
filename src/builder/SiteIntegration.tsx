@@ -6,6 +6,7 @@ import { useReducedMotion } from "motion/react";
 import type { BDoc } from "./core";
 import { activeTemplate, corePageDoc, routeKind, useDocs } from "./docs";
 import { LiveDoc } from "./Renderer";
+import { SupportLauncher } from "@/components/SupportLauncher";
 import { Header } from "@/components/Header";
 import { ShopNotice } from "@/components/ShopNotice";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -59,6 +60,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
       {footer ? <LiveDoc doc={footer} className="eb-site-footer" /> : <SiteFooter />}
       <CartDrawer reduced={reduced} />
       <Toasts reduced={reduced} />
+      <SupportLauncher />
       <PopupHost />
       {(header || footer) && <AdminPill to={`/builder/edit/${(header ?? footer)!.id}`} label="ویرایش هدر / فوتر" />}
     </div>
@@ -94,7 +96,7 @@ export function PublishedPage() {
   useEffect(() => {
     if (!doc) return;
     const prev = document.title;
-    document.title = `${doc.title} — ولور`;
+    document.title = `${doc.title} — کلبه وینتیج`;
     let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     const prevDesc = meta?.content;
     if (doc.page.description && meta) meta.content = doc.page.description;
@@ -137,6 +139,7 @@ export function PublishedPage() {
         {body}
         <CartDrawer reduced={reduced} />
         <Toasts reduced={reduced} />
+        <SupportLauncher />
         <PopupHost />
       </div>
     );

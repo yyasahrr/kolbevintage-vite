@@ -46,9 +46,9 @@ export function AboutPage() {
     <div className="pb-14">
       <PageIntro
         crumbs={[{ label: "دربارهٔ ما" }]}
-        eyebrow="خانهٔ ولور · تأسیس ۱۳۹۲"
+        eyebrow="خانهٔ کلبه وینتیج · تأسیس ۱۳۹۲"
         title="آهسته می‌سازیم، بلند می‌پوشیم"
-        description="ولور یک خانهٔ مستقل پوشاک آماده است؛ با آتلیه‌ای در تهران و مجموعه‌هایی کوچک که با نسبت، پارچه و دست‌دوزی ساخته می‌شوند."
+        description="کلبه وینتیج یک خانهٔ مستقل پوشاک آماده است؛ با آتلیه‌ای در تهران و مجموعه‌هایی کوچک که با نسبت، پارچه و دست‌دوزی ساخته می‌شوند."
       >
         <Link to="/products" className={buttonStyles("solid", "md")}>
           دیدن کالکشن <ArrowLeft className="h-3.5 w-3.5" />
@@ -58,7 +58,7 @@ export function AboutPage() {
       <section className="mx-auto w-full max-w-[1500px] px-4 sm:px-6 lg:px-10">
         <div className="grid overflow-hidden rounded-2xl border border-black/[0.06] bg-[#f1ebe2] lg:grid-cols-[1.05fr_1fr]">
           <div className="relative min-h-[280px] overflow-hidden sm:min-h-[360px]">
-            <img src={ATELIER_IMAGE} alt="آتلیه ولور" className="h-full w-full object-cover" />
+            <img src={ATELIER_IMAGE} alt="آتلیه کلبه وینتیج" className="h-full w-full object-cover" />
           </div>
           <div className="flex flex-col justify-center px-6 py-8 sm:px-9 lg:py-10">
             <Breadcrumbs items={[]} />
@@ -193,7 +193,7 @@ export function AboutPage() {
             </div>
           </div>
           <div className="relative overflow-hidden rounded-xl">
-            <img src={HERO_IMAGE} alt="بوتیک ولور" className="h-full min-h-[220px] w-full object-cover object-top" />
+            <img src={HERO_IMAGE} alt="بوتیک کلبه وینتیج" className="h-full min-h-[220px] w-full object-cover object-top" />
             <div className="absolute inset-0 bg-gradient-to-t from-ink/60 to-transparent" />
             <div className="absolute inset-x-4 bottom-4 flex flex-wrap items-center justify-between gap-2 text-bone">
               <p className="text-[11px]">مشاورهٔ اختصاصی با تیم استایل</p>

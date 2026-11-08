@@ -58,7 +58,7 @@ export function LandingPage() {
         <div className="relative overflow-hidden rounded-[var(--radius-hero)] bg-[#2a241e]">
           <img
             src={HERO_IMAGE}
-            alt="کمپین پاییز زمستان ولور؛ دو مدل با پالتوهای شتری و مشکی"
+            alt="کمپین پاییز زمستان کلبه وینتیج؛ دو مدل با پالتوهای شتری و مشکی"
             className="h-[clamp(460px,78vh,720px)] w-full object-cover object-[60%_center] sm:object-center"
             fetchPriority="high"
           />
@@ -107,7 +107,7 @@ export function LandingPage() {
             «ما لباس نمی‌سازیم؛ تصمیم می‌گیریم پارچه کجای بدن بایستد. هر قطعه، یک جملهٔ کوتاه از یک فصل
             بلند است.»
           </p>
-          <p className="mt-4 text-[10.5px] text-ink-45">— استودیوی طراحی ولور، تهران</p>
+          <p className="mt-4 text-[10.5px] text-ink-45">— استودیوی طراحی کلبه وینتیج، تهران</p>
         </Reveal>
       </section>
 

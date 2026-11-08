@@ -2,7 +2,7 @@ import { MeasurementsTab } from "@/components/account/Measurements";
 import { SupportTickets } from "@/components/account/SupportTickets";
 import { useEffect, useRef, useState } from "react";
 import { formatJalali } from "@/utils/date";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Check,
   Home,
@@ -74,15 +74,18 @@ const returnStatus = (status:string) => ({requested:"در انتظار بررس�
 
 export function AccountPage() {
   const auth = useAuth();
+  const {tab} = useParams();
   if (auth.accountLoading) return <div className="acc-guest"><p role="status">در حال دریافت اطلاعات حساب…</p></div>;
-  if (!auth.account) return <div className="acc-guest"><div><User width={30} height={30}/><h1>برای دیدن حساب وارد شو</h1><p>برای دسترسی به سفارش‌ها وارد حساب کاربری خود شوید.</p><Link to="/auth" className={buttonStyles("solid", "lg", "mt-4")}>ورود / ثبت‌نام</Link></div></div>;
+  if (!auth.account) return <div className="acc-guest"><div><User width={30} height={30}/><h1>برای دیدن حساب وارد شو</h1><p>برای دسترسی به سفارش‌ها وارد حساب کاربری خود شوید.</p><Link to={tab && TABS.some(t=>t.id===tab) ? `/auth?next=${encodeURIComponent(tab)}` : "/auth"} className={buttonStyles("solid", "lg", "mt-4")}>ورود / ثبت‌نام</Link></div></div>;
   return <AccountContent key={auth.account.email} />;
 }
 
 function AccountContent() {
   const auth = useAuth();
   const nav = useNavigate();
-  const [tab, setTab] = useState<Tab>("overview");
+  const {tab: requestedTab} = useParams();
+  const [tab, setTab] = useState<Tab>(() => TABS.some(t=>t.id===requestedTab) ? requestedTab as Tab : "overview");
+  useEffect(() => { setTab(TABS.some(t=>t.id===requestedTab) ? requestedTab as Tab : "overview"); }, [requestedTab]);
   const [openOrder, setOpenOrder] = useState<string | null>(null);
   const [loggingOut,setLoggingOut] = useState(false);
   const [logoutError,setLogoutError] = useState("");

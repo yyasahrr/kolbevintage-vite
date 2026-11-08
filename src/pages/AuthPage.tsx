@@ -16,6 +16,8 @@ export function AuthPage() {
   // the header links straight into a mode (ثبت‌نام / ورود) instead of a generic page
   const [params] = useSearchParams();
   const initialMode = params.get("mode");
+  const nextTab = params.get("next");
+  const destination = nextTab && ["overview","orders","addresses","tryon","wallet","returns","tickets","size","security"].includes(nextTab) ? `/account/${nextTab}` : "/account";
   const [mode, setMode] = useState<Mode>(
     initialMode === "register" || initialMode === "password" || initialMode === "otp" ? initialMode : "password",
   );
@@ -51,7 +53,7 @@ export function AuthPage() {
     try {
       const r = await verifyOtp(code);
       flash(r);
-      if (r.ok) nav("/account");
+      if (r.ok) nav(destination);
     } finally {
       setBusy(false);
     }
@@ -63,7 +65,7 @@ export function AuthPage() {
     try {
       const r = await loginWithPassword(email, password);
       flash(r);
-      if (r.ok) nav("/account");
+      if (r.ok) nav(destination);
     } finally {
       setBusy(false);
     }
@@ -75,7 +77,7 @@ export function AuthPage() {
     try {
       const r = await register({ name, email, phone, password });
       flash(r);
-      if (r.ok) nav("/account");
+      if (r.ok) nav(destination);
     } finally {
       setBusy(false);
     }
@@ -85,10 +87,10 @@ export function AuthPage() {
     <div className="auth-page">
       <div className="auth-wrap">
         <aside className="auth-art">
-          <Link to="/" className="auth-brand latin-track">VELOURS</Link>
+          <Link to="/" className="auth-brand latin-track">KOLBE VINTAGE</Link>
           <div>
-            <h1>حساب ولور</h1>
-            <p>سفارش‌ها، آدرس‌ها، پرو آنلاین، کیف پول و علاقه‌مندی‌ها — همه در یک جا. ورود بدون رمز، با کد یکبار مصرف.</p>
+            <h1>حساب کلبه وینتیج</h1>
+            <p>سفارش‌ها، آدرس‌ها، پرو آنلاین، کیف پول و علاقه‌مندی‌ها — همه در یک جا. وضعیت روش‌های ورود را در همین صفحه ببینید.</p>
             <ul>
               <li><Check width={13} height={13} /> پیگیری سفارش و مرجوعی</li>
               <li><Check width={13} height={13} /> کش‌بک روی هر خرید</li>

@@ -16,11 +16,13 @@ export function CardMedia({
   className,
   interactive = false,
   colorId,
+  strictColor = false,
 }: {
   product: Product;
   className?: string;
   interactive?: boolean;
   colorId?: string;
+  strictColor?: boolean;
 }) {
   const ops = useOps();
   const catalog = useLiveCatalog();
@@ -33,19 +35,19 @@ export function CardMedia({
   const cover =
     specific.find((i) => i.role === "main") ??
     specific[0] ??
-    gallery.find((i) => i.role === "main") ??
-    gallery.find((i) => i.role !== "hover" && i.role !== "cutout");
+    (!strictColor ? gallery.find((i) => i.role === "main") ??
+    gallery.find((i) => i.role !== "hover" && i.role !== "cutout") : undefined);
   const images = useMemo(() => {
     // null means ProductThumb's existing crop/fallback, not a fabricated image.
     const urls: (string | null)[] = [cover?.url ?? null];
     for (const image of gallery)
-      if (image.role !== "cutout" && image.url && !urls.includes(image.url)) urls.push(image.url);
-    if (legacy?.hoverImage && !urls.includes(legacy.hoverImage))
+      if ((!strictColor || image.colorId === colorId) && image.role !== "cutout" && image.url && !urls.includes(image.url)) urls.push(image.url);
+    if (!strictColor && legacy?.hoverImage && !urls.includes(legacy.hoverImage))
       urls.push(legacy.hoverImage);
     return urls;
-  }, [cover?.url, gallery, legacy?.hoverImage]);
+  }, [cover?.url, gallery, legacy?.hoverImage, strictColor, colorId]);
   const hoverUrl =
-    gallery.find((i) => i.role === "hover" && i.url !== cover?.url)?.url ??
+    gallery.find((i) => (!strictColor || i.colorId === colorId) && i.role === "hover" && i.url !== cover?.url)?.url ??
     images[1] ??
     null;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -89,7 +91,7 @@ export function CardMedia({
     return () => mq.removeEventListener("change", update);
   }, []);
   const hoverVideo =
-    !manual && activeHover && !hoverUrl && !!legacy?.hoverVideo && !reduced;
+    !strictColor && !manual && activeHover && !hoverUrl && !!legacy?.hoverVideo && !reduced;
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -156,6 +158,8 @@ export function CardMedia({
                   className="absolute inset-0 h-full w-full object-cover"
                 />
               </div>
+            ) : strictColor ? (
+              <div className="grid h-full place-items-center bg-[#efe9e0] p-4 text-center text-xs text-ink-70">تصویر این رنگ ثبت نشده است</div>
             ) : (
               <ProductThumb
                 product={product}
@@ -169,7 +173,7 @@ export function CardMedia({
           </motion.div>
         </AnimatePresence>
       </div>
-      {legacy?.hoverVideo && !manual && !hoverUrl && !reduced && (
+      {!strictColor && legacy?.hoverVideo && !manual && !hoverUrl && !reduced && (
         <div
           className={cn("card-media-layer", hoverVideo && "is-on")}
           aria-hidden
@@ -251,6 +255,7 @@ export function CardMedia({
       ) : (
         media
       )}
+      {strictColor && !cover && <span className="sr-only">تصویر این رنگ ثبت نشده است.</span>}
       {interactive && images.length > 1 && (
         <>
           <button

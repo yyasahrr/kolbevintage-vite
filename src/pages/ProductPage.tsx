@@ -68,11 +68,11 @@ export function ProductPage() {
     setColorId(color?.id ?? product.colors[0]?.id ?? "");
     const firstSize = product.sizes.find((s) => stockOf(product, color?.id ?? product.colors[0]?.id ?? "", s.id) > 0);
     setSizeId(firstSize?.id ?? product.sizes[0]?.id ?? "");
-    document.title = `${product.name} — فروشگاه ولور`;
+    document.title = `${product.name} — فروشگاه کلبه وینتیج`;
     // remembered in this browser only, for the «بازدیدهای اخیر» widget
     rememberView(product.id);
     return () => {
-      document.title = "ولور — خرید بر اساس استایل | رانوی تعاملی";
+      document.title = "کلبه وینتیج — خرید بر اساس استایل | رانوی تعاملی";
     };
   }, [productId, product?.id]);
 
@@ -398,7 +398,7 @@ export function ProductPage() {
             {[
               { icon: Truck, t: "ارسال رایگان", s: "بالای ۲۰۰٬۰۰۰ تومان" },
               { icon: Undo2, t: "مرجوعی", s: "تا ۱۴ روز" },
-              { icon: ShieldCheck, t: "اصالت", s: "ساخت ولور" },
+              { icon: ShieldCheck, t: "اصالت", s: "ساخت کلبه وینتیج" },
             ].map((item) => (
               <div key={item.t} className="text-center">
                 <item.icon className="mx-auto h-4 w-4 text-ink-70" />

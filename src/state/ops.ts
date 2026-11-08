@@ -406,10 +406,10 @@ export const toggleHomeSection = (id: string) => {
 const DEFAULT: OpsState = {
   siteTheme: DEFAULT_THEME,
   brand: {
-    logoText: "VELOURS",
+    logoText: "KOLBE VINTAGE",
     logoImage: "",
     favicon: "",
-    name: "ولور",
+    name: "کلبه وینتیج",
     tagline: "خانهٔ پوشاک آماده — تهران",
     announcement: "ارسال رایگان بالای ۲۰۰٬۰۰۰ تومان — مرجوعی تا ۱۴ روز",
     announcementActive: true,

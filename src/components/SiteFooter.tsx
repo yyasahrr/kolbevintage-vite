@@ -13,7 +13,7 @@ const SERVICE = [
 ];
 
 const STUDIO = [
-  { label: "دربارهٔ ولور", to: "/about" },
+  { label: "دربارهٔ کلبه وینتیج", to: "/about" },
   { label: "آتلیهٔ تهران", to: "/about" },
   { label: "پایداری", to: "/about" },
   { label: "فرصت‌های شغلی", to: "/about" },
@@ -29,11 +29,8 @@ export function SiteFooter() {
       <div className="mx-auto grid max-w-[1500px] gap-9 px-4 py-11 sm:grid-cols-2 sm:px-6 lg:grid-cols-[1.5fr_1fr_1fr_1fr] lg:px-10">
         <div>
           <Link to="/" className="inline-flex items-center">
-            {brand.logoImage ? (
-              <img src={brand.logoImage} alt={brand.name} className="h-9 w-auto max-w-[180px] object-contain" />
-            ) : (
-              <span className="latin-track font-latin text-[26px] tracking-brand text-ink">{brand.logoText}</span>
-            )}
+            <img src={brand.logoImage || "/kolbe-mark.png"} alt="" className="h-10 w-auto object-contain" />
+            {!brand.logoImage&&<span dir="ltr" className="ms-2 font-latin text-[23px] text-ink">Kolbe Vintage</span>}
           </Link>
           <p className="mt-3 max-w-[22rem] text-[12px] leading-[1.95] text-ink-70">
             {brand.footerNote}
@@ -51,17 +48,9 @@ export function SiteFooter() {
               <a href={`mailto:${settings.email}`} dir="ltr" className="hover:text-ink">{settings.email}</a>
             </p>
           </div>
-          <div className="mt-4 flex items-center gap-2">
-            <a
-              href="https://instagram.com"
-              target="_blank"
-              rel="noreferrer noopener"
-              aria-label="اینستاگرام ولور"
-              className="tap flex h-8 w-8 items-center justify-center rounded-full border border-black/12 text-ink-70 transition-colors hover:border-ink hover:text-ink"
-            >
-              <AtSign className="h-3.5 w-3.5" />
-            </a>
-          </div>
+          {/^https:\/\/(www\.)?instagram\.com\/[^\s/]+/i.test(brand.socials.instagram) && <div className="mt-4 flex items-center gap-2">
+            <a href={brand.socials.instagram} target="_blank" rel="noreferrer noopener" aria-label="اینستاگرام کلبه وینتیج" className="tap flex h-8 w-8 items-center justify-center rounded-full border border-black/12 text-ink-70 transition-colors hover:border-ink hover:text-ink"><AtSign className="h-3.5 w-3.5" /></a>
+          </div>}
         </div>
 
         <FooterColumn title="فروشگاه">
@@ -89,14 +78,14 @@ export function SiteFooter() {
           ))}
         </FooterColumn>
 
-        <FooterColumn title="ولور">
+        <FooterColumn title="کلبه وینتیج">
           {STUDIO.map((item) => (
             <li key={item.label}>
               <FooterLink to={item.to}>{item.label}</FooterLink>
             </li>
           ))}
           <li>
-            <FooterLink to="/journal">ژورنال ولور</FooterLink>
+            <FooterLink to="/journal">ژورنال کلبه وینتیج</FooterLink>
           </li>
           <li><FooterLink to="/gallery">گالری استایل مشتریان</FooterLink></li>
           <li>
@@ -107,7 +96,7 @@ export function SiteFooter() {
 
       <div className="border-t border-black/[0.06]">
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-3 px-4 py-4 text-[10px] text-ink-45 sm:px-6 lg:px-10">
-          <p>© {new Date().getFullYear()} ولور — تمام حقوق محفوظ است.</p>
+          <p>© {new Date().getFullYear()} کلبه وینتیج — تمام حقوق محفوظ است.</p>
           <div className="flex flex-wrap items-center gap-4">
             <Link to="/about" className="transition-colors hover:text-ink">
               حریم خصوصی

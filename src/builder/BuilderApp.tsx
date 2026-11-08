@@ -18,7 +18,7 @@ export function BuilderApp() {
     const root = document.documentElement;
     const prev = root.dataset.theme;
     root.dataset.theme = "builder";
-    document.title = "صفحه‌ساز — ولور";
+    document.title = "صفحه‌ساز — کلبه وینتیج";
     return () => {
       if (prev) root.dataset.theme = prev;
     };

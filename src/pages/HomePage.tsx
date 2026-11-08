@@ -33,7 +33,7 @@ export function HomePage() {
             <div className="relative overflow-hidden rounded-[var(--radius-hero)] bg-[#d9cfc0]">
               <img
                 src={HERO_IMAGE}
-                alt="کمپین پاییز و زمستان ولور؛ دو مدل با پالتوهای شتری و مشکی در فضایی بتنی"
+                alt="کمپین پاییز و زمستان کلبه وینتیج؛ دو مدل با پالتوهای شتری و مشکی در فضایی بتنی"
                 className="h-[clamp(460px,74vh,700px)] w-full object-cover object-[62%_center] sm:object-center"
                 fetchPriority="high"
               />
@@ -66,7 +66,7 @@ export function HomePage() {
               </div>
               <div className="absolute bottom-4 left-5 hidden items-center gap-2 text-[9.5px] text-bone/60 sm:flex lg:left-8">
                 <span className="h-1.5 w-1.5 rounded-full bg-bone/70" />
-                عکاسی: استودیوی ولور — تهران
+                عکاسی: استودیوی کلبه وینتیج — تهران
               </div>
             </div>
           </section>
@@ -151,7 +151,7 @@ export function HomePage() {
               <div className="relative z-10 py-10 lg:py-14">
                 <div className="flex items-center gap-2.5">
                   <span className="h-px w-7 bg-bone/35" />
-                  <p className="text-[10px] text-bone/55">تجربهٔ تعاملی ولور</p>
+                  <p className="text-[10px] text-bone/55">تجربهٔ تعاملی کلبه وینتیج</p>
                 </div>
                 <h2 className="mt-3 font-display text-[clamp(1.9rem,4.4vw,3.1rem)] leading-[1.2] font-medium">
                   خرید بر اساس استایل
@@ -207,13 +207,13 @@ export function HomePage() {
             <div className="relative order-2 min-h-[320px] overflow-hidden rounded-b-xl bg-[#e6dbc9] lg:order-1 lg:rounded-r-xl lg:rounded-bl-none">
               <img
                 src={ATELIER_IMAGE}
-                alt="دست‌های خیاط در آتلیه ولور روی پالتوی شتری"
+                alt="دست‌های خیاط در آتلیه کلبه وینتیج روی پالتوی شتری"
                 loading="lazy"
                 className="h-full w-full object-cover transition-transform duration-1000 hover:scale-[1.02]"
               />
             </div>
             <div className="order-1 flex flex-col justify-center rounded-t-xl bg-[#f1ebe2] px-6 py-9 sm:px-10 lg:order-2 lg:rounded-l-xl lg:rounded-tr-none lg:py-14">
-              <p className="text-[10px] text-ink-45">آتلیهٔ ولور</p>
+              <p className="text-[10px] text-ink-45">آتلیهٔ کلبه وینتیج</p>
               <h2 className="mt-2.5 font-display text-[clamp(1.6rem,3.4vw,2.4rem)] leading-[1.3] font-medium text-ink">
                 سه هفته برای یک یقه.
                 <span className="block text-ink-70">چون لباس، تصمیم است.</span>
@@ -235,7 +235,7 @@ export function HomePage() {
                 ))}
               </div>
               <div className="mt-6">
-                <ArrowLink to="/about">داستان ولور را بخوان</ArrowLink>
+                <ArrowLink to="/about">داستان کلبه وینتیج را بخوان</ArrowLink>
               </div>
             </div>
           </section>
@@ -292,7 +292,7 @@ export function HomePage() {
             <Reveal className="relative overflow-hidden rounded-xl bg-[#e8ddcd]">
               <img
                 src={CAMPAIGN_IMAGE}
-                alt="کمپین ولور؛ مدل با بافت کشمیر عاجی"
+                alt="کمپین کلبه وینتیج؛ مدل با بافت کشمیر عاجی"
                 loading="lazy"
                 className="h-[360px] w-full object-cover object-[center_38%] sm:h-[440px]"
               />

@@ -1609,3 +1609,6 @@ html[data-theme] button:is(.pg-arrow,.card-gallery-arrow):not(:disabled):is(:hov
 .ssg-size-options button { min-height:42px; padding:7px 12px; border:1px solid #cfc1b1; border-radius:10px; background:white; color:#211a14; font:inherit; font-size:12px; cursor:pointer; }
 .ssg-size-options button:disabled { opacity:.5; cursor:not-allowed; }
 @media (min-width:760px) { .ssg-content { grid-template-columns:minmax(240px, .9fr) minmax(0,1.1fr); align-items:start; padding:20px; } }
+
+/* The sale label keeps contrast across all published themes. */
+html[data-theme] .product-card-badge.is-discount { background-color:#824027; color:#fff; }
