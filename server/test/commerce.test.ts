@@ -2168,6 +2168,34 @@ test("customer order and return history are owner-scoped, validated and never in
   assert.equal(tooMany.status,409);
 });
 
+test("customer pagination covers old history, stable ties, privacy and owned cursors",async()=>{
+  const buyer=await customerClient(),guest=makeClient(),other=makeClient(),admin=await adminClient();
+  const {hashPassword}=await import('../src/security');const email='customer-pages-other@example.com';
+  await query("insert into customers(email,name,password_hash,addresses) values ($1,'Other',$2,'[]'::jsonb) on conflict(email) do update set password_hash=excluded.password_hash",[email,hashPassword('demo1234')]);
+  assert.equal((await other.post('/api/auth/login',{email,password:'demo1234'})).status,200);
+  await query(`insert into orders(id,created_at,email,status,total,data,exception_reason,fulfillment_status)
+    select 'cust-page-'||lpad(n::text,4,'0'), '2099-01-01 00:00:00.123456+00'::timestamptz,'ava@example.com','paid',10,'{"externalPaymentRef":"PRIVATE-REF"}'::jsonb,'PRIVATE-REASON','unfulfilled' from generate_series(1,215) n`);
+  await query(`insert into orders(id,created_at,email,status,total,data) values ('cust-page-other','2099-01-01','customer-pages-other@example.com','paid',10,'{}')`);
+  await query(`insert into order_lines(id,order_id,name_snapshot,quantity,unit_price,line_total)
+    select 'cust-line-'||lpad(n::text,4,'0'),'cust-page-'||lpad(n::text,4,'0'),'Fixture item',2,5,10 from generate_series(1,215) n`);
+  await query(`insert into order_lines(id,order_id,name_snapshot,quantity,unit_price,line_total) values ('cust-line-other','cust-page-other','Other item',1,10,10)`);
+  await query(`insert into refunds(id,order_id,order_line_id,quantity,amount,status,kind,note,qc_note,created_at)
+    select 'cust-refund-'||lpad(n::text,4,'0'),'cust-page-'||lpad(n::text,4,'0'),'cust-line-'||lpad(n::text,4,'0'),1,5,'requested','return','PRIVATE-NOTE','PRIVATE-QC','2099-01-01 00:00:00.123456+00'::timestamptz from generate_series(1,215) n`);
+  await query(`insert into refunds(id,order_id,order_line_id,quantity,amount,status,kind,created_at) values ('cust-refund-other','cust-page-other','cust-line-other',1,10,'requested','return','2099-01-01')`);
+  for(const [path,prefix] of [['/api/commerce/customer/order-page','cust-page-'],['/api/commerce/customer/return-page','cust-refund-']]){
+    assert.equal((await guest.get(path)).status,401);assert.equal((await admin.get(path)).status,401);
+    assert.equal((await buyer.get(path+'?limit=0')).status,422);assert.equal((await buyer.get(path+'?limit=101')).status,422);
+    assert.equal((await buyer.get(path+'?before=missing')).status,422);assert.equal((await buyer.get(path+'?before='+prefix+'other')).status,422);
+    const headers=await fetch(base+path,{headers:{cookie:buyer.cookie()}});assert.match(headers.headers.get('cache-control')??'',/private, no-store/);await headers.text();
+    let cursor='';const seen:string[]=[];do{const result=await buyer.get(path+'?limit=40'+(cursor?'&before='+encodeURIComponent(cursor):''));assert.equal(result.status,200,JSON.stringify(result.body));assert(!JSON.stringify(result.body).includes('PRIVATE-'));seen.push(...result.body.items.map((x:Json)=>x.id));cursor=result.body.nextCursor??'';}while(cursor);
+    assert.equal(seen.length,215);assert.equal(new Set(seen).size,215);assert.equal(seen[0],prefix+'0215');assert.equal(seen[214],prefix+'0001');
+    const noLeak=await other.get(path);assert.equal(noLeak.body.items.length,1);assert.equal(noLeak.body.items[0].id,prefix+'other');
+  }
+  const detail=await buyer.get('/api/commerce/customer/orders/cust-page-0001');assert.equal(detail.status,200);assert.equal(detail.body.lines[0].id,'cust-line-0001');assert(!JSON.stringify(detail.body).includes('PRIVATE-'));
+  assert.equal((await other.get('/api/commerce/customer/orders/cust-page-0001')).status,404);assert.equal((await guest.get('/api/commerce/customer/orders/cust-page-0001')).status,401);
+  await query("delete from orders where id='cust-page-0040'");assert.equal((await buyer.get('/api/commerce/customer/order-page?before=cust-page-0040')).status,422);assert.equal((await buyer.get('/api/commerce/customer/return-page?before=cust-refund-0040')).status,422);
+});
+
 test("customer addresses and profile changes are confirmed, isolated and conflict-safe", async () => {
   const {hashPassword} = await import("../src/security");
   const email=`account-address-${Date.now()}@example.com`;

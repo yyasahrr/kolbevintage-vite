@@ -44,18 +44,30 @@ const TABS: { id: Tab; label: string; icon: typeof Package }[] = [
 ];
 
 type Remote<T> = { status: "loading" | "ready" | "error"; data: T | null; reload: () => void };
-function useRemote<T>(email:string, fetcher:()=>Promise<T>): Remote<T> {
-  const [version, setVersion] = useState(0);
-  const [state, setState] = useState<{status:"loading"|"ready"|"error";data:T|null}>({status:"loading",data:null});
+type Paged<T> = Remote<T[]> & { nextCursor:string|null; loadingMore:boolean; moreError:boolean; loadMore:()=>void };
+function usePaged<T extends {id:string}>(email:string,fetcher:(before?:string)=>Promise<{items:T[];nextCursor:string|null}>):Paged<T> {
+  const [version,setVersion]=useState(0);
+  const [state,setState]=useState<{status:"loading"|"ready"|"error";data:T[]|null;nextCursor:string|null;loadingMore:boolean;moreError:boolean}>({status:"loading",data:null,nextCursor:null,loadingMore:false,moreError:false});
+  const generation=useRef(0),moreLock=useRef(false);
   useEffect(()=>{
-    let alive = true;
-    setState({status:"loading",data:null});
-    fetcher().then(data=>{if(alive) setState({status:"ready",data});}).catch(()=>{if(alive) setState({status:"error",data:null});});
-    return ()=>{alive=false;};
+    const current=++generation.current;moreLock.current=false;
+    setState({status:"loading",data:null,nextCursor:null,loadingMore:false,moreError:false});
+    fetcher().then(page=>{if(current===generation.current)setState({status:"ready",data:page.items,nextCursor:page.nextCursor,loadingMore:false,moreError:false})}).catch(()=>{if(current===generation.current)setState({status:"error",data:null,nextCursor:null,loadingMore:false,moreError:false})});
+    return()=>{generation.current++};
   },[email,fetcher,version]);
-  return {...state,reload:()=>setVersion(v=>v+1)};
+  function loadMore(){
+    if(!state.nextCursor||state.loadingMore||moreLock.current)return;
+    const cursor=state.nextCursor,current=generation.current;moreLock.current=true;
+    setState(s=>({...s,loadingMore:true,moreError:false}));
+    fetcher(cursor).then(page=>{if(current!==generation.current)return;setState(s=>{const seen=new Set((s.data??[]).map(x=>x.id));return {...s,data:[...(s.data??[]),...page.items.filter(item=>!seen.has(item.id))],nextCursor:page.nextCursor,loadingMore:false,moreError:false}})}).catch(()=>{if(current===generation.current)setState(s=>({...s,loadingMore:false,moreError:true}))}).finally(()=>{if(current===generation.current)moreLock.current=false});
+  }
+  function reload(){generation.current++;moreLock.current=false;setVersion(v=>v+1)}
+  return {...state,loadMore,reload};
 }
-function useCustomerOrders(email:string) { return useRemote(email,commerce.orders); }
+function useCustomerOrders(email:string) { return usePaged(email,commerce.orderPage); }
+function MorePages({state,label}:{state:Paged<{id:string}>;label:string}){
+  return <>{state.moreError&&<p role="alert" className="acc-muted">دریافت صفحه بعد ناموفق بود. می‌توانید دوباره تلاش کنید یا فهرست را تازه کنید. <button type="button" className="acc-link" onClick={state.reload}>تازه‌سازی فهرست</button></p>}{state.nextCursor&&<button type="button" className="acc-btn" disabled={state.loadingMore} onClick={state.loadMore}>{state.loadingMore?"در حال دریافت…":label}</button>}</>;
+}
 const orderStatus = (status:string) => ({paid:"ثبت شده",preparing:"آماده‌سازی",shipped:"ارسال شده",delivered:"تحویل شده",cancelled:"لغو شده",exception:"نیازمند بررسی"} as Record<string,string>)[status] ?? "وضعیت نامشخص";
 const paymentKindLabel = (kind:CustomerOrder["paymentKind"]) => ({simulated:"پرداخت آزمایشی، بدون پرداخت بانکی",manual:"پرداخت دستی ثبت شده؛ تأیید بانکی خودکار نیست",unknown:"منشأ پرداخت مشخص نیست",provider:"پرداخت از طریق ارائه‌دهنده ثبت شده است"} as Record<string,string>)[kind] ?? "منشأ پرداخت مشخص نیست";
 const returnStatus = (status:string) => ({requested:"در انتظار بررسی",approved:"تأیید شده",rejected:"رد شده",received:"کالا دریافت شده",qc_passed:"بررسی کالا انجام شد",qc_failed:"کالا شرایط بررسی را نداشت",manual_review:"نیازمند بررسی دستی",settled:"تسویه ثبت شده"} as Record<string,string>)[status] ?? "وضعیت نامشخص";
@@ -116,7 +128,7 @@ function AccountContent() {
           {tab === "overview" && (
             <>
               <div className="acc-kpis">
-                <Stat icon={<Package width={15} height={15} />} label="سفارش‌های اخیر" value={orderState.data ? orders.length.toLocaleString("fa-IR") : "—"} />
+                <Stat icon={<Package width={15} height={15} />} label="سفارش‌های بارگذاری‌شده" value={orderState.data ? orders.length.toLocaleString("fa-IR") : "—"} />
                 <Stat icon={<Wallet width={15} height={15} />} label="کش‌بک" value={wallet ? formatPrice(wallet.balance) : "—"} />
               </div>
 
@@ -134,7 +146,7 @@ function AccountContent() {
           {tab === "orders" && (
             <section className="acc-card">
               <header><h3><Package width={15} height={15} /> سفارش‌ها</h3></header>
-              <p className="acc-muted">حداکثر ۲۰۰ سفارش اخیر نمایش داده می‌شود. مبلغ هر سفارش، مبلغ اولیه است و بازپرداخت‌های احتمالی از آن کم نشده‌اند.</p>
+              <p className="acc-muted">سفارش‌ها صفحه‌به‌صفحه بارگذاری می‌شوند. مبلغ هر سفارش، مبلغ اولیه است و بازپرداخت‌های احتمالی از آن کم نشده‌اند.</p>
               {orderState.status === "loading" ? <p role="status" className="acc-muted">در حال دریافت سفارش‌ها…</p> : orderState.status === "error" ? <p role="alert" className="acc-muted">دریافت سفارش‌ها ناموفق بود. <button type="button" className="acc-link" onClick={orderState.reload}>تلاش دوباره</button></p> : orders.length === 0 ? (
                 <p className="acc-muted">سفارشی نیست. <Link to="/products">از فروشگاه شروع کن.</Link></p>
               ) : (
@@ -184,6 +196,7 @@ function AccountContent() {
                   ))}
                 </ul>
               )}
+              {orderState.status === "ready" && <MorePages state={orderState} label="بارگذاری سفارش‌های بیشتر"/>}
             </section>
           )}
 
@@ -392,9 +405,13 @@ function WalletTab({ email }: { email: string }) {
   );
 }
 
-function Returns({email,orderState}:{email:string;orderState:Remote<CustomerOrder[]>}) {
-  const history = useRemote<CustomerReturn[]>(email,commerce.returns);
+function Returns({email,orderState}:{email:string;orderState:Paged<CustomerOrder>}) {
+  const history = usePaged<CustomerReturn>(email,commerce.returnPage);
   const [orderId,setOrderId] = useState("");
+  const [searchOrder,setSearchOrder]=useState("");
+  const [foundOrder,setFoundOrder]=useState<CustomerOrder|null>(null),[finding,setFinding]=useState(false),[findError,setFindError]=useState("");
+  const lookupGeneration=useRef(0);
+  useEffect(()=>()=>{lookupGeneration.current++},[]);
   const [lineId,setLineId] = useState("");
   const [quantity,setQuantity] = useState(1);
   const [reason,setReason] = useState("سایز مناسب نبود");
@@ -402,8 +419,18 @@ function Returns({email,orderState}:{email:string;orderState:Remote<CustomerOrde
   const [message,setMessage] = useState<{text:string;error:boolean}|null>(null);
   const inFlight = useRef(false);
   const eligible = (orderState.data ?? []).filter(o=>["paid","preparing","shipped","delivered"].includes(o.status) && o.lines.length);
+  if(foundOrder && !eligible.some(o=>o.id===foundOrder.id))eligible.push(foundOrder);
   const selected = eligible.find(o=>o.id===orderId);
   const line = selected?.lines.find(l=>l.id===lineId);
+  async function lookup(){
+    const id=searchOrder.trim();if(!id||id.length>200||finding)return;const generation=++lookupGeneration.current;
+    setFinding(true);setFindError("");setFoundOrder(null);setOrderId("");setLineId("");
+    try {const o=await commerce.customerOrder(id);if(generation!==lookupGeneration.current)return;
+      if(!["paid","preparing","shipped","delivered"].includes(o.status)||!o.lines.length){setFindError("این سفارش امکان ثبت درخواست ندارد.");return;}
+      setFoundOrder(o);setOrderId(o.id);setQuantity(1);
+    }catch{if(generation===lookupGeneration.current)setFindError("سفارش پیدا نشد یا دریافت آن ناموفق بود. شماره را بررسی و دوباره تلاش کنید.")}
+    finally{if(generation===lookupGeneration.current)setFinding(false)}
+  }
   async function submit(e:React.FormEvent) {
     e.preventDefault();
     if(inFlight.current || !selected || !line || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > line.quantity) return;
@@ -411,30 +438,34 @@ function Returns({email,orderState}:{email:string;orderState:Remote<CustomerOrde
     try {
       await commerce.requestReturn(selected.id,line.id,quantity,reason);
       setMessage({text:"درخواست ثبت شد و در انتظار بررسی است؛ ثبت درخواست به معنی تأیید یا بازپرداخت نیست.",error:false});
-      setLineId(""); setQuantity(1);
+      setOrderId("");setFoundOrder(null);setLineId(""); setQuantity(1);
       history.reload(); orderState.reload();
     } catch(err) {
       setMessage({text:err instanceof ApiError && err.status >= 400 && err.status < 500 ? err.message : "نتیجه ثبت مشخص نیست. پیش از تلاش دوباره، تاریخچه درخواست‌ها را بررسی و تازه‌سازی کنید.",error:true});
-      history.reload(); orderState.reload();
+      setOrderId("");setFoundOrder(null);setLineId("");history.reload(); orderState.reload();
     } finally { inFlight.current=false; setBusy(false); }
   }
   return <>
     <section className="acc-card">
       <header><h3><Undo2 width={15} height={15}/> درخواست مرجوعی</h3></header>
       <p className="acc-muted">برای هر ردیف سفارش یک درخواست جدا ثبت کنید. تأیید درخواست و مبلغ احتمالی پس از بررسی مشخص می‌شود.</p>
-      {orderState.status === "loading" ? <p role="status">در حال دریافت سفارش‌ها…</p> : orderState.status === "error" ? <p role="alert">دریافت سفارش‌ها ناموفق بود. <button type="button" className="acc-link" onClick={orderState.reload}>تلاش دوباره</button></p> : eligible.length === 0 ? <p className="acc-muted">سفارش قابل درخواست در ۲۰۰ سفارش اخیر یافت نشد.</p> : <form className="acc-return-form" onSubmit={submit}>
-        <label className="acc-field">سفارش<select aria-label="سفارش" required value={orderId} onChange={e=>{setOrderId(e.target.value);setLineId("");setQuantity(1);}}><option value="">انتخاب سفارش</option>{eligible.map(o=><option key={o.id} value={o.id}>{o.id} — {formatJalali(o.createdAt)}</option>)}</select></label>
+      <div className="acc-return-form"><label className="acc-field">شماره سفارش قدیمی<input aria-label="شماره سفارش قدیمی" dir="ltr" maxLength={200} value={searchOrder} onChange={e=>{lookupGeneration.current++;setFinding(false);setSearchOrder(e.target.value);setFindError("");setFoundOrder(null);setOrderId("");setLineId("")}}/></label><button type="button" className="acc-btn" disabled={finding||!searchOrder.trim()} onClick={()=>void lookup()}>{finding?"در حال جستجو…":"یافتن سفارش"}</button>{findError&&<p role="alert">{findError}</p>}</div>
+      {orderState.status === "loading" && <p role="status">در حال دریافت سفارش‌ها…</p>}{orderState.status === "error" && <p role="alert">دریافت سفارش‌ها ناموفق بود. <button type="button" className="acc-link" onClick={orderState.reload}>تلاش دوباره</button></p>}
+      {orderState.status === "ready" && <MorePages state={orderState} label="بارگذاری سفارش‌های بیشتر"/>}
+      {eligible.length === 0 ? <p className="acc-muted">در سفارش‌های بارگذاری‌شده مورد قابل درخواست پیدا نشد؛ شماره سفارش را نیز می‌توانید جستجو کنید.</p> : <form className="acc-return-form" onSubmit={submit}>
+        <label className="acc-field">سفارش<select aria-label="سفارش" required value={orderId} onChange={e=>{lookupGeneration.current++;setFinding(false);setOrderId(e.target.value);setLineId("");setQuantity(1);}}><option value="">انتخاب سفارش</option>{eligible.map(o=><option key={o.id} value={o.id}>{o.id} — {formatJalali(o.createdAt)}</option>)}</select></label>
         <label className="acc-field">کالا<select aria-label="کالا" required value={lineId} onChange={e=>{setLineId(e.target.value);setQuantity(1);}} disabled={!selected}><option value="">انتخاب کالا</option>{selected?.lines.map(l=><option key={l.id} value={l.id}>{l.name} — {l.colorName} / {l.sizeLabel}</option>)}</select></label>
         <label className="acc-field">تعداد<input aria-label="تعداد" type="number" required min={1} max={line?.quantity ?? 1} step={1} value={quantity} onChange={e=>setQuantity(Number(e.target.value))} disabled={!line}/></label>
         <label className="acc-field">دلیل<select aria-label="دلیل" value={reason} onChange={e=>setReason(e.target.value)}>{["سایز مناسب نبود","رنگ متفاوت بود","کیفیت مطابق انتظار نبود","سفارش اشتباه","سایر"].map(r=><option key={r}>{r}</option>)}</select></label>
-        <button className="acc-btn is-primary" type="submit" disabled={busy || !line}>{busy ? "در حال ثبت…" : "ثبت درخواست"}</button>
+        <button className="acc-btn is-primary" type="submit" disabled={busy || finding || !line}>{busy ? "در حال ثبت…" : "ثبت درخواست"}</button>
       </form>}
       {message && <p role={message.error ? "alert" : "status"} className="acc-muted">{message.text}</p>}
     </section>
     <section className="acc-card">
       <header><h3>تاریخچه درخواست‌ها</h3><button type="button" className="acc-link" onClick={history.reload} disabled={history.status === "loading"}>تازه‌سازی</button></header>
-      <p className="acc-muted">حداکثر ۲۰۰ درخواست اخیر نمایش داده می‌شود. وضعیت تسویه به‌تنهایی تأیید انتقال بانکی نیست.</p>
+      <p className="acc-muted">درخواست‌ها صفحه‌به‌صفحه بارگذاری می‌شوند. وضعیت تسویه به‌تنهایی تأیید انتقال بانکی نیست.</p>
       {history.status === "loading" ? <p role="status">در حال دریافت درخواست‌ها…</p> : history.status === "error" ? <p role="alert">دریافت درخواست‌ها ناموفق بود. <button type="button" className="acc-link" onClick={history.reload}>تلاش دوباره</button></p> : history.data?.length ? <ul className="acc-orders">{history.data.map(r=><li key={r.id}><div className="acc-order-row"><div><b>{r.name}</b><p className="acc-muted">{r.kind === "exchange" ? "تعویض" : r.kind === "refund" ? "بازپرداخت" : r.kind === "return" ? "مرجوعی" : "درخواست"}</p><p className="acc-muted">{r.color || "—"} / {r.size || "—"} · {r.quantity.toLocaleString("fa-IR")} عدد</p><p className="acc-muted">{formatJalali(r.createdAt)} · سفارش <span dir="ltr">{r.orderId}</span></p></div><span className="acc-pill is-open">{returnStatus(r.status)}</span></div></li>)}</ul> : <p className="acc-muted">درخواستی ثبت نشده است.</p>}
+      {history.status === "ready" && <MorePages state={history} label="بارگذاری درخواست‌های بیشتر"/>}
     </section>
   </>;
 }

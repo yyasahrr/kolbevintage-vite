@@ -165,6 +165,9 @@ export const commerce = {
   config: () => api.get<CommerceConfig>("/api/commerce/config"),
   orders: () => api.get<CustomerOrder[]>("/api/commerce/orders?limit=200"),
   returns: () => api.get<CustomerReturn[]>("/api/commerce/returns"),
+  orderPage: (before?:string) => api.get<{items:CustomerOrder[];nextCursor:string|null}>(`/api/commerce/customer/order-page?limit=40${before?`&before=${encodeURIComponent(before)}`:''}`),
+  returnPage: (before?:string) => api.get<{items:CustomerReturn[];nextCursor:string|null}>(`/api/commerce/customer/return-page?limit=40${before?`&before=${encodeURIComponent(before)}`:''}`),
+  customerOrder: (id:string) => api.get<CustomerOrder>(`/api/commerce/customer/orders/${encodeURIComponent(id)}`),
   requestReturn: (orderId:string,lineId:string,quantity:number,reason:string) => api.post<{ok:boolean}>(`/api/commerce/orders/${encodeURIComponent(orderId)}/returns`,{lineId,quantity,reason,kind:"return"}),
   quote: (items: CommerceItem[], opts: { couponCode?: string; shippingMethod?: "standard" | "express" } = {}) =>
     api.post<ServerQuote>("/api/commerce/quote", { items, ...opts }),

@@ -33,10 +33,10 @@ try {
     return post(`/api/commerce/payments/${pay.attempt.id}/simulate`,{result:'success'});
   });
   assert.equal(placed.status,"settled");
-  await page.route('**/api/commerce/orders?*',route=>route.abort());
+  await page.route('**/api/commerce/customer/order-page?*',route=>route.abort());
   await page.reload({waitUntil:'networkidle'});
   await page.getByRole('alert').filter({hasText:'دریافت سفارش‌ها ناموفق بود'}).waitFor();
-  await page.unroute('**/api/commerce/orders?*');
+  await page.unroute('**/api/commerce/customer/order-page?*');
   await page.getByRole('button',{name:'تلاش دوباره'}).click();
   await page.getByText(placed.orderId,{exact:true}).waitFor();
   await page.locator('.acc-nav').getByRole('button',{name:'سفارش‌ها'}).click();

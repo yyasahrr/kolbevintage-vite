@@ -73,6 +73,7 @@ create table if not exists orders (
   data jsonb not null
 );
 create index if not exists orders_created_idx on orders (created_at desc);
+create index if not exists orders_customer_page_idx on orders (email, created_at desc, id desc);
 
 create table if not exists customers (
   email text primary key,

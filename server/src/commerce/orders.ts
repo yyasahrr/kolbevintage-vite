@@ -275,6 +275,30 @@ export async function listOrders(filter: { email?: string | null; status?: strin
 }
 
 
+/** Customer-facing order fields only; internal provider references and notes
+ * are not needed in account history. */
+export function customerOrder(order:OrderRow, lines:OrderLineRow[]) {
+  const full=publicOrder(order,lines);
+  return {id:full.id,createdAt:full.createdAt,status:full.status,paymentStatus:full.paymentStatus,
+    fulfillmentStatus:full.fulfillmentStatus,paymentKind:full.paymentKind,total:full.total,currency:full.currency,
+    city:full.city,address:full.address,tracking:full.tracking,carrier:full.carrier,
+    lines:full.lines.map(l=>({id:l.id,name:l.name,colorName:l.colorName,sizeLabel:l.sizeLabel,quantity:l.quantity,lineTotal:l.lineTotal}))};
+}
+
+/** An anchor must belong to the same customer. The timestamp stays in SQL to
+ * preserve PostgreSQL microseconds; IDs break timestamp ties. */
+export async function listCustomerOrderPage(email:string, before:string|undefined, limit:number) {
+  if(before && !(await query("select 1 from orders where id=$1 and email=$2",[before,email])).rows.length)
+    throw new CommerceError("نشانگر صفحه معتبر نیست؛ فهرست را تازه کنید.",422,"invalid_cursor");
+  const result=await query<OrderRow>(`select o.*, (select provider from payment_attempts where id=o.data->'commerce'->>'paymentAttemptId') as payment_provider
+    from orders o where o.email=$1 and ($2::text is null or (o.created_at,o.id)<(select created_at,id from orders where id=$2 and email=$1))
+    order by o.created_at desc,o.id desc limit $3`,[email,before??null,limit+1]);
+  const rows=result.rows.slice(0,limit),ids=rows.map(r=>r.id);
+  const lines=ids.length?(await query<OrderLineRow>("select * from order_lines where order_id=any($1::text[]) order by position",[ids])).rows:[];
+  const grouped=new Map<string,OrderLineRow[]>();for(const line of lines)grouped.set(line.order_id,[...(grouped.get(line.order_id)??[]),line]);
+  return {items:rows.map(row=>customerOrder(row,grouped.get(row.id)??[])),nextCursor:result.rows.length>limit?rows[rows.length-1].id:null};
+}
+
 /** Admin-only keyset page. The cursor is an existing order id: PostgreSQL uses
  * its exact timestamp (including microseconds) and id as the stable boundary. */
 export async function listAdminOrderPage(filter: { before?: string; search: string; stage: string; limit: number }) {

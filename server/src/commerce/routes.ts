@@ -32,7 +32,7 @@ import {
 } from "./checkout";
 import { CommerceError, forbidden, notFound, unauthorized } from "./errors";
 import { expireReservations } from "./inventory";
-import { advanceOrder, cancelOrder, getOrder, listAdminOrderPage, listOrders, publicOrder } from "./orders";
+import { advanceOrder, cancelOrder, getOrder, listAdminOrderPage, listCustomerOrderPage, customerOrder, listOrders, publicOrder } from "./orders";
 import { outboxStats, processOutbox } from "./outbox";
 import {
   expirePaymentAttempts,
@@ -348,6 +348,35 @@ export async function commerceRoutes(app: FastifyInstance) {
     const { before, search = "", stage = "all", limit: rawLimit = "40" } = req.query;
     if ((before !== undefined && (typeof before !== "string" || !before || before.length > 200)) || typeof search !== "string" || search.length > 120 || typeof stage !== "string" || !["all","awaiting","picking","packed","shipped","exception"].includes(stage) || typeof rawLimit !== "string" || !/^(?:[1-9]|[1-9][0-9]|100)$/.test(rawLimit)) throw new CommerceError("فیلتر یا نشانگر صفحه معتبر نیست.", 422, "validation_error");
     return listAdminOrderPage({ before, search: search.trim(), stage, limit: Number(rawLimit) });
+  });
+
+  // Account pages are strictly scoped to the current customer, including
+  // cursor resolution; legacy list endpoints retain their existing contract.
+  const customerPageArgs=(q:{before?:unknown;limit?:unknown})=>{
+    const {before,limit='40'}=q;
+    if((before!==undefined&&(typeof before!=='string'||!before||before.length>200))||typeof limit!=='string'||!/^(?:[1-9]|[1-9][0-9]|100)$/.test(limit))
+      throw new CommerceError("نشانگر یا اندازهٔ صفحه معتبر نیست.",422,"validation_error");
+    return {before:before as string|undefined,limit:Number(limit)};
+  };
+  app.get<{Querystring:{before?:string;limit?:string}}>('/api/commerce/customer/order-page',async(req,reply)=>{
+    reply.header('cache-control','private, no-store');const session=await requireCustomerSession(req);
+    const {before,limit}=customerPageArgs(req.query);return listCustomerOrderPage(session.subject,before,limit);
+  });
+  app.get<{Params:{id:string}}>('/api/commerce/customer/orders/:id',async(req,reply)=>{
+    reply.header('cache-control','private, no-store');const session=await requireCustomerSession(req);
+    const {order,lines}=await getOrder(req.params.id);if(order.email!==session.subject)throw notFound("سفارش پیدا نشد.");
+    return customerOrder(order,lines);
+  });
+  app.get<{Querystring:{before?:string;limit?:string}}>('/api/commerce/customer/return-page',async(req,reply)=>{
+    reply.header('cache-control','private, no-store');const session=await requireCustomerSession(req);const {before,limit}=customerPageArgs(req.query);
+    if(before&&!(await query('select 1 from refunds r join orders o on o.id=r.order_id where r.id=$1 and o.email=$2',[before,session.subject])).rows.length)
+      throw new CommerceError("نشانگر صفحه معتبر نیست؛ فهرست را تازه کنید.",422,"invalid_cursor");
+    const res=await query<{id:string;order_id:string;order_line_id:string;quantity:number;status:string;kind:string;created_at:Date;name_snapshot:string;color_name:string|null;size_label:string|null}>(`
+      select r.id,r.order_id,r.order_line_id,r.quantity,r.status,r.kind,r.created_at,l.name_snapshot,l.color_name,l.size_label
+      from refunds r join orders o on o.id=r.order_id join order_lines l on l.id=r.order_line_id and l.order_id=o.id
+      where o.email=$1 and ($2::text is null or (r.created_at,r.id)<(select a.created_at,a.id from refunds a join orders ao on ao.id=a.order_id where a.id=$2 and ao.email=$1))
+      order by r.created_at desc,r.id desc limit $3`,[session.subject,before??null,limit+1]);
+    const rows=res.rows.slice(0,limit);return {items:rows.map(r=>({id:r.id,orderId:r.order_id,lineId:r.order_line_id,quantity:r.quantity,status:r.status,kind:r.kind,createdAt:r.created_at,name:r.name_snapshot,color:r.color_name,size:r.size_label})),nextCursor:res.rows.length>limit?rows[rows.length-1].id:null};
   });
 
   app.get<{ Querystring: { status?: string; limit?: string; all?: string } }>("/api/commerce/orders", async (req, reply) => {

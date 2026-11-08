@@ -205,7 +205,7 @@ export default function DashboardPage() {
         {section === "analytics" && <AnalyticsModule api={liveApi} can={can}/>}
         {section === "customers" && <CustomersModule api={liveApi} can={can}/>}
         {section === "support" && <SupportTickets api={liveApi} can={can}/>}
-        {section === "print" && <LivePrintCenter orders={orders} api={liveApi}/>}
+        {section === "print" && <LivePrintCenter api={liveApi}/>}
         {section === "journal" && <LiveJournal api={liveApi} can={can}/>}
         {section === "gallery" && <GalleryModule api={liveApi} can={can}/>}
         {section === "staff" && <StaffModule api={liveApi} can={can}/>}
