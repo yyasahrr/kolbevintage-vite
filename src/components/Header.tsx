@@ -51,6 +51,13 @@ export function Header() {
     setMegaOpen(false);
   }, [location.pathname, location.search]);
 
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1280px)");
+    const close = () => { if (desktop.matches) setMenuOpen(false); };
+    desktop.addEventListener("change", close);
+    return () => desktop.removeEventListener("change", close);
+  }, []);
+
   /*
     Hover intent instead of pure :hover — the panel hangs under the header while
     the trigger is only as tall as its text, so a few pixels of pointer travel
@@ -100,12 +107,12 @@ export function Header() {
               onClick={() => setMenuOpen(true)}
               aria-label="باز کردن منو"
               aria-expanded={menuOpen}
-              className="tap -ms-1 flex h-10 w-10 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink"
+              className="tap -ms-1 flex h-10 w-10 items-center justify-center rounded-full text-ink-70 transition-colors hover:bg-ink/5 hover:text-ink xl:hidden"
             >
               <Menu className="h-[19px] w-[19px]" />
             </button>
 
-            <nav aria-label="منوی اصلی" className="hidden h-full items-center gap-4 self-stretch lg:flex xl:gap-7">
+            <nav aria-label="منوی اصلی" className="hidden h-full items-center gap-4 self-stretch xl:flex xl:gap-6">
               {NAV.map((item) =>
                 item.mega ? (
                   <div

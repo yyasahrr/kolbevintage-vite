@@ -1568,7 +1568,7 @@
 .card-gallery-next { left:8px; }
 .card-media:hover .card-gallery-arrow, .card-media:focus-within .card-gallery-arrow { opacity:1; }
 .card-gallery-arrow:focus-visible { outline:2px solid #16130f; outline-offset:2px; opacity:1; }
-.card-gallery-count { position:absolute; z-index:2; bottom:58px; left:50%; transform:translateX(-50%); border-radius:999px; padding:3px 9px; background:rgba(22,19,15,.8); color:white; font-size:11px; direction:ltr; pointer-events:none; }
+.card-gallery-count { position:absolute; z-index:2; bottom:8px; left:50%; transform:translateX(-50%); border-radius:999px; padding:3px 9px; background:rgba(22,19,15,.8); color:white; font-size:11px; direction:ltr; pointer-events:none; }
 @media (hover:none) { .card-gallery-arrow { opacity:1; } }
 @media (prefers-reduced-motion:reduce) { .card-gallery-arrow { transition:none; } }
 .card-media { touch-action:pan-y pinch-zoom; }

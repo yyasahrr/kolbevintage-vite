@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { SlidersHorizontal, X, PackageSearch, RotateCcw } from "lucide-react";
@@ -7,13 +7,10 @@ import {
   SORTS,
   filterProducts,
   colorFilterKey,
-  productsInCollection,
-  visibleProducts,
   type SortKey,
 } from "@/data/catalog";
 import { ProductCard } from "@/components/ProductCard";
 import {
-  Chip,
   EmptyState,
   PageIntro,
   Reveal,
@@ -21,7 +18,7 @@ import {
   buttonStyles,
 } from "@/components/ui";
 import { cn } from "@/utils/cn";
-import { useEscape, useScrollLock } from "@/hooks/useOverlay";
+import { useDialogFocus, useEscape, useScrollLock } from "@/hooks/useOverlay";
 import { useLiveCatalog } from "@/state/live-catalog";
 import { useOps } from "@/state/ops";
 import { useAdmin } from "@/state/admin";
@@ -34,16 +31,18 @@ export function ProductsPage() {
   const live = useLiveCatalog();
   const [params, setParams] = useSearchParams();
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterDialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(filtersOpen, filterDialogRef);
   useEscape(filtersOpen, () => setFiltersOpen(false));
   useScrollLock(filtersOpen);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const close = () => { if (desktop.matches) setFiltersOpen(false); };
+    desktop.addEventListener("change", close);
+    return () => desktop.removeEventListener("change", close);
+  }, []);
   const ops = useOps();
   const { categories } = ops;
-  const sizeOptions = [...new Set(visibleProducts().flatMap(product => product.sizes.map(size => size.label)))];
-  // Product-local IDs like c1 are not globally unique. Group only identical
-  // named swatches; the library's active flag must not hide sellable variants.
-  const colorOptions = [...new Map(
-    visibleProducts().flatMap(product => product.colors).map(item => [colorFilterKey(item), item]),
-  ).entries()].map(([key,item]) => ({...item, filterKey:key}));
 
   const requestedCollection = params.get("collection");
   const selectedCategory = categories.find(c => c.active && c.id === requestedCollection);
@@ -85,80 +84,36 @@ export function ProductsPage() {
       ? "قطعه‌هایی از مجموعهٔ پاییز / زمستان ۲۶ که در این دسته قرار می‌گیرند."
       : "تمام کالکشن در یک نگاه: بیرونی، بافت، خیاطی، پیراهن، کفش و کیف. قطعه‌ها محدود و شماره‌دار هستند.";
 
+  // Limit choices to the current collection/search, without multiplying the
+  // category controls already visible above the results.
+  const optionProducts = filterProducts({ collection, category, query });
+  const sizeOptions = [...new Set(optionProducts.flatMap(product => product.sizes.map(item => item.label)))];
+  if (size && !sizeOptions.includes(size)) sizeOptions.push(size);
+  const colorOptions = [...new Map(optionProducts.flatMap(product => product.colors).map(item => [colorFilterKey(item), item])).entries()].map(([key,item]) => ({...item, filterKey:key}));
+  const selectedColor = colorOptions.find(c => c.filterKey === color || c.id === color);
   const activeFilters = [
+    collection !== "all" && { key: "collection", label: activeCollection?.label ?? collection },
     category && { key: "category", label: category },
     size && { key: "size", label: `سایز ${size}` },
-    color && {
-      key: "color",
-      label: `رنگ ${colorOptions.find((c) => c.filterKey === color || c.id === color)?.name ?? color}`,
-    },
+    color && { key: "color", label: `رنگ ${selectedColor?.name ?? color}` },
     query && { key: "q", label: `جست‌وجو: ${query}` },
   ].filter(Boolean) as { key: string; label: string }[];
 
   const filterPanel = (
-    <>
-      <div>
-        <p className="mb-2 text-[10px] text-ink-45">دسته</p>
-        <div className="flex flex-wrap gap-1.5">
-          <Chip active={!collection || collection === "all"} onClick={() => patch({ collection: "all", category: null })}>
-            همه
-          </Chip>
-          {categories.filter(c => c.active).map((c) => (
-            <Chip
-              key={c.id}
-              active={collection === c.id}
-              onClick={() => patch({ collection: c.id, category: null })}
-            >
-              {c.name}
-              <span className="text-[9.5px] opacity-60">{productsInCollection(c.id).length}</span>
-            </Chip>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-[10px] text-ink-45">سایز</p>
-        <div className="flex flex-wrap gap-1.5">
-          {sizeOptions.map((s) => (
-            <Chip key={s} active={size === s} onClick={() => patch({ size: size === s ? undefined : s })}>
-              {s}
-            </Chip>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-[10px] text-ink-45">رنگ</p>
-        <div className="flex flex-wrap items-center gap-2">
-          {colorOptions.map((c) => (
-            <button
-              key={c.filterKey}
-              type="button"
-              onClick={() => patch({ color: color === c.filterKey ? undefined : c.filterKey })}
-              aria-pressed={color === c.filterKey}
-              aria-label={`فیلتر رنگ ${c.name}`}
-              title={c.name}
-              className={cn(
-                "relative h-7 w-7 rounded-full ring-1 ring-black/15 ring-offset-2 ring-offset-bone transition-all",
-                color === c.filterKey ? "ring-[1.5px] ring-ink" : "hover:scale-110",
-              )}
-              style={{ backgroundColor: c.hex }}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="lg:hidden">
-        <p className="mb-2 text-[10px] text-ink-45">مرتب‌سازی</p>
-        <div className="flex flex-wrap gap-1.5">
-          {SORTS.map((s) => (
-            <Chip key={s.id} active={sort === s.id} onClick={() => patch({ sort: s.id })}>
-              {s.label}
-            </Chip>
-          ))}
-        </div>
-      </div>
-    </>
+    <div className="space-y-4">
+      <p className="text-[11px] leading-5 text-ink-70">دسته را از نوار بالای محصولات انتخاب کن؛ رنگ و سایز را اینجا مشخص کن.</p>
+      <label className="block text-[12px] font-medium text-ink">سایز
+        <select aria-label="فیلتر سایز" value={size} onChange={e => patch({size:e.target.value})} className="mt-2 min-h-11 w-full rounded-lg border border-black/15 bg-white px-3 text-[12px] text-ink">
+          <option value="">همهٔ سایزها</option>{sizeOptions.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </label>
+      <label className="block text-[12px] font-medium text-ink">رنگ
+        <select aria-label="فیلتر رنگ" value={color} onChange={e => patch({color:e.target.value})} className="mt-2 min-h-11 w-full rounded-lg border border-black/15 bg-white px-3 text-[12px] text-ink">
+          <option value="">همهٔ رنگ‌ها</option>{color && !selectedColor && <option value={color}>{color}</option>}{selectedColor && selectedColor.filterKey !== color && <option value={color}>{selectedColor.name}</option>}{colorOptions.map(c => <option key={c.filterKey} value={c.filterKey}>{c.name}</option>)}
+        </select>
+      </label>
+      <p className="text-[11px] leading-5 text-ink-70">نتیجه‌ها فقط گزینه‌های موجود با رنگ و سایز انتخاب‌شده را نشان می‌دهند.</p>
+    </div>
   );
 
   return (
@@ -207,33 +162,7 @@ export function ProductsPage() {
               )}
             </button>
             <p className="text-[11px] text-ink-45 lg:hidden">{list.length.toLocaleString("fa-IR")} نتیجه</p>
-            <div className="hidden items-center gap-3 lg:flex">
-              <span className="text-[11px] text-ink-45">فیلتر:</span>
-              {activeFilters.length === 0 ? (
-                <span className="text-[11px] text-ink-45">همهٔ قطعه‌ها — بدون محدودیت</span>
-              ) : (
-                activeFilters.map((f) => (
-                  <button
-                    key={f.key}
-                    type="button"
-                    onClick={() => patch({ [f.key]: undefined })}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-ink/[0.06] px-2.5 py-1 text-[10.5px] text-ink"
-                  >
-                    {f.label}
-                    <X className="h-3 w-3" />
-                  </button>
-                ))
-              )}
-              {activeFilters.length > 0 && (
-                <button
-                  type="button"
-                  onClick={reset}
-                  className="inline-flex items-center gap-1 text-[10.5px] text-ink-45 hover:text-ink"
-                >
-                  <RotateCcw className="h-3 w-3" /> پاک کردن
-                </button>
-              )}
-            </div>
+            <p className="hidden text-[11px] text-ink-45 lg:block">{list.length.toLocaleString("fa-IR")} نتیجه</p>
           </div>
           <div className="flex items-center gap-3">
             <p className="hidden text-[11px] text-ink-45 lg:block">مرتب‌سازی</p>
@@ -246,6 +175,11 @@ export function ProductsPage() {
           </div>
         </div>
 
+        {activeFilters.length > 0 && <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="فیلترهای فعال">
+          {activeFilters.map(f => <button key={f.key} type="button" onClick={() => patch({[f.key]:undefined})} aria-label={`حذف فیلتر ${f.label}`} className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-ink/[0.06] px-3 text-[11px] text-ink">{f.label}<X className="h-3 w-3" aria-hidden /></button>)}
+          <button type="button" onClick={reset} className="inline-flex min-h-9 items-center gap-1 text-[11px] text-ink-70 hover:text-ink"><RotateCcw className="h-3 w-3" /> پاک کردن همه</button>
+        </div>}
+
         <div className="mt-6 grid gap-7 lg:grid-cols-[15.5rem_1fr] lg:gap-8">
           <aside className="hidden lg:block">
             <div className="sticky top-[112px] space-y-5 rounded-xl border border-black/[0.07] bg-white/45 p-4">
@@ -256,13 +190,7 @@ export function ProductsPage() {
                 </button>
               </div>
               {filterPanel}
-              <div className="rounded-lg bg-[#efe8dd] p-3">
-                <p className="text-[11px] font-medium text-ink">خرید کامل استایل</p>
-                <p className="mt-1 text-[10.5px] leading-relaxed text-ink-70">
-                  شش استایل آماده روی رانو، با امکان افزودن یک‌جای همهٔ قطعه‌ها.
-                </p>
-                <LinkToStyle compact />
-              </div>
+
             </div>
           </aside>
 
@@ -308,6 +236,8 @@ export function ProductsPage() {
               aria-hidden
             />
             <motion.div
+              ref={filterDialogRef}
+              tabIndex={-1}
               role="dialog"
               aria-modal="true"
               aria-label="فیلتر محصولات"
@@ -318,7 +248,7 @@ export function ProductsPage() {
               className="fixed inset-x-0 bottom-0 z-[56] flex max-h-[86vh] flex-col rounded-t-2xl bg-paper lg:hidden"
             >
               <div className="flex items-center justify-between border-b border-black/[0.07] px-5 py-4">
-                <h2 className="font-display text-[17px] font-medium text-ink">فیلتر و مرتب‌سازی</h2>
+                <h2 className="font-display text-[17px] font-medium text-ink">فیلتر محصولات</h2>
                 <button
                   type="button"
                   onClick={() => setFiltersOpen(false)}
