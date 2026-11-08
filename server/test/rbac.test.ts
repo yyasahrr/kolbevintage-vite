@@ -163,6 +163,14 @@ test("admin order pages cover older orders, filters, access and stable timestamp
   const guest=makeClient();const prefix="test-order-pages-";
   try {
     await query(`insert into orders(id,created_at,customer,status,total,data,fulfillment_status,tracking_code) select $1 || lpad(n::text,4,'0'), '2099-01-01 00:00:00.123456+00'::timestamptz, 'Pagination customer', case when n=3 then 'exception' else 'paid' end, 10, jsonb_build_object('phone',case when n=2 then '09120001122' else '' end), case when n=1 then 'packed' else 'unfulfilled' end, case when n=1 then 'TRACK-123' else null end from generate_series(1,215) n`,[prefix]);
+    await query(`insert into order_lines(id,order_id,sku,name_snapshot,quantity,unit_price,line_total) values ($1,$2,'TEST-SKU','Test item',1,10,10)`,[prefix+"line",prefix+"0002"]);
+    // The oldest order is discoverable/readable with view permission, never mutable without edit.
+    assert.equal((await reader.get(`/api/commerce/orders/${prefix}0002`)).status,200);
+    assert.equal((await denied.get(`/api/commerce/orders/${prefix}0002`)).status,403);
+    assert.equal((await reader.post(`/api/commerce/orders/${prefix}0002/picking`,{sku:"TEST-SKU",scanKey:"123456789012"})).status,403);
+    assert.equal((await reader.patch(`/api/commerce/admin/orders/${prefix}0002/shipment`,{tracking:"test"})).status,403);
+    assert.equal((await admin.post(`/api/commerce/orders/${prefix}0002/picking`,{sku:"TEST-SKU",scanKey:"123456789012"})).status,200);
+    assert.equal((await reader.get(`/api/commerce/orders/${prefix}0002`)).body.lines[0].pickedQuantity,1);
     const path="/api/commerce/admin/order-page";
     assert.equal((await guest.get(path)).status,401);assert.equal((await denied.get(path)).status,403);
     assert.equal((await reader.get(path+"?stage=bogus")).status,422);assert.equal((await reader.get(path+"?limit=0")).status,422);assert.equal((await reader.get(path+"?before=missing")).status,422);

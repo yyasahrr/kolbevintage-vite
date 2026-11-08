@@ -14,6 +14,7 @@ import { LiveJournal } from "@/components/admin/LiveJournal";
 import { LiveSizeSets, type SizeSet } from "@/components/admin/LiveSizeSets";
 import { LiveCategories } from "@/components/admin/LiveCategories";
 import { InventoryOperations } from "@/components/admin/InventoryOperations";
+import { Fulfillment } from "@/components/admin/Fulfillment";
 import { LiveOrders } from "@/components/admin/LiveOrders";
 import { LiveInventory } from "@/components/admin/LiveInventory";
 import { LiveProducts } from "@/components/admin/LiveProducts";
@@ -23,7 +24,7 @@ import { LiveDashboard } from "@/components/admin/LiveDashboard";
 import { MarketingModule, BrandModule, SettingsModule, FinanceModule, AnalyticsModule } from "@/components/admin/CommerceModules";
 import { ProductCreate } from "@/components/admin/ProductCreate";
 import { ReturnsModule } from "@/components/admin/ReturnsModule";
-import { GalleryModule, CustomersModule, ManualOrder, Fulfillment, StaffModule, AuditModule, ProductEditor, type Product, type Order, type Stock } from "@/components/admin/LiveModules";
+import { GalleryModule, CustomersModule, ManualOrder, StaffModule, AuditModule, ProductEditor, type Product, type Order, type Stock } from "@/components/admin/LiveModules";
 
 type Section = "accountSecurity" | "looks" | "colors" | "support" | "sizeSets" | "print" | "journal" | "dashboard" | "categories" | "products" | "inventory" | "inventoryLabels" | "inventoryActivity" | "orders" | "manual" | "fulfillment" | "gallery" | "customers" | "staff" | "audit" | "returns" | "marketing" | "brand" | "stylePacks" | "settings" | "finance" | "analytics";
 type Identity = { authenticated: boolean; subject: string | null; role?:string|null; staff?: { name: string; roleName: string } | null; permissions: string[]; openAccess: boolean };
@@ -182,7 +183,7 @@ export default function DashboardPage() {
         {section === "orders" && <LiveOrders refreshKey={loadRevision} can={can} navigate={navigate} api={liveApi} onChange={load}/>}
         {section === "inventoryActivity" && stock && <InventoryOperations api={liveApi} can={can} stock={stock} onChange={load}/>}
         {section === "manual" && stock && <ManualOrder api={liveApi} can={can} stock={stock} onChange={load}/>}
-        {section === "fulfillment" && orders && <Fulfillment api={liveApi} can={can} orders={orders} onChange={load}/>}
+        {section === "fulfillment" && <Fulfillment api={liveApi} can={can} refreshKey={loadRevision} onChange={load}/>}
         {section === "returns" && orders && <ReturnsModule api={liveApi} can={can} orders={orders} subject={me.subject} openAccess={me.openAccess} onChange={load} onElevate={async passcode => { const result = await post<{sessionToken?: string}>("/api/commerce/admin/elevate", {passcode}); setSession(result.sessionToken ?? ""); await load(); }}/>}
         {section === "marketing" && <MarketingModule api={liveApi} can={can}/>}
         {section === "stylePacks" && <StylePacks api={liveApi} can={can}/>}

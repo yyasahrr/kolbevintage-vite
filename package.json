@@ -58,7 +58,8 @@
     "test:browser-journal-video": "node scripts/browser-journal-video-smoke.mjs",
     "test:browser-admin-mfa": "node --import tsx scripts/browser-admin-mfa-smoke.mjs",
     "recover:panel-path": "tsx scripts/reset-panel-path.ts",
-    "test:browser-panel-path": "node --import tsx scripts/browser-panel-path-smoke.mjs"
+    "test:browser-panel-path": "node --import tsx scripts/browser-panel-path-smoke.mjs",
+    "test:browser-fulfillment": "node scripts/browser-fulfillment-smoke.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
