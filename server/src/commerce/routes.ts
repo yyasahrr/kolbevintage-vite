@@ -55,6 +55,7 @@ import {
   receiveReturn,
   settleRefund,
   listRefunds,
+  listRefundPage,
   publicAdjustment,
   requestAdjustment,
   requestStocktake,
@@ -884,6 +885,14 @@ export async function commerceRoutes(app: FastifyInstance) {
       return settleRefund({ refundId: req.params.id, actor: actorOf(session), note: req.body?.note });
     },
   );
+
+  app.get<{ Querystring: { before?: string; search?: string; status?: string; limit?: string } }>("/api/commerce/admin/refund-page", async (req, reply) => {
+    reply.header("cache-control", "private, no-store");
+    await requirePermission(req, "orders:view");
+    const { before, search = "", status = "all", limit = "40" } = req.query;
+    if ((before !== undefined && (typeof before !== "string" || !before || before.length > 200)) || typeof search !== "string" || search.length > 120 || typeof status !== "string" || !["all","requested","approved","rejected","received","qc_passed","qc_failed","settled","manual_review"].includes(status) || typeof limit !== "string" || !/^(?:[1-9]|[1-9][0-9]|100)$/.test(limit)) throw new CommerceError("فیلتر یا نشانگر صفحه معتبر نیست.", 422, "validation_error");
+    return listRefundPage({before, search: search.trim(), status, limit: Number(limit)});
+  });
 
   app.get<{ Querystring: { status?: string; orderId?: string } }>("/api/commerce/admin/refunds", async (req) => {
     await requirePermission(req, "orders:view");

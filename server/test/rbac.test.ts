@@ -1751,3 +1751,27 @@ test("product video is permission checked, conflict safe and preserves legacy da
     const events=await query("select action from audit_events where target_id=$1 and action='catalog.product_video_updated'",[id]);assert.ok(events.rows.length>=2);
   } finally {await query("update state_documents set value=$1::jsonb where key='ops'",[JSON.stringify(original)])}
 });
+
+test("return pages search and traverse older records with permissions and stable ties", async () => {
+  const {admin,client:reader}=await staffWith(["orders:view"],"refund-pages-reader","refund-pages-user","refund-pages-pass");
+  const {client:denied}=await staffWith(["catalog:view"],"refund-pages-denied","refund-pages-denied-user","refund-pages-denied-pass");
+  const guest=makeClient(); const prefix="test-refund-page-", orderId=prefix+"order", lineId=prefix+"line";
+  try {
+    await query("insert into orders(id,created_at,customer,status,total,data) values($1,'2001-01-01','Old order','paid',400,'{}')",[orderId]);
+    await query("insert into order_lines(id,order_id,name_snapshot,quantity,unit_price,line_total) values($1,$2,'old item',2,100,200)",[lineId,orderId]);
+    await query(`insert into refunds(id,order_id,order_line_id,quantity,amount,status,created_at) select $1||lpad(n::text,4,'0'),$2,$3,1,1,case when n=1 then 'manual_review' else 'rejected' end,'2099-01-01 00:00:00.123456+00' from generate_series(1,215) n`,[prefix,orderId,lineId]);
+    const path="/api/commerce/admin/refund-page";
+    assert.equal((await guest.get(path)).status,401);assert.equal((await denied.get(path)).status,403);
+    for (const q of ["?limit=0","?limit=101","?status=bogus","?before=missing","?search="+"x".repeat(121)]) assert.equal((await reader.get(path+q)).status,422,q);
+    const ids:string[]=[];let cursor="";
+    do {const r=await reader.get(path+"?limit=40&search="+prefix+(cursor?"&before="+encodeURIComponent(cursor):""));assert.equal(r.status,200,JSON.stringify(r.body));ids.push(...r.body.items.map((x:any)=>x.id));cursor=r.body.nextCursor ?? "";} while(cursor);
+    assert.equal(ids.length,215);assert.equal(new Set(ids).size,215);assert.equal(ids[0],prefix+"0215");assert.equal(ids[214],prefix+"0001");
+    const filtered=await reader.get(path+"?status=manual_review&search="+encodeURIComponent(orderId));assert.equal(filtered.body.items.length,1);assert.equal(filtered.body.items[0].id,prefix+"0001");
+    assert.equal((await reader.get(`/api/commerce/orders/${orderId}`)).body.lines[0].id,lineId);
+    assert.equal((await reader.post(`/api/commerce/orders/${orderId}/returns`,{lineId,quantity:1,kind:"return",reason:"test"})).status,403);
+    const made=await admin.post(`/api/commerce/orders/${orderId}/returns`,{lineId,quantity:1,kind:"return",reason:"test"});
+    // Reject historical fixtures first: an open request already reserves one of two units.
+    assert.equal(made.status,201,JSON.stringify(made.body));
+    assert.equal((await reader.get(path+"?search="+encodeURIComponent(made.body.refund.id))).body.items[0].id,made.body.refund.id);
+  } finally {await query("delete from orders where id=$1",[orderId]);}
+});

@@ -151,6 +151,24 @@ export async function listRefunds(filter: { orderId?: string; status?: string } 
   return res.rows.map(publicRefund);
 }
 
+/** Keyset pagination keeps database precision in the cursor anchor. */
+export async function listRefundPage(filter: { before?: string; search: string; status: string; limit: number }) {
+  const params: unknown[] = [];
+  const where: string[] = [];
+  if (filter.before) {
+    const anchor = await query("select id from refunds where id=$1", [filter.before]);
+    if (!anchor.rows.length) throw new CommerceError("نشانگر صفحه دیگر موجود نیست؛ فهرست را تازه کنید.", 422, "invalid_cursor");
+    params.push(filter.before);
+    where.push(`(created_at,id) < (select created_at,id from refunds where id=$${params.length})`);
+  }
+  if (filter.status !== "all") { params.push(filter.status); where.push(`status=$${params.length}`); }
+  if (filter.search) { params.push(filter.search); const p=`$${params.length}`; where.push(`(strpos(lower(id),lower(${p}))>0 or strpos(lower(order_id),lower(${p}))>0)`); }
+  params.push(filter.limit + 1);
+  const result = await query<RefundRow>(`select * from refunds ${where.length ? `where ${where.join(" and ")}` : ""} order by created_at desc,id desc limit $${params.length}`, params);
+  const items = result.rows.slice(0,filter.limit);
+  return { items: items.map(publicRefund), nextCursor: result.rows.length > filter.limit ? items[items.length-1].id : null };
+}
+
 /**
  * Approve or reject a refund request.
  * Two independent gates, both fail-closed:

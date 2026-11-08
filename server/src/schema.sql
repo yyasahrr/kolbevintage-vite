@@ -360,6 +360,7 @@ create table if not exists refunds (
   decided_at timestamptz
 );
 create index if not exists refunds_order_idx on refunds (order_id, created_at desc);
+create index if not exists refunds_page_idx on refunds (created_at desc, id desc);
 -- staged RMA (2026-11-04): goods must be received and inspected before money or
 -- stock moves; an exchange carries its own price difference
 alter table refunds add column if not exists kind text not null default 'refund';
