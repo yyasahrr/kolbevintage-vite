@@ -1852,3 +1852,53 @@ test('journal video is versioned, permission checked, private until publication 
     } finally {await fs.rm(dir,{recursive:true,force:true});}
   } finally {if(id)await query('delete from journal_articles where id=$1',[id]);await query("update state_documents set value=$1::jsonb where key='ops'",[JSON.stringify(original)]);if(url)await fs.unlink(path.join(config.uploadsDir,path.basename(url))).catch(()=>{});}
 });
+
+test('personal authenticator requires the second factor, stops replay and preserves MFA on restore',async()=>{
+  const oldKey=process.env.ADMIN_MFA_KEY;process.env.ADMIN_MFA_KEY='e8'.repeat(32);
+  const {client}=await staffWith(['dashboard:view'],'mfa-editor','mfa-user','mfa-pass-123');const other=makeClient();await other.login('mfa-pass-123');
+  const {totpAt}=await import('../src/admin-mfa');const {dumpAll,restoreBackup}=await import('../src/backup');const {withTransaction}=await import('../src/db');const {stringify}=await import('lossless-json');const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');const dir=await fs.mkdtemp(path.join(os.tmpdir(),'mfa-backup-'));const oldFile=path.join(dir,'old.json'),file=path.join(dir,'new.json');
+  try{
+    await fs.writeFile(oldFile,stringify(await dumpAll())!);
+    assert.equal((await makeClient().get('/api/admin/mfa')).status,401);
+    assert.equal((await client.post('/api/admin/mfa/setup',{passcode:'wrong'})).status,403);
+    const setup=await client.post('/api/admin/mfa/setup',{passcode:'mfa-pass-123'});assert.equal(setup.status,200);assert.match(setup.body.secret,/^[A-Z2-7]{32}$/);assert.match(setup.body.uri,/^otpauth:\/\/totp\//);
+    assert.equal((await other.post('/api/admin/mfa/enable',{pending:setup.body.pending,code:totpAt(setup.body.secret,Math.floor(Date.now()/30000))})).status,400);
+    assert.equal((await client.post('/api/admin/mfa/enable',{pending:setup.body.pending,code:'bad'})).status,400);
+    const enabled=await client.post('/api/admin/mfa/enable',{pending:setup.body.pending,code:totpAt(setup.body.secret,Math.floor(Date.now()/30000))});assert.equal(enabled.status,200,JSON.stringify(enabled.body));assert.equal(enabled.body.recoveryCodes.length,8);
+    assert.equal((await other.get('/api/products?all=1')).status,401,'old sessions revoked');
+    const stored=(await query("select admin_mfa::text as m from staff where subject='mfa-user'")).rows[0].m;assert(!stored.includes(setup.body.secret));assert(!stored.includes(enabled.body.recoveryCodes[0]));
+    const guest=makeClient();let res=await guest.post('/api/admin/login',{passcode:'mfa-pass-123'});assert.equal(res.status,202);assert.equal(res.body.requiresSecondFactor,true);assert.equal((await guest.get('/api/admin/me')).body.authenticated,false);assert(!guest.cookie().includes('kv_session'));
+    res=await guest.post('/api/admin/login',{passcode:'mfa-pass-123',code:totpAt(setup.body.secret,Math.floor(Date.now()/30000))});assert.equal(res.status,401,'enrollment code cannot be reused');
+    const code=enabled.body.recoveryCodes[0];const attempts=await Promise.all([makeClient().post('/api/admin/login',{passcode:'mfa-pass-123',code}),makeClient().post('/api/admin/login',{passcode:'mfa-pass-123',code})]);assert.deepEqual(attempts.map(r=>r.status).sort(),[200,401]);
+    await assert.rejects(()=>restoreBackup(oldFile),/تأیید دومرحله‌ای فعال/);
+    await fs.writeFile(file,stringify(await dumpAll())!);
+    await withTransaction(async tx=>{await restoreBackup(file,{client:tx});const restored=(await tx.query("select admin_mfa from staff where subject='mfa-user'")).rows[0].admin_mfa;assert.deepEqual(restored.recovery,[]);assert(restored.lastStep>=Math.floor(Date.now()/30000));throw new Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'));
+    process.env.ADMIN_MFA_KEY='ff'.repeat(32);assert.equal((await guest.post('/api/admin/login',{passcode:'mfa-pass-123',code:enabled.body.recoveryCodes[1]})).status,503,'incorrect encryption key never bypasses factor');await assert.rejects(()=>restoreBackup(file),/کلید تأیید دومرحله‌ای/);process.env.ADMIN_MFA_KEY='e8'.repeat(32);
+    assert.equal((await client.post('/api/admin/mfa/disable',{passcode:'wrong',code:enabled.body.recoveryCodes[1]})).status,403);
+    assert.equal((await client.post('/api/admin/mfa/disable',{passcode:'mfa-pass-123',code:enabled.body.recoveryCodes[1]})).status,200);
+    assert.equal((await client.get('/api/admin/mfa')).body.enabled,false);assert.equal((await makeClient().post('/api/admin/login',{passcode:'mfa-pass-123'})).status,200);
+  }finally{if(oldKey===undefined)delete process.env.ADMIN_MFA_KEY;else process.env.ADMIN_MFA_KEY=oldKey;await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('authenticator algorithms match RFC 6238 SHA-1 test vector',async()=>{
+  const {base32,totpAt}=await import('../src/admin-mfa');const secret=base32(Buffer.from('12345678901234567890'));
+  assert.equal(totpAt(secret,Math.floor(59/30)),'287082');assert.equal(totpAt(secret,Math.floor(1111111109/30)),'081804');
+});
+
+test('MFA fails closed without server key and limits incorrect factors per account',async()=>{
+  const old=process.env.ADMIN_MFA_KEY;delete process.env.ADMIN_MFA_KEY;
+  const {client}=await staffWith(['dashboard:view'],'mfa-lock-test','mfa-lock-user','mfa-lock-pass');
+  const {totpAt,open,seal}=await import('../src/admin-mfa');
+  try{
+    assert.equal((await client.get('/api/admin/mfa')).body.configured,false);
+    assert.equal((await client.post('/api/admin/mfa/setup',{passcode:'mfa-lock-pass'})).status,503);
+    process.env.ADMIN_MFA_KEY='a4'.repeat(32);
+    const setup=await client.post('/api/admin/mfa/setup',{passcode:'mfa-lock-pass'});const decoded=open<Record<string,unknown>>(setup.body.pending,'admin-mfa-setup');
+    const expired=seal({...decoded,expires:Date.now()-1},'admin-mfa-setup');assert.equal((await client.post('/api/admin/mfa/enable',{pending:expired,code:totpAt(setup.body.secret,Math.floor(Date.now()/30000))})).status,400);
+    const enabled=await client.post('/api/admin/mfa/enable',{pending:setup.body.pending,code:totpAt(setup.body.secret,Math.floor(Date.now()/30000))});assert.equal(enabled.status,200);
+    for(let i=0;i<5;i++){const r=await makeClient().post('/api/admin/login',{passcode:'mfa-lock-pass',code:'1234567'});assert.equal(r.status,401)}
+    assert.equal((await makeClient().post('/api/admin/login',{passcode:'mfa-lock-pass',code:enabled.body.recoveryCodes[0]})).status,401);
+    await query("update staff set admin_mfa=jsonb_set(admin_mfa,'{lockedUntil}','0'::jsonb) where subject='mfa-lock-user'");
+    assert.equal((await makeClient().post('/api/admin/login',{passcode:'mfa-lock-pass',code:enabled.body.recoveryCodes[0]})).status,200);
+  }finally{if(old===undefined)delete process.env.ADMIN_MFA_KEY;else process.env.ADMIN_MFA_KEY=old;}
+});

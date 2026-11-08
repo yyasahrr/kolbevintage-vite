@@ -1,3 +1,4 @@
+import { verifyAdminPasscode, verifyFactor, type MfaData } from "../admin-mfa";
 import { isDeepStrictEqual } from "node:util";
 import { config } from "../config";
 import type { FastifyInstance } from "fastify";
@@ -174,7 +175,7 @@ export async function authRoutes(app: FastifyInstance) {
    *   · a staff passcode — signs in as that staff row, so RBAC applies
    * Both create an `admin` session; the role travels with the subject.
    */
-  app.post<{ Body: { passcode?: string } }>("/api/admin/login", async (req, reply) => {
+  app.post<{ Body: { passcode?: string; code?: string } }>("/api/admin/login", async (req, reply) => {
     const passcode = typeof req.body?.passcode === "string" ? req.body.passcode.trim() : "";
     if (!passcode || passcode.length > 256) return reply.code(401).send({ok:false,message:"رمز مدیریت درست نیست."});
     const admin = (await getDocument<Record<string, any>>("admin")) ?? {};
@@ -239,9 +240,18 @@ export async function authRoutes(app: FastifyInstance) {
       }
       subject = match.subject;
     }
+    const factor=typeof req.body?.code==='string'?req.body.code.slice(0,100):'';
+    const result=await withTransaction(async client=>{
+      const row=await client.query<{admin_mfa:MfaData|null}>("select admin_mfa from staff where subject=$1 and active and (expires_at is null or expires_at>now()) for update",[subject]);
+      if(!row.rows[0] || !await verifyAdminPasscode(subject,passcode,client))return {state:'invalid' as const};
+      const data=row.rows[0].admin_mfa;
+      if(data){if(!factor)return {state:'required' as const};const state=verifyFactor(data,subject,factor);await client.query('update staff set admin_mfa=$2::jsonb where subject=$1',[subject,JSON.stringify(data)]);if(state!=='ok')return {state};}
+      return {state:'ok' as const,session:await createSession('admin',subject,undefined,client)};
+    });
+    if(result.state==='required')return reply.code(202).send({ok:false,requiresSecondFactor:true,message:'کد برنامهٔ احراز هویت یا کد بازیابی را وارد کنید.'});
+    if(result.state!=='ok'||!result.session){await recordLogin(subject,false,'mfa_failed');return reply.code(result.state==='unavailable'?503:401).send({ok:false,code:result.state==='unavailable'?'mfa_unavailable':'invalid_factor',message:result.state==='unavailable'?'تأیید دومرحله‌ای در دسترس نیست؛ با مسئول سرور تماس بگیرید.':'ورود ناموفق بود.'});}
     await recordLogin(subject, true, null);
-
-    const session = await createSession("admin", subject);
+    const session=result.session;
     setSessionCookie(reply, session.token, session.expires);
     const role = await query<{ id: string; name: string }>(
       "select r.id, r.name from staff s join roles r on r.id = s.role_id where s.subject = $1 and s.active",

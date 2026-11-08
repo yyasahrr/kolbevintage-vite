@@ -1,3 +1,4 @@
+import { adminMfaRoutes } from "./routes/admin-mfa";
 import { studioDraftRoutes, studioPageRoutes, studioLifecycleRoutes } from "./routes/studio-drafts";
 import { customLookRoutes } from "./routes/custom-looks";
 import { homeCategoryRoutes } from "./routes/home-categories";
@@ -129,6 +130,7 @@ export async function buildServer() {
   await seedRbac();
   await app.register(stateRoutes);
   await app.register(authRoutes);
+  await app.register(adminMfaRoutes);
   await app.register(measurementRoutes);
   await app.register(catalogRoutes);
   await app.register(categoryRoutes);

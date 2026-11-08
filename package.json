@@ -55,7 +55,8 @@
     "test:browser-product-video": "node scripts/browser-product-video-smoke.mjs",
     "test:browser-returns-page": "node scripts/browser-returns-page-smoke.mjs",
     "test:browser-journal-category": "node scripts/browser-journal-category-smoke.mjs",
-    "test:browser-journal-video": "node scripts/browser-journal-video-smoke.mjs"
+    "test:browser-journal-video": "node scripts/browser-journal-video-smoke.mjs",
+    "test:browser-admin-mfa": "node --import tsx scripts/browser-admin-mfa-smoke.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

@@ -194,7 +194,7 @@ export async function uploadImage(file: File): Promise<string> {
 }
 
 export async function adminLogin(passcode: string) {
-  return api.post<{ ok: boolean; message: string }>("/api/admin/login", { passcode });
+  return api.post<{ ok: boolean; message: string; requiresSecondFactor?: boolean }>("/api/admin/login", { passcode });
 }
 
 export async function adminLogout() {

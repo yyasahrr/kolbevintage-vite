@@ -430,7 +430,7 @@ export function AdminPage() {
     window.scrollTo(0, 0);
   }, [tab]);
 
-  if (!unlocked) return <Gate onUnlock={() => setUnlocked(true)} />;
+  if (!unlocked || !session.me?.authenticated) return <Gate onUnlock={() => { setUnlocked(true); session.reload(); }} />;
 
   // a grouped area is active when the group itself or one of its screens is selected
   const groupIds = Object.keys(GROUP_CHILDREN) as Tab[];
@@ -857,13 +857,12 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const admin = useAdmin();
-  const sec = getOps().security;
   const [attempts, setAttempts] = useState(0);
 
   /**
    * The server decides who is signing in: the store passcode (owner) or a
-   * staff passcode (that person's role). Only when the API cannot be reached
-   * does the old local passcode still open the local-only panel.
+   * staff passcode (that person's role). Network failures never authorize
+   * local access; second-factor users are directed to the current panel.
    */
   const submit = async () => {
     const passcode = code.trim();
@@ -871,7 +870,11 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
     setBusy(true);
     setError("");
     try {
-      await adminLogin(passcode);
+      const result = await adminLogin(passcode);
+      if (result.requiresSecondFactor) {
+        setError("این حساب تأیید دومرحله‌ای دارد. برای ورود از پنل مدیریت جدید استفاده کنید.");
+        return;
+      }
       invalidateAdminMe();
       const me = await loadAdminMe(true);
       if (me.mode === "server" && !me.authenticated) {
@@ -891,8 +894,8 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
         return;
       }
       const offline = !(err instanceof ApiError) || err.status >= 500;
-      if (offline && (unlockAdmin(passcode) || passcode === sec.passcode)) {
-        onUnlock();
+      if (offline) {
+        setError("ورود بدون ارتباط امن با سرور ممکن نیست. اتصال را بررسی کنید.");
         return;
       }
       recordFailedLogin("127.0.0.1");
@@ -923,7 +926,7 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
         <button type="submit" className="ad-btn is-primary is-lg" disabled={busy || !code.trim()}>
           {busy ? "در حال بررسی…" : "ورود به پنل"}
         </button>
-        <span className="ad-gate-hint">رمز پیش‌فرض: <b dir="ltr">{sec.passcode}</b>{attempts > 0 ? ` · ${fa(attempts)} تلاش ناموفق` : ""}</span>
+        <span className="ad-gate-hint">{attempts > 0 ? `${fa(attempts)} تلاش ناموفق` : "برای حساب دومرحله‌ای از پنل مدیریت جدید وارد شوید."}</span><a className="ad-gate-back" href="/panel">باز کردن پنل مدیریت جدید</a>
         <Link to="/" className="ad-gate-back">بازگشت به فروشگاه</Link>
       </form>
     </div>

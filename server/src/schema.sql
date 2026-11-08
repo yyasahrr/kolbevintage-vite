@@ -527,6 +527,7 @@ create index if not exists backups_created_idx on backups (created_at desc);
 
 -- temporary staff access (decision 89): a grant that ends on a date
 alter table staff add column if not exists expires_at timestamptz;
+alter table staff add column if not exists admin_mfa jsonb;
 
 -- login history (decision 88): every admin sign-in attempt, refused ones too
 create table if not exists login_events (

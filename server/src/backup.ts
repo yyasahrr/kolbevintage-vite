@@ -6,6 +6,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import type pg from "pg";
 import { query, withTransaction } from "./db";
 import { config } from "./config";
+import { mfaKey, open, type MfaData } from "./admin-mfa";
 
 /* =====================================================================
    Backups (decisions 11 + 85).
@@ -218,6 +219,12 @@ export async function restoreBackup(
       if(hasSale!==hasVersion) throw new Error("نسخه وضعیت فروش تنوع در پشتیبان ناقص است.");
       if(!hasSale && !options.allowLegacyVariantSales) throw new Error("پشتیبان قدیمی وضعیت فروش تنوع‌ها را ندارد؛ بازیابی فقط با تأیید صریح allow-legacy-variant-sales مجاز است.");
     }
+    // Never silently remove/replace an enabled second factor through an old
+    // backup. Recovery codes and time-step replay state cannot safely be rolled back.
+    const currentMfa=await client.query<{subject:string;admin_mfa:MfaData}>("select subject,admin_mfa from staff where admin_mfa is not null for update");
+    const staff=payload.data.staff as Array<Record<string,unknown>>;
+    for(const current of currentMfa.rows){const prior=staff.find(row=>row && row.subject===current.subject);const mfa=prior?.admin_mfa as MfaData|null|undefined;if(!mfa || mfa.secret!==current.admin_mfa.secret)throw new Error("بازیابی این پشتیبان تأیید دومرحله‌ای فعال را حذف یا جایگزین می‌کند و مسدود شد.");}
+    for(const row of staff){if(!row || typeof row!=='object' || !row.admin_mfa)continue;const mfa=row.admin_mfa as MfaData;if(!mfaKey()||typeof row.subject!=='string'||typeof mfa.secret!=='string')throw new Error("کلید تأیید دومرحله‌ای برای بازیابی حساب‌ها موجود نیست.");try{open(mfa.secret,`admin-mfa:${row.subject}`)}catch{throw new Error("کلید تأیید دومرحله‌ای با پشتیبان سازگار نیست.")}}
     const ident = (name:string) => `"${name.replace(/"/g, '""')}"`;
     // Foreign keys and append-only triggers must not block a full replace;
     // this requires an appropriately privileged database maintenance role.
@@ -233,6 +240,11 @@ export async function restoreBackup(
       const restored = table === "price_rules" ? list.map(row => {
         if (!row || typeof row !== "object" || Array.isArray(row)) return row;
         return Object.prototype.hasOwnProperty.call(row, "free_shipping") ? row : { ...row, free_shipping: false };
+      }) : table === "staff" ? list.map(row => {
+        if(!row || typeof row!=="object" || Array.isArray(row)) return row;
+        const obj=row as Record<string,unknown>;if(!obj.admin_mfa)return row;
+        const mfa=obj.admin_mfa as MfaData;
+        return {...obj,admin_mfa:{...mfa,lastStep:Math.floor(Date.now()/30000)+1,recovery:[],failures:0,lockedUntil:0}};
       }) : table === "product_variants" ? list.map(row => {
         if (!row || typeof row !== "object" || Array.isArray(row)) return row;
         // Older backups predate per-variant sale switches and represented every
