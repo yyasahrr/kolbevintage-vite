@@ -60,6 +60,7 @@ interface InventoryVariant {
   sizeId: string;
   sizeLabel: string;
   onHand: number;
+  stockVersion: string;
   quarantined: number;
   reserved: number;
   sellable: number;
@@ -189,7 +190,7 @@ export function InventoryWorkspace() {
    Receiving, stocktake and two-person corrections
    ===================================================================== */
 export function InventoryOperationsPanel() {
-  const { variants, load: loadVariants } = useInventory();
+  const { variants, loading:inventoryLoading, load: loadVariants } = useInventory();
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [variantId, setVariantId] = useState("");
   const [mode, setMode] = useState<"receive" | "count" | "correction">("receive");
@@ -199,8 +200,11 @@ export function InventoryOperationsPanel() {
   const [note, setNote] = useState("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [locked,setLocked]=useState(false);
+  const [baseline,setBaseline]=useState<{id:string;onHand:number;version:string}|null>(null);
+  const request=useRef<Record<string,unknown>|null>(null),submitLock=useRef(false),decisionLock=useRef(false);
   const selected = variants.find((variant) => variant.id === variantId);
-  const delta = mode === "receive" ? Math.max(1, quantity) : mode === "count" && selected ? counted - selected.onHand : quantity;
+  const delta = mode === "receive" ? quantity : mode === "count" && baseline ? counted - baseline.onHand : quantity;
 
   const loadAdjustments = useCallback(async () => {
     try { setAdjustments(await api.get<Adjustment[]>("/api/commerce/admin/inventory/adjustments")); }
@@ -209,57 +213,64 @@ export function InventoryOperationsPanel() {
   useEffect(() => { void loadAdjustments(); }, [loadAdjustments]);
 
   const submit = async () => {
-    if (!selected || !delta || !reason.trim()) return;
-    setBusy(true);
+    if (submitLock.current || !selected || !baseline || baseline.id!==selected.id || !reason.trim() || (mode!=="count" && !delta) || (mode==="receive"&&quantity<1)) return;
+    submitLock.current=true;setBusy(true);
+    if(!request.current)request.current={operation:mode==='count'?'stocktake':mode==='receive'?'receive':'adjust',variantId,reference:reason.trim(),note:note.trim(),expectedVersion:baseline.version,idempotencyKey:`legacy-warehouse-${crypto.randomUUID()}`,...(mode==='count'?{countedQty:counted,expectedOnHand:baseline.onHand}:mode==='receive'?{acceptedQty:quantity,rejectedQty:0}:{delta:quantity})};
+    setLocked(true);
     try {
-      await api.post("/api/commerce/admin/inventory/adjustments", { variantId, delta, reason, note });
-      setMessage({ ok: true, text: "درخواست ثبت شد و برای تأیید شخص دوم در صف قرار گرفت." });
-      setNote("");
-      await loadAdjustments();
+      await api.post("/api/commerce/admin/inventory/operations",request.current);
+      request.current=null;setLocked(false);setVariantId("");setBaseline(null);setNote("");
+      setMessage({ ok: true, text: "درخواست ثبت شد؛ موجودی تنها پس از تأیید تغییر می‌کند." });
+      await Promise.all([loadAdjustments(),loadVariants()]);
     } catch (error) {
-      setMessage({ ok: false, text: error instanceof Error ? error.message : "ثبت درخواست ناموفق بود." });
-    } finally { setBusy(false); }
+      setMessage({ ok: false, text: `${error instanceof Error ? error.message : "ثبت درخواست ناموفق بود."} نتیجه را بررسی کنید یا با همین داده‌ها دوباره تلاش کنید.` });
+    } finally { submitLock.current=false;setBusy(false); }
   };
 
   const decide = async (id: string, decision: "approve" | "reject") => {
+    if(decisionLock.current || busy || !window.confirm(`${decision==='approve'?'تأیید':'رد'} درخواست ${id}؟ وضعیت و موجودی دوباره در سرور بررسی می‌شود.`))return;
+    decisionLock.current=true;setBusy(true);
     try {
-      await api.post(`/api/commerce/admin/inventory/adjustments/${id}`, { decision });
-      setMessage({ ok: true, text: decision === "approve" ? "اصلاح تأیید و در دفتر کل ثبت شد." : "درخواست رد شد." });
+      const result=await api.post<{adjustment:{status:string};unchanged:boolean}>(`/api/commerce/admin/inventory/adjustments/${encodeURIComponent(id)}`, { decision });
+      if(!['approved','rejected'].includes(result.adjustment?.status))throw new Error('پاسخ تصمیم نامعتبر است؛ وضعیت را بررسی کنید.');
+      const actual=result.adjustment.status==='approved'?'تأییدشده':'ردشده';
+      setMessage({ ok: true, text: result.unchanged?`درخواست قبلاً ${actual} بوده است؛ تصمیم تازه‌ای ثبت نشد.`:`درخواست ${actual} شد.` });
       await Promise.all([loadAdjustments(), loadVariants()]);
-    } catch (error) { setMessage({ ok: false, text: error instanceof Error ? error.message : "تصمیم ثبت نشد." }); }
+    } catch (error) { setMessage({ ok: false, text: `${error instanceof Error ? error.message : "تصمیم ثبت نشد."} ابتدا وضعیت را تازه‌سازی و بررسی کنید.` });await loadAdjustments(); }
+    finally {decisionLock.current=false;setBusy(false)}
   };
 
   return (
     <>
-      <Head title="دریافت کالا، شمارش و اصلاح موجودی" sub="هیچ عددی مستقیم روی موجودی نوشته نمی‌شود؛ هر تغییر درخواست، تأیید شخص دوم و ردیابی در دفتر کل دارد." />
+      <Head title="دریافت کالا، شمارش و اصلاح موجودی" sub="هیچ عددی مستقیم روی موجودی نوشته نمی‌شود؛ درخواست‌ها با کنترل موجودی و ردیابی در دفتر کل بررسی می‌شوند؛ مالک می‌تواند درخواست خود را تأیید کند." />
       <Notice message={message} />
       <div className="ad-grid-2">
         <Panel title="ثبت عملیات جدید">
           <div className="ad-filters">
             {([['receive', 'دریافت کالا'], ['count', 'شمارش انبار'], ['correction', 'اصلاح علامت‌دار']] as const).map(([id, label]) => (
-              <button type="button" key={id} className={cn("ad-chip", mode === id && "is-on")} onClick={() => setMode(id)}>{label}</button>
+              <button type="button" key={id} disabled={locked||busy} className={cn("ad-chip", mode === id && "is-on")} onClick={() => setMode(id)}>{label}</button>
             ))}
           </div>
           <label className="ad-field">SKU
-            <select className="ad-select" value={variantId} onChange={(event) => { setVariantId(event.target.value); const item = variants.find((row) => row.id === event.target.value); if (item) setCounted(item.onHand); }}>
+            <select className="ad-select" value={variantId} disabled={locked||busy||inventoryLoading} onChange={(event) => { setVariantId(event.target.value); const item = variants.find((row) => row.id === event.target.value); setBaseline(item?{id:item.id,onHand:item.onHand,version:item.stockVersion}:null); if (item) setCounted(item.onHand); }}>
               <option value="">انتخاب تنوع…</option>
               {variants.map((variant) => <option value={variant.id} key={variant.id}>{variant.name} — {variant.colorName} / {variant.sizeLabel} — {variant.sku}</option>)}
             </select>
           </label>
-          {selected && <p className="ad-hint">فیزیکی فعلی {fa(selected.onHand)} · رزرو {fa(selected.reserved)} · قابل‌فروش {fa(selected.sellable)}</p>}
+          {selected && <p className="ad-hint">فیزیکی هنگام انتخاب {fa(baseline?.onHand ?? selected.onHand)} · رزرو {fa(selected.reserved)} · قابل‌فروش {fa(selected.sellable)}</p>}
           {mode === "count" ? (
-            <label className="ad-field">عدد شمارش‌شده<input className="ad-input" type="number" min={0} value={counted} onChange={(event) => setCounted(Math.max(0, Number(event.target.value) || 0))} /></label>
+            <label className="ad-field">عدد شمارش‌شده<input className="ad-input" type="number" min={0} max={1000000} disabled={locked||busy} value={counted} onChange={(event) => setCounted(Math.max(0, Number(event.target.value) || 0))} /></label>
           ) : (
-            <label className="ad-field">{mode === "receive" ? "تعداد دریافتی" : "تغییر (مثبت یا منفی)"}<input className="ad-input" type="number" min={mode === "receive" ? 1 : undefined} value={quantity} onChange={(event) => setQuantity(Number(event.target.value) || 0)} /></label>
+            <label className="ad-field">{mode === "receive" ? "تعداد دریافتی" : "تغییر (مثبت یا منفی)"}<input className="ad-input" type="number" min={mode === "receive" ? 1 : undefined} value={quantity} disabled={locked||busy} onChange={(event) => setQuantity(Number(event.target.value) || 0)} /></label>
           )}
-          <label className="ad-field">دلیل<input className="ad-input" value={reason} onChange={(event) => setReason(event.target.value)} /></label>
-          <label className="ad-field">یادداشت و شماره سند<textarea className="ad-input" rows={2} value={note} onChange={(event) => setNote(event.target.value)} /></label>
+          <label className="ad-field">دلیل<input className="ad-input" value={reason} maxLength={150} disabled={locked||busy} onChange={(event) => setReason(event.target.value)} /></label>
+          <label className="ad-field">یادداشت و شماره سند<textarea className="ad-input" rows={2} maxLength={1000} disabled={locked||busy} value={note} onChange={(event) => setNote(event.target.value)} /></label>
           <p className="ad-hint">تغییر درخواستی: <b>{delta > 0 ? `+${fa(delta)}` : fa(delta)}</b>{mode === "count" && delta === 0 ? " — شمارش با دفتر یکسان است" : ""}</p>
-          <button type="button" className="ad-btn is-primary" disabled={!selected || !delta || !reason.trim() || busy} onClick={() => void submit()}><PackagePlus width={14} height={14} /> {busy ? "در حال ثبت…" : "ثبت برای تأیید"}</button>
+          <button type="button" className="ad-btn is-primary" disabled={!selected || !baseline || (mode!=="count"&&!delta) || (mode==="receive"&&quantity<1) || !reason.trim() || (mode==="correction"&&!note.trim()) || busy || inventoryLoading} onClick={() => void submit()}><PackagePlus width={14} height={14} /> {busy ? "در حال ثبت…" : locked ? "تلاش مجدد برای همین درخواست" : "ثبت برای تأیید"}</button>{locked&&!busy&&<p className="ad-hint">ممکن است درخواست قبلی ثبت شده باشد؛ پیش از شروع فرم جدید، صف را بررسی کنید. <button type="button" className="ad-btn is-sm" onClick={()=>{request.current=null;setLocked(false);setVariantId("");setBaseline(null);void Promise.all([loadAdjustments(),loadVariants()]);}}>شروع فرم جدید و تازه‌سازی</button></p>}
         </Panel>
         <Panel title="قرارداد کنترل انبار" action={<ShieldCheck width={16} height={16} />}>
-          <p>دریافت و اصلاح ابتدا در صف می‌ماند. تأییدکننده باید نقش مجاز داشته باشد و نمی‌تواند درخواست خودش را تأیید کند.</p>
-          <p className="ad-hint">بعد از تأیید، موجودی فیزیکی در همان تراکنش تغییر می‌کند و یک رویداد غیرقابل‌حذف در دفتر گردش ساخته می‌شود. رزرو سفارش‌ها دست‌نخورده می‌ماند.</p>
+          <p>دریافت و اصلاح ابتدا در صف می‌ماند. تأییدکننده به مجوز نیاز دارد؛ مالک و superadmin می‌توانند درخواست خود را تأیید کنند.</p>
+          <p className="ad-hint">بعد از تأیید، موجودی فیزیکی در همان تراکنش تغییر می‌کند و یک رویداد در دفتر گردش ساخته می‌شود؛ این دفتر جایگزین ثبت مستقل مقاوم به دستکاری نیست. رزرو سفارش‌ها دست‌نخورده می‌ماند.</p>
         </Panel>
       </div>
       <Panel title={`صف درخواست‌ها (${fa(adjustments.filter((item) => item.status === "pending").length)} در انتظار)`}>
@@ -267,7 +278,7 @@ export function InventoryOperationsPanel() {
           <div className="ad-table-wrap"><table className="ad-table"><thead><tr><th>زمان</th><th>SKU</th><th>تغییر</th><th>دلیل</th><th>درخواست‌کننده</th><th>وضعیت</th><th>عملیات</th></tr></thead>
             <tbody>{adjustments.map((item) => {
               const variant = variants.find((row) => row.id === item.variantId);
-              return <tr key={item.id}><td>{dateTime(item.createdAt)}</td><td dir="ltr">{variant?.sku ?? item.variantId}</td><td className="ad-num">{item.delta > 0 ? `+${fa(item.delta)}` : fa(item.delta)}</td><td>{item.reason}<small>{item.note}</small></td><td>{item.requestedBy}</td><td>{item.status === "pending" ? "در انتظار" : item.status === "approved" ? "تأییدشده" : "ردشده"}</td><td>{item.status === "pending" && <div className="ad-actions"><button type="button" className="ad-btn is-sm is-primary" onClick={() => void decide(item.id, "approve")}>تأیید</button><button type="button" className="ad-btn is-sm is-danger" onClick={() => void decide(item.id, "reject")}>رد</button></div>}</td></tr>;
+              return <tr key={item.id}><td>{dateTime(item.createdAt)}</td><td dir="ltr">{variant?.sku ?? item.variantId}</td><td className="ad-num">{item.delta > 0 ? `+${fa(item.delta)}` : fa(item.delta)}</td><td>{item.reason}<small>{item.note}</small></td><td>{item.requestedBy}</td><td>{item.status === "pending" ? "در انتظار" : item.status === "approved" ? "تأییدشده" : "ردشده"}</td><td>{item.status === "pending" && <div className="ad-actions"><button type="button" disabled={busy} className="ad-btn is-sm is-primary" onClick={() => void decide(item.id, "approve")}>تأیید</button><button type="button" disabled={busy} className="ad-btn is-sm is-danger" onClick={() => void decide(item.id, "reject")}>رد</button></div>}</td></tr>;
             })}</tbody></table></div>
         )}
       </Panel>

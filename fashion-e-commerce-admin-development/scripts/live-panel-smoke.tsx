@@ -5,6 +5,7 @@ import { webcrypto } from "node:crypto";
 async function main() {
 const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", { url: "http://store.test/panel" });
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, FileReader: dom.window.FileReader, Event: dom.window.Event, MouseEvent: dom.window.MouseEvent, sessionStorage: dom.window.sessionStorage, IS_REACT_ACT_ENVIRONMENT: true });
+dom.window.confirm = () => true;
 Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
 Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 const requests: { path: string; method: string; body?: any }[] = [];
@@ -53,6 +54,8 @@ globalThis.fetch = async (request, init) => {
   const path = String(request); const method = init?.method || "GET"; const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   requests.push({ path, method, body });
   if (method === "GET" && path.startsWith("/api/commerce/admin/payment-exceptions/page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/payments?status=exception"],nextCursor:null}));
+  if (method === "GET" && path.startsWith("/api/commerce/admin/inventory/adjustment-page?")) return new Response(JSON.stringify({items:(fixtures["/api/commerce/admin/inventory/adjustments"] as any[]).map(v=>({...v,sku:"SAMPLE-SKU",productName:"محصول نمونه"})),nextCursor:null}));
+  if (method === "GET" && path.startsWith("/api/commerce/admin/inventory/movement-page?")) return new Response(JSON.stringify({items:[],nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/commerce/admin/audit-page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/audit?limit=200"],nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/admin/gallery/page?")) return new Response(JSON.stringify({items:fixtures["/api/admin/gallery"],nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/commerce/admin/refund-page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/refunds"],nextCursor:null}));
@@ -87,6 +90,7 @@ globalThis.fetch = async (request, init) => {
   if (method === "POST" && path === "/api/admin/custom-looks/look-test/delete") {(fixtures["/api/admin/custom-looks"] as any[]).splice(0,1);return new Response(JSON.stringify({ok:true}))}
   if (method === "PATCH" && path === "/api/admin/home-categories") {(fixtures[path] as any).ids=body.ids;return new Response(JSON.stringify({ids:body.ids}))}
   if (method === "POST" && path === "/api/admin/categories") return new Response(JSON.stringify({ok:true,category:{id:"cat-test",...body,thumbnail:"",order:2}}),{status:201,headers:{"content-type":"application/json"}});
+  if (method === "POST" && path === "/api/commerce/admin/inventory/adjustments/adj-1") return new Response(JSON.stringify({ok:true,adjustment:{status:body.decision==='approve'?'approved':'rejected'},unchanged:false}));
   if (method !== "GET") return new Response(JSON.stringify({ ok: true, refund: {status: "qc_failed"} }), { status: 200, headers: { "content-type": "application/json" } });
   if (!(path in fixtures)) return new Response(JSON.stringify({ error: `unexpected ${path}` }), { status: 500 });
   return new Response(JSON.stringify(fixtures[path]), { status: 200, headers: { "content-type": "application/json" } });

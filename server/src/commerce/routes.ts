@@ -779,6 +779,27 @@ export async function commerceRoutes(app: FastifyInstance) {
     }));
   });
 
+  // Read-only ledger pages; bigint IDs remain strings, never JS numbers.
+  app.get<{Querystring:{before?:string;limit?:string;search?:string}}>("/api/commerce/admin/inventory/movement-page",async(req,reply)=>{
+    reply.header("cache-control","private, no-store");await requirePermission(req,"inventory:view");
+    const {before,limit='40',search=''}=req.query;
+    if((before!==undefined&&(typeof before!=='string'||!/^[1-9][0-9]{0,18}$/.test(before)||BigInt(before)>9223372036854775807n))||typeof limit!=='string'||!/^(?:[1-9]|[1-9][0-9]|100)$/.test(limit)||typeof search!=='string'||search.length>120)throw new CommerceError("فیلتر یا نشانگر صفحه معتبر نیست.",422,"validation_error");
+    const term=search.trim();const filter="($2='' or strpos(lower(m.variant_id),lower($2))>0 or strpos(lower(v.sku),lower($2))>0 or strpos(lower(p.name),lower($2))>0 or strpos(lower(coalesce(m.ref_id,'')),lower($2))>0 or strpos(lower(coalesce(m.actor,'')),lower($2))>0 or strpos(lower(m.reason),lower($2))>0)";const join="from inventory_movements m join product_variants v on v.id=m.variant_id join products p on p.id=v.product_id";
+    if(before&&!(await query(`select 1 ${join} where m.id=$1::bigint and ${filter}`,[before,term])).rowCount)throw new CommerceError("نشانگر صفحه دیگر معتبر نیست؛ فهرست را تازه کنید.",422,"invalid_cursor");
+    const result=await query(`select m.id::text,m.variant_id,m.delta,m.reason,m.ref_type,m.ref_id,m.actor,m.created_at,v.sku,p.name as product_name ${join} where ${filter} and ($1::bigint is null or (m.created_at,m.id)<(select created_at,id from inventory_movements where id=$1::bigint)) order by m.created_at desc,m.id desc limit $3`,[before??null,term,Number(limit)+1]);
+    const items=result.rows.slice(0,Number(limit));return {items,nextCursor:result.rows.length>Number(limit)?items[items.length-1].id:null};
+  });
+
+  app.get<{Querystring:{before?:string;limit?:string;search?:string;status?:string}}>("/api/commerce/admin/inventory/adjustment-page",async(req,reply)=>{
+    reply.header("cache-control","private, no-store");await requirePermission(req,"inventory:view");
+    const {before,limit='40',search='',status='all'}=req.query;
+    if((before!==undefined&&(typeof before!=='string'||!before||before.length>200))||typeof limit!=='string'||!/^(?:[1-9]|[1-9][0-9]|100)$/.test(limit)||typeof search!=='string'||search.length>120||typeof status!=='string'||!['all','pending','approved','rejected'].includes(status))throw new CommerceError("فیلتر یا نشانگر صفحه معتبر نیست.",422,"validation_error");
+    const term=search.trim();const filter="($2='all' or a.status=$2) and ($3='' or strpos(lower(a.id),lower($3))>0 or strpos(lower(a.variant_id),lower($3))>0 or strpos(lower(v.sku),lower($3))>0 or strpos(lower(p.name),lower($3))>0 or strpos(lower(a.requested_by),lower($3))>0)";const join="from inventory_adjustments a join product_variants v on v.id=a.variant_id join products p on p.id=v.product_id";
+    if(before&&!(await query(`select 1 ${join} where a.id=$1 and ${filter}`,[before,status,term])).rowCount)throw new CommerceError("نشانگر صفحه دیگر معتبر نیست؛ فهرست را تازه کنید.",422,"invalid_cursor");
+    const result=await query<AdjustmentRow & {sku:string;product_name:string}>(`select a.*,v.sku,p.name as product_name ${join} where ${filter} and ($1::text is null or (a.created_at,a.id)<(select created_at,id from inventory_adjustments where id=$1)) order by a.created_at desc,a.id desc limit $4`,[before??null,status,term,Number(limit)+1]);
+    const rows=result.rows.slice(0,Number(limit));return {items:rows.map(row=>({...publicAdjustment(row),sku:row.sku,productName:row.product_name})),nextCursor:result.rows.length>Number(limit)?rows[rows.length-1].id:null};
+  });
+
   app.get<{ Querystring: { variantId?: string; limit?: string } }>("/api/commerce/admin/inventory/movements", async (req) => {
     await requirePermission(req, "inventory:view");
     const params: unknown[] = [];

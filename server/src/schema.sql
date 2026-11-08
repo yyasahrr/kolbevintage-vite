@@ -153,6 +153,7 @@ create table if not exists inventory_movements (
   created_at timestamptz not null default now()
 );
 create index if not exists inventory_movements_variant_idx on inventory_movements (variant_id, created_at desc);
+create index if not exists inventory_movements_page_idx on inventory_movements (created_at desc,id desc);
 
 -- manual stock corrections need a second, different approver
 create table if not exists inventory_adjustments (
@@ -168,6 +169,8 @@ create table if not exists inventory_adjustments (
   decided_at timestamptz
 );
 create index if not exists inventory_adjustments_status_idx on inventory_adjustments (status, created_at);
+create index if not exists inventory_adjustments_page_idx on inventory_adjustments (created_at desc,id desc);
+create index if not exists inventory_adjustments_status_page_idx on inventory_adjustments (status,created_at desc,id desc);
 alter table inventory_adjustments add column if not exists baseline_on_hand integer;
 alter table inventory_adjustments add column if not exists counted_on_hand integer;
 alter table inventory_adjustments add column if not exists baseline_stock_version text;

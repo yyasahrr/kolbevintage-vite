@@ -233,10 +233,13 @@ export function CommercePanel() {
 
   const decideAdjustment = async (id: string, decision: "approve" | "reject") => {
     try {
-      await api.post(`/api/commerce/admin/inventory/adjustments/${id}`, { decision });
+      const result = await api.post<{adjustment:{status:string};unchanged:boolean}>(`/api/commerce/admin/inventory/adjustments/${encodeURIComponent(id)}`, { decision });
+      if (!['approved','rejected'].includes(result.adjustment?.status)) throw new Error("وضعیت تصمیم نامعتبر است؛ درخواست را بررسی کنید.");
+      const actual = result.adjustment.status === "approved" ? "تأییدشده" : "ردشده";
+      setMessage({ ok:true, text:result.unchanged ? `درخواست قبلاً ${actual} بوده است؛ تصمیم تازه‌ای ثبت نشد.` : `درخواست ${actual} شد.` });
       await load();
     } catch (error) {
-      setMessage({ ok: false, text: error instanceof Error ? error.message : "عملیات ناموفق بود." });
+      setMessage({ ok: false, text: `${error instanceof Error ? error.message : "عملیات ناموفق بود."} ابتدا وضعیت را بررسی کنید.` });
     }
   };
 
