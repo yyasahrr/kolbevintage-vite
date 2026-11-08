@@ -182,6 +182,29 @@ export async function studioDraftRoutes(app: FastifyInstance) {
       return reply.code(201).send(result);
     },
   );
+  // Copies only saved, version-checked content; never publishes or changes the source.
+  app.post<{Params:{id:string};Body:unknown}>("/api/admin/studio/drafts/:id/copy", async (req,reply) => {
+    const actor=await requirePermission(req,"design:edit"); const body=req.body;
+    if(!obj(body)||Object.keys(body).sort().join(",")!=="expectedVersion,title"||!Number.isSafeInteger(body.expectedVersion)||Number(body.expectedVersion)<0) throw validation("نسخه و عنوان کپی لازم است.");
+    const name=title(body.title);
+    const draft=await withTransaction(async client=>{
+      const locked=await client.query<{value:unknown}>("select value from state_documents where key='studio_drafts' for update");
+      if(!locked.rows.length)throw notFound("پیش‌نویس پیدا نشد.");
+      const drafts=data(locked.rows[0].value); const source=drafts.find(d=>d.id===req.params.id);
+      if(!source)throw notFound("پیش‌نویس پیدا نشد.");
+      if(source.archived)throw conflict("پیش‌نویس بایگانی شده است.","studio_draft_archived");
+      if(source.version!==body.expectedVersion)throw conflict("پیش‌نویس تغییر کرده است؛ ابتدا فهرست را تازه کنید.","studio_draft_stale");
+      if(drafts.length>=100)throw conflict("حداکثر ۱۰۰ پیش‌نویس مجاز است.","studio_draft_limit");
+      if(!source.visual)throw conflict("فقط صفحهٔ تصویری ذخیره‌شده قابل کپی است.","studio_visual_required");
+      let visual:VisualData; try{visual=validateVisual(source.visual)}catch{throw conflict("محتوای صفحه معتبر نیست.","studio_data_invalid")}
+      const copy:Draft={id:`draft-${randomUUID()}`,title:name,version:0,blocks:[],visual,updatedAt:new Date().toISOString()};drafts.push(copy);
+      if(Buffer.byteLength(JSON.stringify({drafts}),"utf8")>4_000_000)throw conflict("حجم پیش‌نویس‌ها به سقف رسیده است.","studio_storage_limit");
+      await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='studio_drafts'",[JSON.stringify({drafts})]);
+      await recordAudit({actor:actor.subject,action:"design.studio_draft_copied",targetType:"studio_draft",targetId:copy.id,after:{sourceId:source.id,sourceVersion:source.version},requestId:req.id},client);
+      return copy;
+    });
+    return reply.code(201).send(draft);
+  });
   app.patch<{ Params: { id: string }; Body: unknown }>(
     "/api/admin/studio/drafts/:id",
     async (req) => {

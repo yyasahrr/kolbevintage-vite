@@ -44,6 +44,15 @@ export function MarketingModule({api,can}:Props) {
   </div>;
 }
 
+type Channels={whatsapp:string;telegram:string};
+export function SupportChannels({api,can}:Props){
+  const [saved,setSaved]=useState<Channels|null>(null),[form,setForm]=useState<Channels>({whatsapp:'',telegram:''}),[busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(''),[uncertain,setUncertain]=useState(false);
+  const load=useCallback(async()=>{setBusy(true);setError('');try{const value=await api.get<Channels>('/api/admin/support-channels');setSaved(value);setForm({whatsapp:value.whatsapp==='#'?'':value.whatsapp,telegram:value.telegram==='#'?'':value.telegram});setUncertain(false)}catch(e){setError(errorMessage(e))}finally{setBusy(false)}},[api]);
+  useEffect(()=>{void load()},[load]);
+  async function save(e:React.FormEvent){e.preventDefault();if(!saved)return;setBusy(true);setError('');setSuccess('');try{const value=await api.patch<Channels>('/api/admin/support-channels',{expected:saved,socials:form});setSaved(value);setForm(value);setSuccess('راه‌های ارتباطی ذخیره شد؛ برای مشاهده فروشگاه را تازه کنید.')}catch(e){setUncertain(true);setError(`${errorMessage(e)} نتیجه ممکن است نامشخص باشد؛ تنظیمات را دوباره دریافت و بررسی کنید.`)}finally{setBusy(false)}}
+  return <form onSubmit={save} className={`${card} max-w-3xl space-y-4`}><h2 className="text-lg font-bold">راه‌های پشتیبانی فروشگاه</h2><p className="text-sm leading-6 text-slate-600">پیوند واقعی واتساپ و تلگرام را وارد کنید؛ خالی‌بودن هر کدام آن را از دکمهٔ «مشکل دارم» پنهان می‌کند. فقط HTTPS و دامنهٔ همان سرویس پذیرفته می‌شود.</p><Feedback error={error} success={success}/>{saved&&<>{(['whatsapp','telegram'] as const).map(k=><label key={k} className="block text-sm">{k==='whatsapp'?'پیوند واتساپ (مثلاً https://wa.me/...)':'پیوند تلگرام (مثلاً https://t.me/...)'}<input dir="ltr" type="url" maxLength={1000} className={`${input} mt-2`} disabled={!can('design:edit')||busy||uncertain} value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}{can('design:edit')&&<button className={button} disabled={busy||uncertain}>ذخیره راه‌های پشتیبانی</button>}</>}<button type="button" className={`${secondary} mr-2`} disabled={busy} onClick={()=>{if(!saved||window.confirm('تغییرات ذخیره‌نشده کنار گذاشته شوند؟'))void load()}}>دریافت دوباره</button></form>;
+}
+
 interface Brand {name:string;logoText:string;tagline:string;announcement:string;announcementActive:boolean;footerNote:string}
 export function BrandModule({api,can}:Props) {
   const [form,setForm]=useState<Brand|null>(null);const [error,setError]=useState("");const [success,setSuccess]=useState("");const [busy,setBusy]=useState(false);

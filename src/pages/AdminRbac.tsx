@@ -1,3 +1,4 @@
+import { PersianDateInput } from "@/components/PersianDateInput";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, KeyRound, Loader2, Lock, Plus, RefreshCw, ShieldCheck, UserRound } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
@@ -431,16 +432,8 @@ export function StaffPanel() {
                     <option key={role.id} value={role.id}>{role.name}</option>
                   ))}
                 </select>
-                <span className="ad-rbac-expiry">
-                  <input
-                    className="ad-input is-compact"
-                    type="date"
-                    dir="ltr"
-                    value={row.expires_at ? row.expires_at.slice(0, 10) : ""}
-                    disabled={busy === `staff:${row.id}`}
-                    aria-label={`پایان دسترسی ${row.name}`}
-                    onChange={(e) => void patchStaff(row, { expiresAt: e.target.value || null })}
-                  />
+                <div className="ad-rbac-expiry">
+                  <PersianDateInput value={row.expires_at ? row.expires_at.slice(0,10) : ""} disabled={busy === `staff:${row.id}`} label={`پایان دسترسی ${row.name}`} onChange={v=>void patchStaff(row,{expiresAt:v || null})}/>
                   {row.expired ? (
                     <em className="ad-chip is-danger">منقضی</em>
                   ) : row.expires_at ? (
@@ -448,7 +441,7 @@ export function StaffPanel() {
                   ) : (
                     <em className="ad-hint">دائمی</em>
                   )}
-                </span>
+                </div>
                 <label className="ad-rbac-toggle">
                   <input
                     type="checkbox"
@@ -488,17 +481,10 @@ export function StaffPanel() {
                 ))}
               </select>
             </label>
-            <label className="ad-field">
+            <div className="ad-field">
               <span className="ad-field-label">پایان دسترسی (اختیاری)</span>
-              <input
-                className="ad-input"
-                type="date"
-                dir="ltr"
-                value={staffExpiry}
-                onChange={(e) => setStaffExpiry(e.target.value)}
-                aria-label="تاریخ پایان دسترسی"
-              />
-            </label>
+              <PersianDateInput value={staffExpiry} label="تاریخ پایان دسترسی" onChange={setStaffExpiry}/>
+            </div>
           </div>
           <div className="ad-actions">
             <button

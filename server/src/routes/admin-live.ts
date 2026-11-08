@@ -161,6 +161,31 @@ export async function adminLiveRoutes(app: FastifyInstance) {
     return {ok:true};
   });
 
+  const channels=(brand:Record<string,any>)=>({whatsapp:typeof brand?.socials?.whatsapp === "string" ? brand.socials.whatsapp : "",telegram:typeof brand?.socials?.telegram === "string" ? brand.socials.telegram : ""});
+  app.get("/api/admin/support-channels",async (req,reply)=>{
+    await requirePermission(req,"design:view");reply.header("cache-control","private, no-store");
+    const result=await query<{value:Record<string,any>}>("select value from state_documents where key='ops'");
+    return channels(result.rows[0]?.value?.brand ?? {});
+  });
+  app.patch<{Body:unknown}>("/api/admin/support-channels",async req=>{
+    const actor=await requirePermission(req,"design:edit");const b=req.body;
+    const validObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
+    const pair=(v:unknown):v is {whatsapp:string;telegram:string}=>validObj(v)&&Object.keys(v).sort().join(',')==='telegram,whatsapp'&&typeof v.whatsapp==='string'&&typeof v.telegram==='string'&&v.whatsapp.length<=1000&&v.telegram.length<=1000;
+    if(!validObj(b)||Object.keys(b).sort().join(',')!=='expected,socials'||!pair(b.expected)||!pair(b.socials))throw validation("تنظیمات پیام‌رسان معتبر نیست.");
+    const expected=b.expected, next=b.socials;
+    function link(value:string,hosts:string[]){const v=value.trim();if(!v)return '';try{const u=new URL(v);if(u.protocol==='https:'&&!u.username&&!u.password&&hosts.includes(u.hostname.toLowerCase())&&u.pathname!=='/'&& !u.port)return u.href;}catch{}throw validation("پیوند پیام‌رسان باید نشانی HTTPS معتبر همان سرویس باشد.");}
+    const cleaned={whatsapp:link(next.whatsapp,['wa.me','api.whatsapp.com','web.whatsapp.com']),telegram:link(next.telegram,['t.me','telegram.me'])};
+    return withTransaction(async client=>{
+      const result=await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");const doc=result.rows[0]?.value;if(!doc)throw notFound("سند ظاهر پیدا نشد.");
+      const old=channels(doc.brand??{});if(old.whatsapp!==expected.whatsapp||old.telegram!==expected.telegram)throw conflict("تنظیمات تغییر کرده است؛ ابتدا آن را دوباره دریافت کنید.","support_channels_stale");
+      doc.brand={...(doc.brand??{}),socials:{...(doc.brand?.socials??{}),...cleaned}};
+      await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='ops'",[JSON.stringify(doc)]);
+      await client.query("insert into settings(key,value,updated_at) values('brand',$1::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()",[JSON.stringify(doc.brand)]);
+      await recordAudit({actor:actor.subject,action:'design.support_channels_updated',targetType:'brand',targetId:'support',before:{whatsapp:!!old.whatsapp&&old.whatsapp!=='#',telegram:!!old.telegram&&old.telegram!=='#'},after:{whatsapp:!!cleaned.whatsapp,telegram:!!cleaned.telegram},requestId:req.id},client);
+      return cleaned;
+    });
+  });
+
   app.get("/api/admin/store-brand", async req => {
     await requirePermission(req,"design:view");
     const result = await query<{value:Record<string,any>}>("select value from state_documents where key='ops'");

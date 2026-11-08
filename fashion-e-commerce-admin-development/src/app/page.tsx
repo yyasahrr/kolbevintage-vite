@@ -22,7 +22,7 @@ import { LiveProducts } from "@/components/admin/LiveProducts";
 import { LiveShell } from "@/components/admin/LiveShell";
 import { StylePacks } from "@/components/admin/StylePacks";
 import { LiveDashboard } from "@/components/admin/LiveDashboard";
-import { MarketingModule, BrandModule, SettingsModule, FinanceModule, AnalyticsModule } from "@/components/admin/CommerceModules";
+import { MarketingModule, BrandModule, SupportChannels, SettingsModule, FinanceModule, AnalyticsModule } from "@/components/admin/CommerceModules";
 import { ProductCreate } from "@/components/admin/ProductCreate";
 import { ReturnsModule } from "@/components/admin/ReturnsModule";
 import { GalleryModule } from "@/components/admin/GalleryModeration";
@@ -201,7 +201,7 @@ export default function DashboardPage() {
         {section === "returns" && orders && <ReturnsModule api={liveApi} can={can} orders={orders} subject={me.subject} openAccess={me.openAccess} onChange={load} onElevate={async passcode => { const result = await post<{sessionToken?: string}>("/api/commerce/admin/elevate", {passcode}); setSession(result.sessionToken ?? ""); await load(); }}/>}
         {section === "marketing" && <MarketingModule api={liveApi} can={can}/>}
         {section === "stylePacks" && <StylePacks api={liveApi} can={can}/>}
-        {section === "brand" && <><VisualStudio api={liveApi} can={can} onDirtyChange={setVisualDirty}/><details className="rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold">پیش‌نویس‌های قدیمی و تنظیمات برند</summary><BrandModule api={liveApi} can={can}/><StudioDrafts api={liveApi} can={can} onDirtyChange={setStudioDirty}/></details></>}
+        {section === "brand" && <><VisualStudio api={liveApi} can={can} onDirtyChange={setVisualDirty}/><details className="rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold">پیش‌نویس‌های قدیمی و تنظیمات برند</summary><BrandModule api={liveApi} can={can}/><SupportChannels api={liveApi} can={can}/><StudioDrafts api={liveApi} can={can} onDirtyChange={setStudioDirty}/></details></>}
         {section === "accountSecurity" && <><AccountSecurity api={liveApi} onChange={()=>setMfaRevision(v=>v+1)}/>{me.role==="owner"&&!me.openAccess&&<PanelPathSettings key={mfaRevision} api={liveApi}/>}</>}
         {section === "settings" && <SettingsModule api={liveApi} can={can}/>}
         {section === "finance" && <FinanceModule api={liveApi} can={can}/>}

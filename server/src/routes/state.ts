@@ -179,6 +179,18 @@ export async function stateRoutes(app: FastifyInstance) {
           if (Object.prototype.hasOwnProperty.call(current,field)) next[field]=current[field];
           else delete next[field];
         }
+        // Support links are managed by the targeted API; stale legacy document
+        // saves must not overwrite them while editing unrelated settings.
+        if (current.brand && typeof current.brand === "object" && !Array.isArray(current.brand)) {
+          const currentSocials=current.brand.socials && typeof current.brand.socials === "object" && !Array.isArray(current.brand.socials) ? current.brand.socials : {};
+          const nextBrand=next.brand && typeof next.brand === "object" && !Array.isArray(next.brand) ? next.brand : {};
+          const nextSocials=nextBrand.socials && typeof nextBrand.socials === "object" && !Array.isArray(nextBrand.socials) ? {...nextBrand.socials} : {};
+          for(const channel of ["whatsapp","telegram"]) {
+            if(Object.prototype.hasOwnProperty.call(currentSocials,channel)) nextSocials[channel]=currentSocials[channel];
+            else delete nextSocials[channel];
+          }
+          next.brand={...nextBrand,socials:nextSocials};
+        }
         if(current.security?.passcode && !next.security?.passcode) next.security={...(next.security ?? {}),passcode:current.security.passcode};
         await client.query("insert into state_documents(key,value,updated_at) values('ops',$1::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()",[JSON.stringify(next)]);
       });

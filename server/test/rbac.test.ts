@@ -1821,6 +1821,13 @@ test('visual studio preserves legacy, validates widgets, permissions, version an
  assert.equal((await admin.patch(endpoint,{title:'صفحه',visual:{...visual,content:[{type:'Unknown',props:{id:'x'}}]},expectedVersion:0})).status,422);
  const saved=await admin.patch(endpoint,{title:'صفحه تصویری آزمون',visual,expectedVersion:0});assert.equal(saved.status,200,JSON.stringify(saved.body));assert.deepEqual(saved.body.visual,visual);
  assert.equal((await admin.patch(endpoint,{title:'صفحه',visual,expectedVersion:0})).status,409);
+ const copyPath=`${path}/${draft.id}/copy`, copyBody={title:'کپی مستقل',expectedVersion:1};
+ assert.equal((await guest.post(copyPath,copyBody)).status,401);assert.equal((await viewer.post(copyPath,copyBody)).status,403);
+ assert.equal((await admin.post(copyPath,{...copyBody,expectedVersion:0})).body.code,'studio_draft_stale');
+ const copy=await admin.post(copyPath,copyBody);assert.equal(copy.status,201,JSON.stringify(copy.body));assert.notEqual(copy.body.id,draft.id);assert.equal(copy.body.version,0);assert.deepEqual(copy.body.visual,visual);
+ assert.ok((await query("select id from audit_events where action='design.studio_draft_copied' and target_id=$1",[copy.body.id])).rows.length);
+ assert.equal((await guest.get(`/api/studio/pages/${slug}`)).status,404);
+
  assert.equal((await admin.patch(`${path}/${draft.id}`,{title:'ویرایش قدیمی',blocks:[],expectedVersion:1})).body.code,'studio_visual_draft');
  const publish={slug,draftId:draft.id,expectedDraftVersion:1,expectedPageRevision:0};
  assert.equal((await viewer.post('/api/admin/studio/pages/publish',publish)).status,403);
@@ -2222,4 +2229,23 @@ test('panel path is owner-only, reauthenticated, conflict-safe, recoverable and 
   } finally {
     await query("update staff set admin_mfa=null where subject='admin'");await query("delete from state_documents where key='panel_entry'");await proxied.close();await new Promise<void>(resolve=>fake.close(()=>resolve()));await fs.rm(tmp,{recursive:true,force:true});if(previousUpstream===undefined)delete process.env.ADMIN_PANEL_UPSTREAM;else process.env.ADMIN_PANEL_UPSTREAM=previousUpstream;if(keyBefore===undefined)delete process.env.ADMIN_MFA_KEY;else process.env.ADMIN_MFA_KEY=keyBefore;
   }
+});
+
+
+test('support links require permission, validate hosts, reject stale writes and survive legacy saves', async()=>{
+  const {admin,client:viewer}=await staffWith(['design:view'],'channels-viewer','channels-user','channels-pass');const guest=makeClient();const path='/api/admin/support-channels';
+  const original=(await query("select value from state_documents where key='ops'")).rows[0].value;
+  try{
+    assert.equal((await guest.get(path)).status,401);const initial=await viewer.get(path);assert.equal(initial.status,200);
+    const links={whatsapp:'https://wa.me/15555550123',telegram:'https://t.me/kolbe_test'};
+    assert.equal((await viewer.patch(path,{expected:initial.body,socials:links})).status,403);
+    for(const whatsapp of ['javascript:alert(1)','https://wa.me.evil.test/123','https://user@wa.me/123','https://wa.me/','http://wa.me/123'])assert.equal((await admin.patch(path,{expected:initial.body,socials:{...links,whatsapp}})).status,422);
+    const changed=await admin.patch(path,{expected:initial.body,socials:links});assert.equal(changed.status,200,JSON.stringify(changed.body));
+    assert.equal((await admin.patch(path,{expected:initial.body,socials:links})).body.code,'support_channels_stale');
+    assert.equal((await admin.put('/api/state/ops',original)).status,200);
+    assert.deepEqual((await admin.get(path)).body,changed.body);
+    const publicOps=await guest.get('/api/bootstrap');assert.equal(publicOps.body.ops.brand.socials.whatsapp,links.whatsapp);assert.equal(publicOps.body.ops.brand.socials.telegram,links.telegram);
+    assert.equal((await admin.patch(path,{expected:changed.body,socials:{whatsapp:'',telegram:''}})).status,200);
+    assert.ok((await query("select id from audit_events where action='design.support_channels_updated' and target_id='support'")).rows.length>=2);
+  }finally{await query("update state_documents set value=$1 where key='ops'",[JSON.stringify(original)]);}
 });

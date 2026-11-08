@@ -309,7 +309,7 @@ const days = (n: number) => new Date(Date.now() + n * 86400000).toISOString().sl
 
 const DEFAULT_ADMIN: AdminState = {
   settings: {
-    name: "ولور",
+    name: "Kolbe Vintage",
     tagline: "خانهٔ پوشاک آماده — تهران",
     address: "تهران، خیابان ولیعصر، پلاک ۲۴، طبقهٔ دوم",
     phone: "021 8888 2424",

@@ -1,3 +1,4 @@
+import { PersianDateInput } from "@/components/PersianDateInput";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -422,7 +423,7 @@ export function AdminPage() {
   useEffect(() => {
     document.title = "پنل مدیریت — " + admin.settings.name;
     return () => {
-      document.title = "ولور — فروشگاه پوشاک آماده | خرید بر اساس استایل";
+      document.title = "Kolbe Vintage — فروشگاه پوشاک";
     };
   }, [admin.settings.name]);
 
@@ -455,7 +456,7 @@ export function AdminPage() {
           <Layers width={17} height={17} />
         </button>
         <Link to="/" className="ad-top-id" aria-label="بازگشت به سایت">
-          <span className="ad-top-logo latin-track">VELOURS</span>
+          <span className="ad-top-logo latin-track">KOLBE VINTAGE</span>
           <span className="ad-top-badge">پنل مدیریت</span>
         </Link>
         <nav className="ad-crumb" aria-label="مسیر صفحه">
@@ -3677,8 +3678,8 @@ function CampaignModal({ initial, onClose }: { initial: Campaign; onClose: () =>
         <div className="ad-modal-body">
           <label className="ad-field">نام جشنواره<input className="ad-input" value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} /></label>
           <div className="ad-two">
-            <label className="ad-field">از تاریخ<input className="ad-input" type="date" dir="ltr" value={c.start} onChange={(e) => setC({ ...c, start: e.target.value })} /></label>
-            <label className="ad-field">تا تاریخ<input className="ad-input" type="date" dir="ltr" value={c.end} onChange={(e) => setC({ ...c, end: e.target.value })} /></label>
+            <div className="ad-field">از تاریخ<PersianDateInput label="از تاریخ جشنواره" value={c.start} onChange={v=>setC({...c,start:v})}/></div>
+            <div className="ad-field">تا تاریخ<PersianDateInput label="تا تاریخ جشنواره" value={c.end} onChange={v=>setC({...c,end:v})}/></div>
           </div>
           <div className="ad-three">
             <label className="ad-field">نوع
@@ -3863,7 +3864,7 @@ function CodeModal({ initial, onClose }: { initial: Coupon; onClose: () => void 
           </div>
           <div className="ad-two">
             <label className="ad-field">حداقل خرید<input className="ad-input" type="number" min={0} value={c.minSpend} onChange={(e) => setC({ ...c, minSpend: Number(e.target.value) || 0 })} /></label>
-            <label className="ad-field">انقضا (اختیاری)<input className="ad-input" type="date" dir="ltr" value={c.expires} onChange={(e) => setC({ ...c, expires: e.target.value })} /></label>
+            <div className="ad-field">انقضا (اختیاری)<PersianDateInput label="تاریخ انقضای کد" value={c.expires} onChange={v=>setC({...c,expires:v})}/></div>
           </div>
           <div className="ad-two">
             <label className="ad-field">
@@ -5224,7 +5225,7 @@ function printDocument(title: string, page: "A4" | "A5", body: string) {
 const shopIdentity = () => {
   const admin = getAdmin();
   return {
-    name: admin.settings?.name || "ولور",
+    name: admin.settings?.name || "Kolbe Vintage",
     tagline: admin.settings?.tagline || "",
     phone: (getOps().brand as { phone?: string } | undefined)?.phone ?? "",
   };
