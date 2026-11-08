@@ -4,18 +4,19 @@ import campaign from "@/assets/editorial/campaign.jpg";
 import look2 from "@/assets/models/look-2.webp";
 import look6 from "@/assets/models/look-6.webp";
 import {useEffect,useState,useSyncExternalStore} from "react";
+import {isSafeVideoUrl} from "../../shared/video-url";
 
 export interface ArticleBlock { type: "p" | "h" | "quote" | "image" | "gallery"; text:string; src?:string; images?:string[] }
-export interface Post {slug:string;title:string;excerpt:string;category:string;date:string;readTime:number;image:string;imageTone:string;cutout?:boolean;featured?:boolean;blocks:ArticleBlock[];seoTitle?:string;seoDescription?:string}
-type Article={slug:string;title:string;excerpt:string;category:string;body:string;coverUrl:string;publishedAt:string;seoTitle:string;seoDescription:string};
+export interface Post {slug:string;title:string;excerpt:string;category:string;date:string;readTime:number;image:string;imageTone:string;cutout?:boolean;featured?:boolean;blocks:ArticleBlock[];seoTitle?:string;seoDescription?:string;videoUrl?:string|null}
+type Article={slug:string;title:string;excerpt:string;category:string;body:string;coverUrl:string;publishedAt:string;seoTitle:string;seoDescription:string;videoUrl?:string|null};
 // Neutral placeholder, not sample editorial content or a remote request.
 const placeholder="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='3'%3E%3C/svg%3E";
 function toPost(a:Article):Post {
-  return {slug:a.slug,title:a.title,excerpt:a.excerpt,category:a.category,date:new Date(a.publishedAt).toLocaleDateString("fa-IR",{year:"numeric",month:"long",day:"numeric"}),readTime:Math.max(1,Math.ceil(a.body.trim().split(/\s+/).length/200)),image:a.coverUrl || placeholder,imageTone:"#eee8df",blocks:a.body.split(/\n\s*\n/).filter(Boolean).map(text=>({type:"p",text})),seoTitle:a.seoTitle,seoDescription:a.seoDescription};
+  return {slug:a.slug,title:a.title,excerpt:a.excerpt,category:a.category,date:new Date(a.publishedAt).toLocaleDateString("fa-IR",{year:"numeric",month:"long",day:"numeric"}),readTime:Math.max(1,Math.ceil(a.body.trim().split(/\s+/).length/200)),image:a.coverUrl || placeholder,imageTone:"#eee8df",blocks:a.body.split(/\n\s*\n/).filter(Boolean).map(text=>({type:"p",text})),seoTitle:a.seoTitle,seoDescription:a.seoDescription,videoUrl:a.videoUrl??null};
 }
 function valid(a:unknown):a is Article {
   if(!a||typeof a!=="object")return false;
-  const x=a as Article;return [x.slug,x.title,x.excerpt,x.category,x.body,x.coverUrl,x.publishedAt,x.seoTitle,x.seoDescription].every(v=>typeof v==="string") && !!x.slug && !!x.title && Number.isFinite(Date.parse(x.publishedAt)) && (!x.coverUrl || /^\/uploads\/product-[a-f0-9-]+\.webp$/.test(x.coverUrl));
+  const x=a as Article;return [x.slug,x.title,x.excerpt,x.category,x.body,x.coverUrl,x.publishedAt,x.seoTitle,x.seoDescription].every(v=>typeof v==="string") && !!x.slug && !!x.title && Number.isFinite(Date.parse(x.publishedAt)) && (!x.coverUrl || /^\/uploads\/product-[a-f0-9-]+\.webp$/.test(x.coverUrl)) && (x.videoUrl==null || isSafeVideoUrl(x.videoUrl));
 }
 export const POSTS:Post[]=[];
 type Status="loading"|"online"|"offline";

@@ -100,6 +100,7 @@ export function ArticlePage() {
         </div>
 
         <div className="mx-auto max-w-[42rem] px-4 pt-9 sm:px-6">
+          {post.videoUrl && <video className="mb-7 w-full rounded-xl bg-black" src={post.videoUrl} controls preload="metadata" playsInline aria-label={`ویدیوی ${post.title}`} />}
           {post.blocks.map((block, i) => {
             if (block.type === "h")
               return (

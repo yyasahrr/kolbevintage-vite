@@ -14,7 +14,7 @@ const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
  * the store origin. Images are now decoded/re-encoded; videos require a known
  * media signature and are served with nosniff. */
 export async function uploadRoutes(app: FastifyInstance) {
-  async function upload(req:FastifyRequest, reply:FastifyReply, permission:"catalog:edit"|"design:edit", videoOnly:boolean) {
+  async function upload(req:FastifyRequest, reply:FastifyReply, permission:"catalog:edit"|"design:edit"|"content:edit", videoOnly:boolean) {
     const session = await requirePermission(req, permission);
     const part = await req.file({ limits: { fileSize: MAX_VIDEO_BYTES } });
     if (!part) return reply.code(400).send({ error: "فایلی ارسال نشد." });
@@ -59,4 +59,5 @@ export async function uploadRoutes(app: FastifyInstance) {
   }
   app.post("/api/uploads", (req,reply) => upload(req,reply,"catalog:edit",false));
   app.post("/api/admin/studio/video", (req,reply) => upload(req,reply,"design:edit",true));
+  app.post("/api/admin/journal/video", (req,reply) => upload(req,reply,"content:edit",true));
 }

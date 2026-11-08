@@ -1810,3 +1810,45 @@ test('visual studio video upload is scoped, bounded and validates media signatur
     assert.ok((await query("select id from audit_events where action='media.upload' and target_id=$1",[url])).rowCount);
   } finally {if(url)await fs.unlink(path.join(config.uploadsDir,path.basename(url))).catch(()=>{});}
 });
+
+test('journal video is versioned, permission checked, private until publication and backward compatible', async () => {
+  const {admin,client:editor}=await staffWith(['content:view','content:edit'],'journal-video-editor','journal-video-editor-user','journal-video-editor-pass');
+  const {client:viewer}=await staffWith(['content:view'],'journal-video-viewer','journal-video-viewer-user','journal-video-viewer-pass');
+  const {client:designer}=await staffWith(['design:edit'],'journal-video-designer','journal-video-designer-user','journal-video-designer-pass');
+  const guest=makeClient();const fs=await import('node:fs/promises'),path=await import('node:path');const {config}=await import('../src/config');
+  const original=(await query("select value from state_documents where key='ops'")).rows[0].value;let id='',url='';
+  async function upload(client:ReturnType<typeof makeClient>,bytes:Buffer,mime:string,csrf=true){const form=new FormData();form.append('file',new Blob([new Uint8Array(bytes)],{type:mime}),'test.webm');return fetch(base+'/api/admin/journal/video',{method:'POST',headers:{cookie:client.cookie(),...(csrf?{'x-csrf-token':client.csrf()}:{})},body:form})}
+  try {
+    const body={slug:`journal-video-${Date.now()}`,title:'ویدیوی مقاله',category:'آزمایش',excerpt:'',body:'',seoTitle:'',seoDescription:''};
+    const made=await editor.post('/api/admin/journal',body);assert.equal(made.status,201);id=made.body.id;assert.equal(made.body.videoUrl,null);
+    const webm=Buffer.from([0x1a,0x45,0xdf,0xa3,0x00]);assert.equal((await upload(viewer,webm,'video/webm')).status,403);assert.equal((await upload(designer,webm,'video/webm')).status,403);
+    assert.equal((await upload(editor,webm,'video/webm',false)).status,403);assert.equal((await upload(editor,Buffer.from('fake'),'video/webm')).status,415);assert.equal((await upload(editor,Buffer.from('fake'),'image/png')).status,415);
+    assert.equal((await upload(editor,Buffer.alloc(20*1024*1024+1),'video/webm')).status,413);
+    const response=await upload(editor,webm,'video/webm');assert.equal(response.status,200,await response.clone().text());url=((await response.json()) as {url:string}).url;assert.match(url,/^\/uploads\/.+\.webm$/);
+    const patch=(videoUrl:unknown,expectedVersion:number,status='draft')=>({title:body.title,category:body.category,excerpt:'',body:'',seoTitle:'',seoDescription:'',expectedVersion,status,videoUrl});
+    for(const bad of ['javascript:alert(1)','http://example.com/a.mp4','https://user:pass@example.com/a.mp4','/uploads/test.svg','//example.com/a.mp4','']) assert.equal((await editor.patch(`/api/admin/journal/${id}`,patch(bad,1))).status,422);
+    assert.equal((await viewer.patch(`/api/admin/journal/${id}`,patch(url,1))).status,403);
+    const saved=await editor.patch(`/api/admin/journal/${id}`,patch(url,1));assert.equal(saved.status,200);assert.equal(saved.body.videoUrl,url);assert.equal(saved.body.version,2);
+    assert.equal((await guest.get(`/api/public/journal/${body.slug}`)).status,404);
+    assert.equal((await editor.patch(`/api/admin/journal/${id}`,patch(url,2,'published'))).status,403);
+    const initial=(await admin.get('/api/admin/journal')).body.enabled;if(!initial)assert.equal((await admin.patch('/api/admin/journal-settings',{enabled:true,expectedEnabled:false})).status,200);
+    const published=await admin.patch(`/api/admin/journal/${id}`,patch(url,2,'published'));assert.equal(published.status,200,JSON.stringify(published.body));assert.equal(published.body.version,3);
+    assert.equal((await guest.get(`/api/public/journal/${body.slug}`)).body.videoUrl,url);
+    assert.equal((await editor.patch(`/api/admin/journal/${id}`,patch(null,3,'published'))).status,403);
+    assert.equal((await admin.patch(`/api/admin/journal/${id}`,patch(null,3,'published'))).status,422,'published article must keep text or video');
+    const withoutVideo={...patch(url,3,'published'),body:'متن جایگزین'};delete (withoutVideo as {videoUrl?:unknown}).videoUrl;
+    const preserved=await admin.patch(`/api/admin/journal/${id}`,withoutVideo);assert.equal(preserved.body.videoUrl,url,'older clients preserve video');
+    const changes=await Promise.all([admin.patch(`/api/admin/journal/${id}`,{...withoutVideo,videoUrl:null,expectedVersion:4}),admin.patch(`/api/admin/journal/${id}`,{...withoutVideo,videoUrl:'https://example.com/new.mp4',expectedVersion:4})]);assert.deepEqual(changes.map(v=>v.status).sort(),[200,409]);
+    const current=changes.find(v=>v.status===200)!.body;assert.equal((await guest.get(`/api/public/journal/${body.slug}`)).body.videoUrl,current.videoUrl);
+    const future=await admin.patch(`/api/admin/journal/${id}`,{...withoutVideo,expectedVersion:current.version,videoUrl:url,publishedAt:new Date(Date.now()+86400000).toISOString()});assert.equal(future.status,200);assert.equal((await guest.get(`/api/public/journal/${body.slug}`)).status,404,'scheduled video is not in the public DTO');
+    const now=await admin.patch(`/api/admin/journal/${id}`,{...withoutVideo,expectedVersion:future.body.version,videoUrl:url,publishedAt:new Date(Date.now()-60000).toISOString()});assert.equal(now.status,200);assert.equal((await guest.get(`/api/public/journal/${body.slug}`)).status,200);
+    assert.equal((await admin.patch('/api/admin/journal-settings',{enabled:false,expectedEnabled:true})).status,200);assert.equal((await guest.get(`/api/public/journal/${body.slug}`)).status,404,'disabled journal does not expose article');
+    assert.equal((await guest.get('/api/admin/journal')).status,401);
+    assert.ok((await query("select id from audit_events where action='media.upload' and target_id=$1",[url])).rowCount);
+    assert.ok((await query("select id from audit_events where action='journal.updated' and target_id=$1 and after->>'videoChanged'='true'",[id])).rowCount);
+    const {dumpAll,restoreBackup}=await import('../src/backup');const {withTransaction}=await import('../src/db');const {stringify}=await import('lossless-json');const os=await import('node:os');const dir=await fs.mkdtemp(path.join(os.tmpdir(),'journal-video-backup-'));const file=path.join(dir,'before-video.json');
+    try {const backup=await dumpAll();for(const row of backup.data.journal_articles)delete (row as Record<string,unknown>).video_url;await fs.writeFile(file,stringify(backup)!);
+      await withTransaction(async tx=>{await restoreBackup(file,{client:tx});const row=(await tx.query('select video_url,title from journal_articles where id=$1',[id])).rows[0];assert.equal(row.video_url,null);assert.equal(row.title,body.title);throw new Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'));
+    } finally {await fs.rm(dir,{recursive:true,force:true});}
+  } finally {if(id)await query('delete from journal_articles where id=$1',[id]);await query("update state_documents set value=$1::jsonb where key='ops'",[JSON.stringify(original)]);if(url)await fs.unlink(path.join(config.uploadsDir,path.basename(url))).catch(()=>{});}
+});
