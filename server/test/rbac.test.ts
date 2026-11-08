@@ -1725,3 +1725,29 @@ test('studio archive is reversible and permanent deletion checks publication dep
  assert.equal((await editor.post(`${path}/delete`,{expectedVersion:1})).status,403);assert.equal((await admin.post(`${path}/delete`,{expectedVersion:0})).status,409);assert.equal((await admin.post(`${path}/archive`,{archived:false,expectedVersion:1})).body.version,2);assert.equal((await admin.post(`${path}/archive`,{archived:true,expectedVersion:2})).body.version,3);assert.equal((await admin.post(`${path}/delete`,{expectedVersion:3})).status,200);assert.ok(!(await admin.get(basePath)).body.some((v:any)=>v.id===d.id));
  const used=(await admin.post(basePath,{title:'وابسته'})).body;const usedPath=`${basePath}/${used.id}`;assert.equal((await admin.patch(usedPath,{title:'وابسته',blocks:[block],expectedVersion:0})).status,200);const slug=`used-${Date.now()}-${Math.floor(Math.random()*10000)}`;assert.equal((await admin.post('/api/admin/studio/pages/publish',{draftId:used.id,slug,expectedDraftVersion:1,expectedPageRevision:0})).status,200);assert.equal((await admin.post(`${usedPath}/archive`,{archived:true,expectedVersion:1})).status,200);assert.equal((await admin.post(`${usedPath}/delete`,{expectedVersion:2})).body.code,'studio_draft_in_use');assert.equal((await admin.post(`/api/admin/studio/pages/${slug}/unpublish`,{expectedPageRevision:1})).status,200);assert.equal((await admin.post(`${usedPath}/delete`,{expectedVersion:2})).body.code,'studio_draft_in_use');assert.equal((await admin.post(`${usedPath}/archive`,{archived:false,expectedVersion:2})).status,200);
 });
+
+test("product video is permission checked, conflict safe and preserves legacy data", async () => {
+  const {admin,client:viewer}=await staffWith(['catalog:view'],'video-viewer','video-viewer-user','video-viewer-pass');
+  const guest=makeClient();const row=(await query('select id from products order by id limit 1')).rows[0];assert.ok(row);
+  const id=row.id as string;const endpoint=`/api/admin/products/${encodeURIComponent(id)}/video`;
+  const doc=(await query("select value from state_documents where key='ops'")).rows[0].value;const original=structuredClone(doc);
+  try {
+    const before=await admin.get(endpoint);assert.equal(before.status,200);const prior=before.body.url;
+    assert.equal((await guest.get(endpoint)).status,401);
+    assert.equal((await viewer.get(endpoint)).status,200);
+    assert.equal((await viewer.patch(endpoint,{url:'https://example.com/video.mp4',expectedUrl:prior})).status,403);
+    assert.equal((await admin.patch(endpoint,{url:'javascript:alert(1)',expectedUrl:prior})).status,422);
+    assert.equal((await admin.patch(endpoint,{url:'http://example.com/a.mp4',expectedUrl:prior})).status,422);
+    assert.equal((await admin.patch(endpoint,{url:'/uploads/test.svg',expectedUrl:prior})).status,422);
+    assert.equal((await admin.patch(endpoint,{url:'https://user:pass@example.com/a.mp4',expectedUrl:prior})).status,422);
+    const attempts=await Promise.all(['a','b'].map(v=>admin.patch(endpoint,{url:`https://example.com/${v}.mp4`,expectedUrl:prior})));
+    assert.deepEqual(attempts.map(v=>v.status).sort(),[200,409]);const saved=attempts.find(v=>v.status===200)!.body.url;
+    assert.equal((await guest.get('/api/bootstrap')).body.ops.productVideos[id],saved);
+    const outdated=structuredClone(original);outdated.productVideos={};
+    assert.equal((await admin.put('/api/state/ops',outdated)).status,200);
+    assert.equal((await admin.get(endpoint)).body.url,saved);
+    assert.equal((await admin.patch(endpoint,{url:null,expectedUrl:saved})).status,200);
+    assert.equal((await admin.get(endpoint)).body.url,null);
+    const events=await query("select action from audit_events where target_id=$1 and action='catalog.product_video_updated'",[id]);assert.ok(events.rows.length>=2);
+  } finally {await query("update state_documents set value=$1::jsonb where key='ops'",[JSON.stringify(original)])}
+});

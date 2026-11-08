@@ -2279,7 +2279,6 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
   // optional cost price; with it the panel can show a real margin (decision 38)
   /* the variant matrix can be huge; it renders a window, never everything (decision 22) */
   const [variantPage, setVariantPage] = useState(0);
-  const [video, setVideo] = useState<string | undefined>(product ? getOps().productVideos?.[product.id] : undefined);
   const [cost, setCost] = useState(
     product ? (getAdmin().productEdits[product.id]?.cost ?? admin.customProducts.find((c) => c.id === product.id)?.cost ?? 0) : 0,
   );
@@ -2541,12 +2540,11 @@ function ProductForm({ product, onClose }: { product: CatalogProduct | null; onC
             <div className="ad-form-grid">
               <div className="ad-form-col">
                 <p className="ad-field-label">گالری تصاویر</p>
+                <p className="ad-hint">برای ثبت یا حذف ویدیو از ویرایش محصول در <a href="/panel">پنل متصل</a> استفاده کنید.</p>
                 <ProductMediaEditor
                   images={images}
                   colors={colors}
                   onChange={setImages}
-                  video={video}
-                  onVideo={(url) => setVideo(url)}
                 />
               </div>
               <div className="ad-form-col">

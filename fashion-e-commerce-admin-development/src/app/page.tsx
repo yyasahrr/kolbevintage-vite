@@ -57,7 +57,11 @@ async function put<T>(path: string, body: object): Promise<T> {
   const { token } = await json<{ token: string }>("/api/csrf");
   return json<T>(path, { method: "PUT", headers: { "Content-Type": "application/json", "x-csrf-token": token }, body: JSON.stringify(body) });
 }
-const liveApi = { get: json, post, patch, put };
+async function upload<T>(path:string,file:File):Promise<T> {
+  const {token}=await json<{token:string}>("/api/csrf");const body=new FormData();body.append("file",file);
+  return json<T>(path,{method:"POST",headers:{"x-csrf-token":token},body});
+}
+const liveApi = { get: json, post, patch, put, upload };
 const getCategories = () => json<{name:string;active:boolean;sizeSetId?:string}[]>("/api/admin/categories");
 const getColors = () => json<LibraryColor[]>("/api/admin/color-library");
 const getSizeSets = () => json<SizeSet[]>("/api/admin/size-sets");

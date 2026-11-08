@@ -175,7 +175,7 @@ export async function stateRoutes(app: FastifyInstance) {
         const row=await client.query<{value:Record<string,any>}>("select value from state_documents where key='ops' for update");
         const current=row.rows[0]?.value ?? {};
         const next=body as Record<string,any>;
-        for (const field of ["siteTheme","previousSiteTheme","sizeSets","categories","colorLibrary","homeCategoryIds"]) {
+        for (const field of ["siteTheme","previousSiteTheme","sizeSets","categories","colorLibrary","homeCategoryIds","productVideos"]) {
           if (Object.prototype.hasOwnProperty.call(current,field)) next[field]=current[field];
           else delete next[field];
         }

@@ -258,6 +258,46 @@ export async function catalogRoutes(app: FastifyInstance) {
 
   /** Per-SKU sale switch is independent from the product publication state.
    * Existing holds are not cancelled; reservation takes the same variant lock. */
+  // Keep product video in the existing ops map consumed by the storefront.
+  // The previous value is required so parallel editors cannot silently overwrite it.
+  app.get<{Params:{id:string}}>("/api/admin/products/:id/video",async (req,reply)=>{
+    await requirePermission(req,"catalog:view");
+    const [product,ops]=await Promise.all([query("select id from products where id=$1",[req.params.id]),query<{value:Record<string,unknown>}>("select value from state_documents where key='ops'")]);
+    if(!product.rows.length||!ops.rows.length)throw notFound("محصول یا تنظیمات فروشگاه پیدا نشد.");
+    const map=ops.rows[0].value.productVideos;
+    if(map!==undefined&&(!map||typeof map!=="object"||Array.isArray(map)))throw conflict("ساختار ویدیوهای قبلی معتبر نیست.","product_videos_invalid");
+    const value=map&&Object.prototype.hasOwnProperty.call(map,req.params.id)?(map as Record<string,unknown>)[req.params.id]:null;
+    if(value!==null&&typeof value!=="string")throw conflict("ویدیوی قبلی معتبر نیست.","product_videos_invalid");
+    reply.header("cache-control","private, no-store");return {url:value};
+  });
+  app.patch<{Params:{id:string};Body:unknown}>("/api/admin/products/:id/video",async req=>{
+    const actor=await requirePermission(req,"catalog:edit");const body=req.body;
+    if(!body||typeof body!=="object"||Array.isArray(body)||Object.keys(body).sort().join(",")!=="expectedUrl,url")throw validation("نشانی و نسخهٔ قبلی ویدیو لازم است.");
+    const {url,expectedUrl}=body as {url:unknown;expectedUrl:unknown};
+    if((expectedUrl!==null&&typeof expectedUrl!=="string")||(url!==null&&typeof url!=="string"))throw validation("نشانی ویدیو معتبر نیست.");
+    if(typeof url==="string"){
+      let valid=false;
+      if(url.length<=2048&&!/[\u0000-\u0020\\]/.test(url)){
+        if(/^\/uploads\/[a-zA-Z0-9._-]+\.(mp4|webm|mov)$/i.test(url))valid=true;
+        else try{const parsed=new URL(url);valid=parsed.protocol==="https:"&&!parsed.username&&!parsed.password}catch{/* invalid URL */}
+      }
+      if(!valid)throw validation("نشانی ویدیو باید HTTPS یا فایل ویدیویی بارگذاری‌شده باشد.");
+    }
+    return withTransaction(async client=>{
+      const ops=await client.query<{value:Record<string,unknown>}>("select value from state_documents where key='ops' for update");
+      if(!ops.rows.length)throw notFound("تنظیمات فروشگاه پیدا نشد.");
+      const product=await client.query("select id from products where id=$1",[req.params.id]);if(!product.rows.length)throw notFound("محصول پیدا نشد.");
+      const doc=ops.rows[0].value;const raw=doc.productVideos;
+      if(raw!==undefined&&(!raw||typeof raw!=="object"||Array.isArray(raw)))throw conflict("ساختار ویدیوهای قبلی معتبر نیست.","product_videos_invalid");
+      const map={...(raw as Record<string,unknown>|undefined)};const before=Object.prototype.hasOwnProperty.call(map,req.params.id)?map[req.params.id]:null;
+      if(before!==null&&typeof before!=="string")throw conflict("ویدیوی قبلی معتبر نیست.","product_videos_invalid");
+      if(before!==expectedUrl)throw conflict("ویدیوی محصول هم‌زمان تغییر کرده است؛ ابتدا آن را تازه کنید.","product_video_stale");
+      if(url===null)delete map[req.params.id];else Object.defineProperty(map,req.params.id,{value:url,enumerable:true,writable:true,configurable:true});
+      doc.productVideos=map;await client.query("update state_documents set value=$1::jsonb,updated_at=now() where key='ops'",[JSON.stringify(doc)]);
+      await recordAudit({actor:actor.subject,action:"catalog.product_video_updated",targetType:"product",targetId:req.params.id,before:{hasVideo:!!before},after:{hasVideo:!!url},requestId:req.id},client);
+      return {url};
+    });
+  });
   app.get<{Params:{id:string}}>("/api/admin/products/:id/variant-sales",async (req,reply)=>{
     await requirePermission(req,"catalog:view");reply.header("cache-control","no-store");
     const rows=await query<{id:string;sku:string;color_id:string;size_id:string;sale_enabled:boolean;sale_version:number;variant_active:boolean;product_active:boolean;colors:{id:string;name:string}[];sizes:{id:string;label:string}[]}>(`select v.id,v.sku,v.color_id,v.size_id,v.sale_enabled,v.sale_version,v.active as variant_active,p.active as product_active,p.colors,p.sizes
