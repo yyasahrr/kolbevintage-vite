@@ -185,6 +185,29 @@ test("admin order pages cover older orders, filters, access and stable timestamp
   } finally {await query("delete from orders where id like $1",[prefix+"%"]);}
 });
 
+test("dashboard order summary covers all orders, isolates stages and enforces view access", async () => {
+  const {client:reader}=await staffWith(["orders:view"],"summary-reader","summary-user","summary-pass");
+  const {client:denied}=await staffWith(["dashboard:view"],"summary-denied","summary-denied-user","summary-denied-pass");
+  const guest=makeClient(), path="/api/commerce/admin/order-summary", prefix="test-order-summary-";
+  assert.equal((await guest.get(path)).status,401);
+  assert.equal((await denied.get(path)).status,403);
+  const before=(await reader.get(path)).body;
+  try {
+    await query(`insert into orders(id,created_at,customer,status,total,data,fulfillment_status)
+      select $1||lpad(n::text,4,'0'), '2000-01-01'::timestamptz, 'private customer',
+        case when n=4 then 'exception' when n=5 then 'cancelled' when n=6 then 'pending_payment' else 'paid' end,
+        10, '{}'::jsonb, case when n=2 then 'picking' when n=3 then 'packed' when n=7 then 'preparing' else 'unfulfilled' end
+      from generate_series(1,215) n`,[prefix]);
+    const result=await reader.get(path);assert.equal(result.status,200);
+    assert.deepEqual(result.body,{total:before.total+215,awaiting:before.awaiting+210,picking:before.picking+1,packed:before.packed+1,exception:before.exception+1});
+    assert.doesNotMatch(JSON.stringify(result.body),/private customer/);
+    const res=await fetch(base+path,{headers:{cookie:reader.cookie()}});assert.match(res.headers.get("cache-control")||"",/private/);assert.match(res.headers.get("cache-control")||"",/no-store/);
+    await query("update orders set status='cancelled' where id=$1",[prefix+"0001"]);
+    const changed=(await reader.get(path)).body;
+    assert.equal(changed.total,result.body.total);assert.equal(changed.awaiting,result.body.awaiting-1);
+  } finally {await query("delete from orders where id like $1",[prefix+"%"])}
+});
+
 test("home categories and category edits are authorized, version checked and preserved", async () => {
   const {admin,client:viewer}=await staffWith(["catalog:view"],"home-categories-viewer","home-categories-user","home-categories-pass");
   const guest=makeClient();

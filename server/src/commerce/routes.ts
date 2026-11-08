@@ -325,6 +325,23 @@ export async function commerceRoutes(app: FastifyInstance) {
      Orders (customer + admin)
      --------------------------------------------------------------- */
 
+  // A single statement gives all counts from one PostgreSQL snapshot. Queue
+  // counts exclude cancelled/exception/pending-payment orders; they are stage
+  // indicators, not proof of bank payment or of a successful warehouse scan.
+  app.get("/api/commerce/admin/order-summary", async (req, reply) => {
+    reply.header("cache-control", "private, no-store");
+    await requirePermission(req, "orders:view");
+    const result = await query<{ total: string; awaiting: string; picking: string; packed: string; exception: string }>(`
+      select count(*) as total,
+        count(*) filter (where status in ('paid','preparing') and fulfillment_status in ('unfulfilled','preparing')) as awaiting,
+        count(*) filter (where status in ('paid','preparing') and fulfillment_status='picking') as picking,
+        count(*) filter (where status in ('paid','preparing') and fulfillment_status='packed') as packed,
+        count(*) filter (where status='exception') as exception
+      from orders`);
+    const row = result.rows[0];
+    return { total: Number(row.total), awaiting: Number(row.awaiting), picking: Number(row.picking), packed: Number(row.packed), exception: Number(row.exception) };
+  });
+
   app.get<{ Querystring: { before?: string; search?: string; stage?: string; limit?: string } }>("/api/commerce/admin/order-page", async (req, reply) => {
     reply.header("cache-control", "private, no-store");
     await requirePermission(req, "orders:view");

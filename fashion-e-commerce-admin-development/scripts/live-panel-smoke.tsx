@@ -27,6 +27,7 @@ const fixtures: Record<string, unknown> = {
   "/api/products?all=1": [productFixture],
   "/api/admin/products/p-1/variant-sales": [{id:"v-1",sku:"SKU-1",colorName:"مشکی",sizeLabel:"M",saleEnabled:true,version:0,variantActive:true,productActive:true}],
   "/api/commerce/admin/inventory": [variant],
+  "/api/commerce/admin/order-summary": {total:215,awaiting:200,picking:5,packed:3,exception:7},
   "/api/commerce/orders?all=1&limit=200": [{id:"VL-1",customer:"مشتری",phone:"",city:"",address:"",status:"paid",paymentStatus:"settled",fulfillmentStatus:"unfulfilled",createdAt:new Date().toISOString(),tracking:"",carrier:"Post",total:100,currency:"تومان",lines:[{id:"l-1",sku:"SKU-1",name:"پالتو",colorName:"آبی",sizeLabel:"M",quantity:1,unitPrice:100,lineTotal:100}]}],
   "/api/commerce/admin/inventory/adjustments": [{ id: "adj-1", variantId: "v-1", delta: 2, reason: "شمارش", requestedBy: "warehouse", status: "pending", approvedBy: null, note: "", createdAt: new Date().toISOString() }],
   "/api/commerce/admin/inventory/movements?limit=200": [],
@@ -102,6 +103,7 @@ async function click(text: string) {
 await act(async () => root.render(React.createElement(Dashboard)));
 await settle();
 assert.match(document.body.textContent || "", /داشبورد عملیات کلبه وینتیج/);
+assert.match(document.body.textContent || "", /۲۱۵/);
 assert.match(document.body.textContent || "", /کاتالوگ و محصولات/);
 assert.doesNotMatch(document.body.textContent || "", /سارا محمدی/);
 for (const group of ["انبار و موجودی کالا", "سفارش‌ها و مرجوعی", "بازاریابی و مشتریان", "محتوا و ظاهر سایت", "مالی، اتصالات و تنظیمات"]) await click(group);

@@ -172,7 +172,7 @@ export default function DashboardPage() {
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-900"><AlertTriangle className="ml-2 inline" size={17}/>این نسخه فقط بخش‌های متصل‌شده را نشان می‌دهد؛ سایر قابلیت‌ها هنوز کامل نیستند. اطلاعات از پایگاه فعلی فروشگاه خوانده می‌شود و ممکن است آزمایشی باشد.</div>
         {notice && <div className="rounded-xl bg-indigo-50 p-4 text-sm text-indigo-800">{notice}<button onClick={() => setNotice("")} className="mr-3 underline">بستن</button></div>}
         {error && <div role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</div>}
-        {section === "dashboard" && <LiveDashboard api={liveApi} orders={orders} stock={stock} productsCount={products?.length ?? null} can={can} navigate={navigate} create={() => setCreating(true)}/>}
+        {section === "dashboard" && <LiveDashboard api={liveApi} refreshKey={loadRevision} orders={orders} stock={stock} productsCount={products?.length ?? null} can={can} navigate={navigate} create={() => setCreating(true)}/>}
         {section === "looks" && <LiveLooks api={liveApi} can={can} onDirtyChange={setLooksDirty}/>}
         {section === "colors" && <LiveColors api={liveApi} can={can}/>}
         {section === "sizeSets" && <LiveSizeSets api={liveApi} can={can}/>}
