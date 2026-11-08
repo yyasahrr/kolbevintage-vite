@@ -2912,11 +2912,11 @@ test('support tickets enforce ownership, idempotent replies, closed state and au
   assert.equal(a.status,200,JSON.stringify(a.body));assert.equal(b.status,200,JSON.stringify(b.body));
   assert.equal((await customer.get(`/api/support/tickets/${id}`)).body.ticket.messages.length,2);
   const staff=await admin.post(`/api/admin/support/tickets/${id}/messages`,{message:'پاسخ',requestKey:'staff-reply-key-001'});assert.equal(staff.status,200,JSON.stringify(staff.body));assert.equal(staff.body.ticket.status,'answered');
-  const closed=await admin.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedStatus:'answered'});assert.equal(closed.status,200,JSON.stringify(closed.body));
+  const closed=await admin.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedVersion:staff.body.ticket.version});assert.equal(closed.status,200,JSON.stringify(closed.body));
   assert.equal((await customer.post(`/api/support/tickets/${id}/messages`,{message:'بعد از بسته شدن',requestKey:'support-reply-key-002'})).status,409);
   assert.equal((await customer.post(`/api/support/tickets/${id}/messages`,reply)).body.reused,true,'retry remains idempotent even after close');
-  assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'open',expectedStatus:'answered'})).status,409);
-  assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'open',expectedStatus:'closed'})).status,200);
+  assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'open',expectedVersion:staff.body.ticket.version})).status,409);
+  assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'open',expectedVersion:closed.body.ticket.version})).status,200);
   const audit=await query("select before,after from audit_events where target_type='support_ticket' and target_id=$1",[id]);
   assert.ok(audit.rows.length>=4);assert.doesNotMatch(JSON.stringify(audit.rows),/محرمانه|script|پاسخ/);
   assert.equal((await customer.post('/api/support/tickets',{...body,requestKey:'support-new-key-002',message:'x'.repeat(4001)})).status,422);

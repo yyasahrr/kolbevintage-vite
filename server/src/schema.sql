@@ -461,6 +461,7 @@ create table if not exists audit_events (
   request_id text
 );
 create index if not exists audit_events_at_idx on audit_events (at desc);
+create index if not exists audit_events_page_idx on audit_events (at desc,id desc);
 create index if not exists audit_events_target_idx on audit_events (target_type, target_id);
 
 create or replace function kv_audit_append_only() returns trigger as $$
@@ -640,3 +641,5 @@ create table if not exists support_tickets (
 );
 create index if not exists support_tickets_customer_idx on support_tickets(customer_email,created_at desc,id desc);
 create index if not exists support_tickets_created_idx on support_tickets(created_at desc,id desc);
+alter table support_tickets add column if not exists version integer not null default 0;
+create index if not exists support_tickets_status_page_idx on support_tickets(status,created_at desc,id desc);

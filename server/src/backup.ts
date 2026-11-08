@@ -267,6 +267,9 @@ export async function restoreBackup(
       }) : table === "gallery_items" ? list.map(row => {
         if(!row || typeof row!=="object" || Array.isArray(row)) return row;
         return Object.hasOwn(row,"moderation_version") ? row : {...row,moderation_version:0};
+      }) : table === "support_tickets" ? list.map(row => {
+        if(!row || typeof row!=="object" || Array.isArray(row)) return row;
+        return Object.hasOwn(row,"version") ? row : {...row,version:0};
       }) : table === "staff" ? list.map(row => {
         if(!row || typeof row!=="object" || Array.isArray(row)) return row;
         const obj=row as Record<string,unknown>;if(!obj.admin_mfa)return row;

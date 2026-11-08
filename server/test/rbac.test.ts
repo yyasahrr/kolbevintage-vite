@@ -237,6 +237,44 @@ test("gallery pages, consent enforcement and versioned moderation are protected 
   }finally{await query('drop trigger if exists test_fail_gallery_audit on audit_events');await query('drop function if exists test_fail_gallery_audit()');await query('delete from gallery_items where id like $1',[prefix+'%'])}
 });
 
+test("audit discovery pages retain exact bigint cursors and restrict sensitive projections",async()=>{
+  const {client:viewer}=await staffWith(['security:view'],'audit-page-view','audit-page-user','audit-page-pass');const {client:denied}=await staffWith(['customers:view'],'audit-page-denied','audit-page-denied-user','audit-page-denied-pass');const guest=makeClient();
+  await query(`insert into audit_events(id,at,actor,action,target_type,target_id,before,after,reason) select 9007199254740993::bigint+n,'2000-01-01 00:00:00.123456+00'::timestamptz,'BROWSER-AUDIT-TEST','audit.fixture','fixture',case when n=1 then 'OLDEST-AUDIT-RECORD' else 'audit-record-'||n end,'{"private":"BEFORE-SECRET"}','{"private":"AFTER-SECRET"}',null from generate_series(1,215)n on conflict(id) do nothing`);
+  const path='/api/commerce/admin/audit-page';assert.equal((await guest.get(path)).status,401);assert.equal((await denied.get(path)).status,403);
+  for(const suffix of ['?limit=0','?limit=101','?before=1e10','?before=-1','?before=9223372036854775808','?before=0001','?search='+('x'.repeat(161))])assert.equal((await viewer.get(path+suffix)).status,422);
+  assert.equal((await viewer.get(path+'?search=no-such-row&before=9007199254740994')).status,422);
+  const response=await fetch(base+path,{headers:{cookie:viewer.cookie()}});assert.match(response.headers.get('cache-control')??'',/no-store/);await response.text();
+  let cursor='',ids:string[]=[];do{const r=await viewer.get(path+'?limit=40&search=BROWSER-AUDIT-TEST'+(cursor?'&before='+cursor:''));assert.equal(r.status,200);assert(!JSON.stringify(r.body).includes('SECRET'));ids.push(...r.body.items.map((x:any)=>x.id));cursor=r.body.nextCursor??''}while(cursor);
+  assert.equal(ids.length,215);assert.equal(new Set(ids).size,215);assert.equal(ids[0],'9007199254741208');assert.equal(ids[214],'9007199254740994');
+  assert.deepEqual((await viewer.get(path+'?search=OLDEST-AUDIT-RECORD')).body.items.map((x:any)=>x.id),['9007199254740994']);assert.equal((await viewer.get(path+'?search=BEFORE-SECRET')).body.items.length,0);
+});
+
+test("support queue searches all rows, isolates messages and rejects stale status changes",async()=>{
+  const {admin,client:viewer}=await staffWith(['customers:view'],'support-page-view','support-page-user','support-page-password');const {client:denied}=await staffWith(['catalog:view'],'support-page-denied','support-page-denied-user','support-page-denied-password');const guest=makeClient();
+  const email='support-page-test@example.com',ids=Array.from({length:215},(_,i)=>`tkt-00000000-0000-0000-0000-${String(i+1).padStart(12,'0')}`);
+  try{
+    await query("insert into customers(email,name,password_hash) values($1,'Support fixture','not-a-password')",[email]);
+    await query(`insert into support_tickets(id,customer_email,subject,status,messages,create_key,created_at) select ($1::text[])[n],$2,case when n=1 then 'Unique oldest subject' else 'fixture-support-'||n end,case when n=1 then 'closed' else 'open' end,'[{"id":"original-key","role":"customer","text":"PRIVATE-MESSAGE-MARKER","at":"2020-01-01T00:00:00Z"}]'::jsonb,'support-fixture-'||n,'2020-01-01 00:00:00.123456+00'::timestamptz from generate_series(1,215)n`,[ids,email]);
+    const path='/api/admin/support/ticket-page';assert.equal((await guest.get(path)).status,401);assert.equal((await denied.get(path)).status,403);
+    for(const suffix of ['?limit=0','?limit=101','?status=bogus','?search='+('x'.repeat(161))])assert.equal((await viewer.get(path+suffix)).status,422);
+    assert.equal((await viewer.get(path+'?before=bad')).status,404);assert.equal((await viewer.get(path+'?status=open&before='+ids[0])).status,409);
+    const header=await fetch(base+path,{headers:{cookie:viewer.cookie()}});assert.match(header.headers.get('cache-control')??'',/no-store/);await header.text();
+    let cursor='',seen:string[]=[];do{const result=await viewer.get(path+'?search='+encodeURIComponent(email)+'&limit=40'+(cursor?'&before='+cursor:''));assert.equal(result.status,200);assert(!JSON.stringify(result.body).includes('PRIVATE-MESSAGE-MARKER'));seen.push(...result.body.tickets.map((t:any)=>t.id));cursor=result.body.nextCursor??''}while(cursor);
+    assert.deepEqual(seen,[...ids].reverse());assert.equal(new Set(seen).size,215);
+    assert.deepEqual((await viewer.get(path+'?search=Unique%20oldest%20subject&status=closed')).body.tickets.map((t:any)=>t.id),[ids[0]]);assert.equal((await viewer.get(path+'?search=PRIVATE-MESSAGE-MARKER')).body.tickets.length,0);
+    const item='/api/admin/support/tickets/'+ids[214];assert.equal((await viewer.patch(item,{status:'closed',expectedVersion:0})).status,403);assert.equal((await admin.patch(item,{status:'closed',expectedStatus:'open'})).status,422);
+    const a=await admin.post(item+'/messages',{message:'staff reply',requestKey:'support-page-message-001'});assert.equal(a.status,200);assert.equal(a.body.ticket.version,1);assert.equal((await admin.patch(item,{status:'closed',expectedVersion:0})).status,409,'reply invalidates stale close');
+    const race=await Promise.all([admin.patch(item,{status:'closed',expectedVersion:1}),admin.patch(item,{status:'closed',expectedVersion:1})]);assert.deepEqual(race.map(r=>r.status).sort(),[200,409]);const win=race.find(r=>r.status===200)!;
+    const undo=await admin.patch(item,{status:win.body.ticket.status==='closed'?'open':'closed',expectedVersion:2});assert.equal(undo.status,200);assert.equal((await admin.patch(item,{status:'closed',expectedVersion:1})).status,409,'ABA prohibited');
+    const retry=await admin.post(item+'/messages',{message:'staff reply',requestKey:'support-page-message-001'});assert.equal(retry.body.reused,true);assert.equal(retry.body.ticket.version,3);
+    const safe=await query("select before::text,after::text from audit_events where target_type='support_ticket' and target_id=$1",[ids[214]]);assert(!JSON.stringify(safe.rows).includes('PRIVATE-MESSAGE-MARKER'));assert(!JSON.stringify(safe.rows).includes('staff reply'));
+    const atomic=ids[213];await query(`create or replace function test_fail_support_audit() returns trigger language plpgsql as $$ begin if new.target_id='${atomic}' and new.action like 'support.%' then raise exception 'injected failure'; end if; return new; end $$`);await query('create trigger test_fail_support_audit before insert on audit_events for each row execute function test_fail_support_audit()');
+    try{assert.equal((await admin.post('/api/admin/support/tickets/'+atomic+'/messages',{message:'no commit',requestKey:'support-atomic-message-001'})).status,500);assert.equal((await admin.patch('/api/admin/support/tickets/'+atomic,{status:'closed',expectedVersion:0})).status,500);const row=(await query('select status,version,jsonb_array_length(messages) n from support_tickets where id=$1',[atomic])).rows[0];assert.deepEqual(row,{status:'open',version:0,n:1})}finally{await query('drop trigger if exists test_fail_support_audit on audit_events');await query('drop function if exists test_fail_support_audit()')}
+    const {dumpAll,restoreBackup}=await import('../src/backup'),{withTransaction}=await import('../src/db'),{stringify}=await import('lossless-json');const fs=await import('node:fs/promises'),os=await import('node:os'),p=await import('node:path');const dir=await fs.mkdtemp(p.join(os.tmpdir(),'support-backup-'));
+    try{const data=await dumpAll();for(const row of data.data.support_tickets as Record<string,unknown>[])delete row.version;const file=p.join(dir,'old.json');await fs.writeFile(file,stringify(data)!);await withTransaction(async tx=>{await restoreBackup(file,{client:tx});assert.equal((await tx.query('select version from support_tickets where id=$1',[ids[214]])).rows[0].version,0);throw Error('rollback')}).catch((e:Error)=>assert.equal(e.message,'rollback'))}finally{await fs.rm(dir,{recursive:true,force:true})}
+  }finally{await query('drop trigger if exists test_fail_support_audit on audit_events');await query('drop function if exists test_fail_support_audit()');await query('delete from support_tickets where customer_email=$1',[email]);await query('delete from customers where email=$1',[email])}
+});
+
 test("SMS endpoint requires permission and rejects ambiguous provider responses",async()=>{
   const {client:editor}=await staffWith(["customers:edit"],"sms-editor-test","sms-editor-user","sms-editor-pass");
   const {client:reader}=await staffWith(["customers:view"],"sms-reader-test","sms-reader-user","sms-reader-pass");
@@ -1463,9 +1501,9 @@ test('support admin permissions separate viewing from replying and closing', asy
     assert.equal((await outsider.get('/api/admin/support/tickets')).status,403);
     assert.equal((await viewer.get(`/api/admin/support/tickets/${id}`)).body.ticket.messages[0].text,'private body');
     assert.equal((await viewer.post(`/api/admin/support/tickets/${id}/messages`,{message:'reply',requestKey:'viewer-message-001'})).status,403);
-    assert.equal((await viewer.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedStatus:'open'})).status,403);
-    assert.equal((await editor.post(`/api/admin/support/tickets/${id}/messages`,{message:'reply',requestKey:'editor-message-001'})).status,200);
-    assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedStatus:'answered'})).status,200);
+    assert.equal((await viewer.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedVersion:0})).status,403);
+    const reply=await editor.post(`/api/admin/support/tickets/${id}/messages`,{message:'reply',requestKey:'editor-message-001'});assert.equal(reply.status,200);
+    assert.equal((await admin.patch(`/api/admin/support/tickets/${id}`,{status:'closed',expectedVersion:reply.body.ticket.version})).status,200);
   }finally{await query('delete from support_tickets where id=$1',[id]);await query("delete from customers where email='private@example.com'");}
 });
 

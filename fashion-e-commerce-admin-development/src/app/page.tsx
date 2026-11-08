@@ -1,4 +1,5 @@
 "use client";
+import { AuditModule } from "@/components/admin/AuditModule";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelPathSettings } from "@/components/admin/PanelPathSettings";
@@ -25,7 +26,7 @@ import { MarketingModule, BrandModule, SettingsModule, FinanceModule, AnalyticsM
 import { ProductCreate } from "@/components/admin/ProductCreate";
 import { ReturnsModule } from "@/components/admin/ReturnsModule";
 import { GalleryModule } from "@/components/admin/GalleryModeration";
-import { CustomersModule, ManualOrder, StaffModule, AuditModule, ProductEditor, type Product, type Order, type Stock } from "@/components/admin/LiveModules";
+import { CustomersModule, ManualOrder, StaffModule, ProductEditor, type Product, type Order, type Stock } from "@/components/admin/LiveModules";
 
 type Section = "accountSecurity" | "looks" | "colors" | "support" | "sizeSets" | "print" | "journal" | "dashboard" | "categories" | "products" | "inventory" | "inventoryLabels" | "inventoryActivity" | "orders" | "manual" | "fulfillment" | "gallery" | "customers" | "staff" | "audit" | "returns" | "marketing" | "brand" | "stylePacks" | "settings" | "finance" | "analytics";
 type Identity = { authenticated: boolean; subject: string | null; role?:string|null; staff?: { name: string; roleName: string } | null; permissions: string[]; openAccess: boolean };
@@ -210,7 +211,7 @@ export default function DashboardPage() {
         {section === "journal" && <LiveJournal api={liveApi} can={can}/>}
         {section === "gallery" && <GalleryModule api={liveApi} can={can}/>}
         {section === "staff" && <StaffModule api={liveApi} can={can}/>}
-        {section === "audit" && <AuditModule api={liveApi} can={can}/>}
+        {section === "audit" && <AuditModule api={liveApi}/>}
         {creating && <ProductCreate getCategories={getCategories} getSizeSets={getSizeSets} getColors={getColors} create={body => post("/api/admin/products",body)} onClose={() => setCreating(false)} onChange={load}/>}
         {editing && <ProductEditor api={liveApi} can={can} product={editing} onClose={() => setEditing(null)} onChange={load}/>}
         {adjusting && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><form onSubmit={adjust} className={`${card} w-full max-w-md space-y-4`}><h2 className="font-bold">درخواست تغییر موجودی</h2><p className="text-sm">{adjusting.name} · {adjusting.sku}</p><label className="block text-sm">تعداد تغییر (برای کاهش، منفی وارد کنید)<input className={`${input} mt-2`} type="number" value={delta} onChange={(e) => setDelta(e.target.value)} required /></label><label className="block text-sm">توضیح<input className={`${input} mt-2`} value={note} onChange={(e) => setNote(e.target.value)} required /></label>{error && <p role="alert" className="text-sm text-red-700">{error}</p>}<div className="flex gap-2"><button disabled={busy} className={button}>ثبت درخواست</button><button type="button" onClick={() => setAdjusting(null)} className="px-4 text-sm">انصراف</button></div></form></div>}

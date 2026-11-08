@@ -619,6 +619,16 @@ export async function commerceRoutes(app: FastifyInstance) {
     return { email: session.subject, ...wallet, transactions };
   });
 
+  app.get<{Querystring:{before?:string;limit?:string;search?:string}}>("/api/commerce/admin/audit-page",async(req,reply)=>{
+    reply.header("cache-control","private, no-store");await requirePermission(req,"security:view");
+    const {before,limit='40',search=''}=req.query;
+    if((before!==undefined&&(typeof before!=='string'||!/^[1-9][0-9]{0,18}$/.test(before)||BigInt(before)>9223372036854775807n))||typeof limit!=='string'||!/^(?:[1-9]|[1-9][0-9]|100)$/.test(limit)||typeof search!=='string'||search.length>160)throw new CommerceError("فیلتر یا نشانگر صفحه معتبر نیست.",422,"validation_error");
+    const term=search.trim(),filter="($2='' or strpos(lower(actor),lower($2))>0 or strpos(lower(action),lower($2))>0 or strpos(lower(target_type),lower($2))>0 or strpos(lower(coalesce(target_id,'')),lower($2))>0)";
+    if(before&&!(await query(`select 1 from audit_events where id=$1::bigint and ${filter}`,[before,term])).rowCount)throw new CommerceError("نشانگر صفحه دیگر معتبر نیست؛ فهرست را تازه کنید.",422,"invalid_cursor");
+    const rows=await query<{id:string;at:Date;actor:string;action:string;target_type:string;target_id:string|null;reason:string|null}>(`select id::text,at,actor,action,target_type,target_id,reason from audit_events where ${filter} and ($1::bigint is null or (at,id)<(select at,id from audit_events where id=$1::bigint)) order by at desc,id desc limit $3`,[before??null,term,Number(limit)+1]);
+    const items=rows.rows.slice(0,Number(limit));return {items:items.map(r=>({id:r.id,at:r.at,actor:r.actor,action:r.action,targetType:r.target_type,targetId:r.target_id,reason:r.reason})),nextCursor:rows.rows.length>Number(limit)?items[items.length-1].id:null};
+  });
+
   app.get<{
     Querystring: { targetType?: string; targetId?: string; action?: string; actor?: string; limit?: string };
   }>("/api/commerce/admin/audit", async (req) => {

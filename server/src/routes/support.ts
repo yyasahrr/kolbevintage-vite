@@ -7,8 +7,8 @@ import { conflict, notFound, unauthorized, validation } from "../commerce/errors
 import { recordAudit } from "../commerce/audit";
 
 type Message={id:string;role:"customer"|"staff";text:string;at:string};
-type Ticket={id:string;customer_email:string;subject:string;status:"open"|"answered"|"closed";messages:Message[];created_at:Date;updated_at:Date};
-const summary=(t:Ticket,staff=false)=>({id:t.id,subject:t.subject,status:t.status,createdAt:t.created_at,updatedAt:t.updated_at,...(staff?{customerEmail:t.customer_email}:{})});
+type Ticket={id:string;customer_email:string;subject:string;status:"open"|"answered"|"closed";messages:Message[];version:number;created_at:Date;updated_at:Date};
+const summary=(t:Ticket,staff=false)=>({id:t.id,subject:t.subject,status:t.status,createdAt:t.created_at,updatedAt:t.updated_at,...(staff?{customerEmail:t.customer_email,version:t.version}:{})});
 const detail=(t:Ticket,staff=false)=>({...summary(t,staff),messages:t.messages.map(m=>({role:m.role,text:m.text,at:m.at}))});
 const clean=(v:unknown,label:string,max:number)=>{if(typeof v!=="string" || !v.trim() || v.trim().length>max)throw validation(`${label} باید بین ۱ تا ${max} نویسه باشد.`);return v.trim()};
 const keyOf=(v:unknown)=>{if(typeof v!=="string" || !/^[a-zA-Z0-9_-]{12,100}$/.test(v))throw validation("شناسهٔ درخواست معتبر نیست.");return v};
@@ -20,7 +20,7 @@ export async function supportRoutes(app:FastifyInstance) {
   app.get<{Querystring:{before?:string}}>('/api/support/tickets',async(req,reply)=>{
     reply.header('cache-control','private, no-store');const session=await customerSession(req);
     const before=req.query.before ? ticketId(req.query.before) : null;
-    const rows=await query<Ticket>(`select id,customer_email,subject,status,created_at,updated_at from support_tickets
+    const rows=await query<Ticket>(`select id,customer_email,subject,status,created_at,updated_at,version from support_tickets
       where customer_email=$1 and ($2::text is null or (created_at,id)<(select created_at,id from support_tickets where id=$2 and customer_email=$1))
       order by created_at desc,id desc limit 101`,[session.subject,before]);
     const page=rows.rows.slice(0,100);return {tickets:page.map(t=>summary(t)),nextCursor:rows.rows.length>100?page[page.length-1].id:null};
@@ -57,7 +57,7 @@ export async function supportRoutes(app:FastifyInstance) {
       if(row.status==='closed')throw conflict('این درخواست بسته شده است؛ درخواست جدید ثبت کنید.','ticket_closed');
       if(row.messages.length>=200)throw conflict('این گفتگو به سقف پیام رسیده است؛ درخواست جدید ثبت کنید.','ticket_full');
       const msg:Message={id:key,role,text:message,at:new Date().toISOString()},status=role==='staff'?'answered':'open';
-      const updated=(await client.query<Ticket>(`update support_tickets set messages=messages || $2::jsonb,status=$3,updated_at=now() where id=$1 returning *`,[id,JSON.stringify([msg]),status])).rows[0];
+      const updated=(await client.query<Ticket>(`update support_tickets set messages=messages || $2::jsonb,status=$3,version=version+1,updated_at=now() where id=$1 returning *`,[id,JSON.stringify([msg]),status])).rows[0];
       await recordAudit({actor,action:'support.replied',targetType:'support_ticket',targetId:id,after:{role,status},requestId},client);
       return {ticket:detail(updated,role==='staff'),reused:false};
     });
@@ -65,10 +65,22 @@ export async function supportRoutes(app:FastifyInstance) {
   app.post<{Params:{id:string};Body:unknown}>('/api/support/tickets/:id/messages',async(req,reply)=>{
     reply.header('cache-control','private, no-store');const session=await customerSession(req);return replyTo(req.params.id,req.body,session.subject,'customer',req.id);
   });
+  // Separate endpoint preserves legacy 100-item page contract. Search is
+  // literal and never examines message bodies or exposes them in the list.
+  app.get<{Querystring:{before?:string;limit?:string;status?:string;search?:string}}>('/api/admin/support/ticket-page',async(req,reply)=>{
+    reply.header('cache-control','private, no-store');await requirePermission(req,'customers:view');
+    const {before,limit='40',status='all',search=''}=req.query;
+    if((before!==undefined&&(typeof before!=='string'||!before))||typeof limit!=='string'||!/^(?:[1-9]|[1-9][0-9]|100)$/.test(limit)||typeof status!=='string'||!['all','open','answered','closed'].includes(status)||typeof search!=='string'||search.length>160)throw validation('فیلتر یا اندازه صفحه معتبر نیست.');
+    const anchor=before?ticketId(before):null,term=search.trim();
+    const filters="($2='all' or status=$2) and ($3='' or strpos(lower(id),lower($3))>0 or strpos(lower(subject),lower($3))>0 or strpos(lower(customer_email),lower($3))>0)";
+    if(anchor&&!(await query(`select 1 from support_tickets where id=$1 and ${filters}`,[anchor,status,term])).rowCount)throw conflict('نشانگر صفحه دیگر معتبر نیست؛ فهرست را تازه کنید.','invalid_cursor');
+    const result=await query<Ticket>(`select id,customer_email,subject,status,created_at,updated_at,version from support_tickets where ${filters} and ($1::text is null or (created_at,id)<(select created_at,id from support_tickets where id=$1)) order by created_at desc,id desc limit $4`,[anchor,status,term,Number(limit)+1]);
+    const page=result.rows.slice(0,Number(limit));return {tickets:page.map(t=>summary(t,true)),nextCursor:result.rows.length>Number(limit)?page[page.length-1].id:null};
+  });
   app.get<{Querystring:{before?:string}}>('/api/admin/support/tickets',async(req,reply)=>{
     reply.header('cache-control','private, no-store');await requirePermission(req,'customers:view');
     const before=req.query.before ? ticketId(req.query.before) : null;
-    const rows=await query<Ticket>(`select id,customer_email,subject,status,created_at,updated_at from support_tickets
+    const rows=await query<Ticket>(`select id,customer_email,subject,status,created_at,updated_at,version from support_tickets
       where ($1::text is null or (created_at,id)<(select created_at,id from support_tickets where id=$1))
       order by created_at desc,id desc limit 101`,[before]);
     const page=rows.rows.slice(0,100);return {tickets:page.map(t=>summary(t,true)),nextCursor:rows.rows.length>100?page[page.length-1].id:null};
@@ -81,14 +93,14 @@ export async function supportRoutes(app:FastifyInstance) {
     reply.header('cache-control','private, no-store');const actor=await requirePermission(req,'customers:edit');return replyTo(req.params.id,req.body,actor.subject,'staff',req.id);
   });
   app.patch<{Params:{id:string};Body:unknown}>('/api/admin/support/tickets/:id',async(req,reply)=>{
-    reply.header('cache-control','private, no-store');const actor=await requirePermission(req,'customers:edit');const body=bodyOf(req.body,['status','expectedStatus']);
-    if(!['open','closed'].includes(String(body.status)) || !['open','answered','closed'].includes(String(body.expectedStatus)))throw validation('وضعیت معتبر نیست.');
+    reply.header('cache-control','private, no-store');const actor=await requirePermission(req,'customers:edit');const body=bodyOf(req.body,['status','expectedVersion']);
+    if(!['open','closed'].includes(String(body.status)) || typeof body.expectedVersion!=='number' || !Number.isSafeInteger(body.expectedVersion) || body.expectedVersion<0)throw validation('وضعیت یا نسخه معتبر نیست.');
     return withTransaction(async client=>{
       const row=(await client.query<Ticket>('select * from support_tickets where id=$1 for update',[ticketId(req.params.id)])).rows[0];if(!row)throw notFound('درخواست پیدا نشد.');
-      if(row.status!==body.expectedStatus)throw conflict('وضعیت گفتگو تغییر کرده؛ دوباره بارگذاری کنید.','ticket_conflict');
+      if(row.version!==body.expectedVersion)throw conflict('وضعیت گفتگو تغییر کرده؛ دوباره بارگذاری کنید.','ticket_conflict');
       if(row.status===body.status)return {ticket:detail(row,true),unchanged:true};
-      const changed=(await client.query<Ticket>('update support_tickets set status=$2,updated_at=now() where id=$1 returning *',[row.id,body.status])).rows[0];
-      await recordAudit({actor:actor.subject,action:'support.status',targetType:'support_ticket',targetId:row.id,before:{status:row.status},after:{status:changed.status},requestId:req.id},client);
+      const changed=(await client.query<Ticket>('update support_tickets set status=$2,version=version+1,updated_at=now() where id=$1 returning *',[row.id,body.status])).rows[0];
+      await recordAudit({actor:actor.subject,action:'support.status',targetType:'support_ticket',targetId:row.id,before:{status:row.status,version:row.version},after:{status:changed.status,version:changed.version},requestId:req.id},client);
       return {ticket:detail(changed,true),unchanged:false};
     });
   });

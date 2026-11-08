@@ -53,6 +53,7 @@ globalThis.fetch = async (request, init) => {
   const path = String(request); const method = init?.method || "GET"; const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   requests.push({ path, method, body });
   if (method === "GET" && path.startsWith("/api/commerce/admin/payment-exceptions/page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/payments?status=exception"],nextCursor:null}));
+  if (method === "GET" && path.startsWith("/api/commerce/admin/audit-page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/audit?limit=200"],nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/admin/gallery/page?")) return new Response(JSON.stringify({items:fixtures["/api/admin/gallery"],nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/commerce/admin/refund-page?")) return new Response(JSON.stringify({items:fixtures["/api/commerce/admin/refunds"],nextCursor:null}));
   if (method === "GET" && path.startsWith("/api/commerce/admin/order-page?")) {
