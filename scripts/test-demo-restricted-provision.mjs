@@ -1,0 +1,30 @@
+// Creates a disposable local database and temporary PostgreSQL roles. Never
+// targets any external project, schema, credentials or existing test roles.
+import assert from 'node:assert/strict';import pg from 'pg';import {randomBytes} from 'node:crypto';import {spawnSync,execFileSync} from 'node:child_process';import {readFile} from 'node:fs/promises';
+if(process.env.LOCAL_DB_ISOLATION_TEST!=='1'||process.env.DATABASE_URL)throw Error('Requires LOCAL_DB_ISOLATION_TEST=1 and local PostgreSQL');
+const opts={host:'127.0.0.1',port:Number(process.env.PGPORT??55432),user:process.env.PGUSER??'kolbe',password:process.env.PGPASSWORD??'kolbe'};const admin=new pg.Client({...opts,database:'postgres'});await admin.connect();const name='kv_provision_'+randomBytes(6).toString('hex');let client,db,app,created=[];
+try{
+ const existing=await admin.query("select rolname from pg_roles where rolname=any($1::text[])",[['kolbe_demo_app','anon','authenticated']]);if(existing.rows.length)throw Error('Test roles already exist; refusing to touch them');
+ for(const role of ['kolbe_demo_app','anon','authenticated']){await admin.query(`create role "${role}" nologin noinherit`);created.push(role)}
+ await admin.query(`create database "${name}"`);client=new pg.Client({...opts,database:name});await client.connect();await client.query("create schema kolbe_demo; revoke all on schema kolbe_demo from public; grant usage on schema kolbe_demo to kolbe_demo_app; create table public.products(marker text); insert into public.products values ('unchanged')");
+ const schema=execFileSync(process.execPath,['scripts/generate-isolated-demo-schema.mjs','--confirm-empty-kolbe-demo'],{encoding:'utf8'});await client.query(schema);
+ const loginSql=await readFile('scripts/enable-isolated-demo-login.sql','utf8');
+ await client.query("insert into kolbe_demo.state_documents(key,value) values('fixture','{}'::jsonb)");
+ await assert.rejects(client.query(loginSql),/not empty/);
+ await client.query("delete from kolbe_demo.state_documents where key='fixture'; grant select on public.products to kolbe_demo_app");
+ await assert.rejects(client.query(loginSql),/not isolated/);
+ await client.query('revoke select on public.products from kolbe_demo_app');
+ const enabled=await client.query(loginSql);const loginSecret=enabled.at(-1).rows[0].demo_password;assert.match(loginSecret,/^[0-9a-f]{64}$/);
+ await assert.rejects(client.query(loginSql.replace('create function','create or replace function')),/already enabled/);
+ const url=`postgresql://kolbe_demo_app:${loginSecret}@127.0.0.1:${opts.port}/${name}`;const env={...process.env,NODE_ENV:'production',DATABASE_URL:url,DATABASE_SCHEMA:'kolbe_demo',DEMO_BOOTSTRAP_CONFIRM:'kolbe_demo',LOG_LEVEL:'silent',PANEL_OPEN_ACCESS:'0'};
+ function run(pass,overrides={}){return spawnSync(process.execPath,['--import','tsx','scripts/provision-demo.ts'],{env:{...env,...overrides},input:pass+'\n',encoding:'utf8',timeout:30000})}
+ const unsafe=run('bad');assert.notEqual(unsafe.status,0);assert.equal((await client.query('select count(*)::int n from kolbe_demo.state_documents')).rows[0].n,0);
+ const secret='Dummy-' + randomBytes(16).toString('hex');const initial=run(secret);assert.equal(initial.status,0,initial.stderr);assert(!initial.stdout.includes(secret));assert(!initial.stderr.includes(secret));
+ const {verifyPassword}=await import('../server/src/security.ts');const docs=(await client.query('select key,value from kolbe_demo.state_documents')).rows;const a=docs.find(x=>x.key==='admin').value,ops=docs.find(x=>x.key==='ops').value;assert(verifyPassword(secret,a.settings.passcodeHash));assert(!JSON.stringify(docs).includes(secret));assert(!a.settings.passcode);assert(!ops.security.passcode);assert.equal(ops.security.allowCustomerSignup,false);assert.deepEqual(ops.tickets,[]);assert.deepEqual(ops.returns,[]);assert.deepEqual(a.reviews,[]);assert.deepEqual(a.customProducts,[]);assert.equal(a.integrations.payment.enabled,false);assert.equal(docs.find(x=>x.key==='demo_provisioning').value.complete,true);
+ assert((await client.query('select count(*)::int n from kolbe_demo.products')).rows[0].n>=27);assert((await client.query('select count(*)::int n from kolbe_demo.product_variants')).rows[0].n>0);assert.equal((await client.query("select count(*)::int n from kolbe_demo.roles where id='owner' and protected")).rows[0].n,1);
+ Object.assign(process.env,{NODE_ENV:'production',PGDATABASE:name,DATABASE_SCHEMA:'kolbe_demo',LOG_LEVEL:'silent',PANEL_OPEN_ACCESS:'0'});db=await import('../server/src/db.ts');await db.initDb({migrate:false});app=await (await import('../server/src/index.ts')).buildServer({apiOnly:true,skipSeedRbac:true});
+ let response=await app.inject({method:'GET',url:'/api/bootstrap'});assert.equal(response.statusCode,200);assert(!response.body.includes(a.settings.passcodeHash));assert(!response.body.includes(secret));
+ response=await app.inject({method:'POST',url:'/api/admin/login',payload:{passcode:secret}});assert.equal(response.statusCode,403);const {issueCsrfToken}=await import('../server/src/http/security.ts');response=await app.inject({method:'POST',url:'/api/admin/login',headers:{'x-csrf-token':issueCsrfToken()},payload:{passcode:secret}});assert.equal(response.statusCode,200,response.body);assert.equal(response.json().ok,true);
+ const repeat=run(secret);assert.notEqual(repeat.status,0);assert.match(repeat.stderr,/خالی نیست/);assert.deepEqual((await client.query('select * from public.products')).rows,[{marker:'unchanged'}]);
+ console.log('Restricted-role provisioning and isolation: OK (local PostgreSQL only)');
+}finally{await app?.close();await db?.closeDb();await client?.end();await admin.query(`drop database if exists "${name}" with (force)`);for(const r of created.reverse())await admin.query(`drop role "${r}"`);await admin.end()}
