@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import { promises as fsp } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import type { FastifyInstance } from "fastify";
-import { ROOT, config } from "../config";
+import { ROOT } from "../config";
+import { storeMedia } from "../media-storage";
 import { query, withTransaction } from "../db";
 import { requirePermission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
@@ -83,7 +83,7 @@ export async function categoryRoutes(app: FastifyInstance) {
     const actor=await requirePermission(req,"catalog:edit");
     const image=req.body?.image;
     if (!req.body || Object.keys(req.body).some(k=>!["image","expectedThumbnail"].includes(k)) || typeof image !== "string" || (req.body.expectedThumbnail !== undefined && typeof req.body.expectedThumbnail !== "string")) throw validation("تصویر یا نسخهٔ قبلی معتبر نیست.");
-    let filename:string|undefined;
+    let uploaded:Awaited<ReturnType<typeof storeMedia>>|undefined;
     let thumbnail=image;
     if (image.startsWith("data:")) {
       const match=/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(image);
@@ -97,10 +97,8 @@ export async function categoryRoutes(app: FastifyInstance) {
         if (!["jpeg","png","webp"].includes(metadata.format ?? "")) throw new Error("invalid image");
         processed=await input.rotate().resize(600,600,{fit:"cover",withoutEnlargement:true}).webp({quality:82}).toBuffer();
       } catch { throw validation("فایل تصویر قابل خواندن نیست."); }
-      await fsp.mkdir(config.uploadsDir,{recursive:true});
-      filename=`category-${randomUUID()}.webp`;
-      await fsp.writeFile(path.join(config.uploadsDir,filename),processed,{flag:"wx"});
-      thumbnail=`/uploads/${filename}`;
+      uploaded=await storeMedia(`category-${randomUUID()}.webp`,processed,"image/webp");
+      thumbnail=uploaded.url;
     } else if (image !== "" && !/^https:\/\//i.test(image) && !/^\/uploads\/[a-zA-Z0-9._-]+$/.test(image) && !(image.startsWith("stock:") && Object.hasOwn(stockFiles,image.slice(6)))) {
       throw validation("نشانی تصویر باید HTTPS یا تصویر موجود فروشگاه باشد.");
     }
@@ -122,7 +120,7 @@ export async function categoryRoutes(app: FastifyInstance) {
       });
       return {ok:true,category};
     } catch(err) {
-      if (filename) await fsp.unlink(path.join(config.uploadsDir,filename)).catch(()=>{});
+      if (uploaded) await uploaded.discard();
       throw err;
     }
   });

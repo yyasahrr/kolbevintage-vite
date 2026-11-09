@@ -126,9 +126,9 @@ async function useIsolatedSchema(client: pg.PoolClient) {
   await client.query(`set local search_path to "${isolatedSchema}"`);
 }
 
-export async function initDb() {
+export async function initDb(options: { migrate?: boolean } = {}) {
   if (config.databaseUrl) {
-    pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10 });
+    pool = new pg.Pool({ connectionString: config.databaseUrl, max: process.env.VERCEL === "1" ? 2 : 10, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000 });
   } else {
     await startEmbedded();
     pool = new pg.Pool({
@@ -143,10 +143,12 @@ export async function initDb() {
 
   try {
     if (isolatedSchema) {
-      const exists=await pool.query<{ok:boolean}>("select exists(select 1 from pg_namespace where nspname=$1 and has_schema_privilege(current_user, oid, 'USAGE,CREATE')) as ok", [isolatedSchema]);
+      const privilege = options.migrate === false ? 'USAGE' : 'USAGE,CREATE';
+      const exists=await pool.query<{ok:boolean}>("select exists(select 1 from pg_namespace where nspname=$1 and has_schema_privilege(current_user, oid, $2)) as ok", [isolatedSchema,privilege]);
       if (!exists.rows[0]?.ok) throw new Error("DATABASE_SCHEMA is missing or is not accessible to the database role.");
     }
-    await migrate(); return pool;
+    if (options.migrate !== false) await migrate();
+    return pool;
   }
   catch (error) { await pool.end().catch(() => undefined); pool=null; throw error; }
 }

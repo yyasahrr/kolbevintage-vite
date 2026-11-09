@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/[...path].ts": {
+      "includeFiles": "{server/seed/state.json,src/assets/editorial/**,src/assets/models/**}"
+    }
+  }
+}

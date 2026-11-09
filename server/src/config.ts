@@ -2,7 +2,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const ROOT = path.resolve(here, "../..");
+// Vercel bundles source into a function; import.meta.url no longer points to
+// server/src. Included assets are rooted at the function working directory.
+export const ROOT = process.env.VERCEL === "1" ? process.cwd() : path.resolve(here, "../..");
 
 export const config = {
   host: process.env.HOST ?? "0.0.0.0",

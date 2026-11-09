@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { config } from "../config";
+import { storeMedia } from "../media-storage";
 import { requirePermission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
 import { prepareProductImage } from "../image-upload";
@@ -44,12 +42,9 @@ export async function uploadRoutes(app: FastifyInstance) {
       if ((mime === "video/webm" && !isWebm) || (mime !== "video/webm" && !isMp4)) {
         return reply.code(415).send({ error: "محتوای ویدیو با نوع فایل مطابقت ندارد." });
       }
-      await fs.mkdir(config.uploadsDir, { recursive: true });
       const filename = `${Date.now()}-${randomUUID()}.${videoExt[mime]}`;
-      const target = path.join(config.uploadsDir, filename);
-      await fs.writeFile(target, bytes, { flag: "wx" });
-      url = `/uploads/${filename}`;
-      discard = async () => { await fs.unlink(target).catch(() => undefined); };
+      const uploaded=await storeMedia(filename,bytes,mime);
+      url=uploaded.url;discard=uploaded.discard;
     }
     try {
       await recordAudit({ actor: session.subject, action: "media.upload", targetType: "upload", targetId: url,

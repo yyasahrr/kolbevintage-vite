@@ -73,8 +73,8 @@ async function listTables(client?: pg.PoolClient): Promise<string[]> {
                 order by c.relname`;
   const res = client ? await client.query(sql) : await query(sql);
   const names = res.rows.map((row) => String(row.name));
-  // Bookkeeping, bearer sessions and ephemeral MFA challenges are never backed up.
-  return names.filter((name) => name !== "backups" && name !== "schema_migrations" && name !== "sessions" && name !== "admin_sms_challenges");
+  // Bookkeeping, bearer sessions, ephemeral MFA challenges and transient rate-limit buckets are never backed up.
+  return names.filter((name) => name !== "backups" && name !== "schema_migrations" && name !== "sessions" && name !== "admin_sms_challenges" && name !== "security_rate_limits");
 }
 
 export async function dumpAll(client?: pg.PoolClient): Promise<BackupPayload> {

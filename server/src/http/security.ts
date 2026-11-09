@@ -1,4 +1,5 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { query } from "../db";
 import { config } from "../config";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
@@ -31,6 +32,13 @@ if ((configuredCsrfKey && !/^[0-9a-f]{64}$/i.test(configuredCsrfKey)) || (proces
 const CSRF_SECRET = configuredCsrfKey || randomBytes(32).toString("hex");
 const CSRF_TTL_MS = 86_400_000;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const rateLimitStore = process.env.RATE_LIMIT_STORE ?? "memory";
+const rateLimitScope = process.env.RATE_LIMIT_SCOPE ?? "client";
+if (!["client", "global"].includes(rateLimitScope)) throw new Error("RATE_LIMIT_SCOPE must be client or global.");
+if (!["memory", "postgres"].includes(rateLimitStore) || (rateLimitStore === "postgres" && !configuredCsrfKey)) {
+  throw new Error("RATE_LIMIT_STORE must be memory or postgres; postgres requires CSRF_SIGNING_KEY.");
+}
+
 
 export interface LimitRule {
   max: number;
@@ -135,6 +143,23 @@ export function cookieSecurity(req: FastifyRequest): { secure: boolean; sameSite
   return https ? { secure: true, sameSite: "none" } : { secure: false, sameSite: "lax" };
 }
 
+async function consumeSharedLimit(key:string, rule:LimitRule):Promise<{allowed:boolean;retryAfter:number}> {
+  // HMAC keeps IP addresses out of the table; a shared secret is mandatory.
+  const bucketKey=createHmac("sha256",CSRF_SECRET).update(`rate-limit:${key}`).digest("hex");
+  const result=await query<{hits:number;retry_after:number}>(`
+    insert into security_rate_limits(bucket_key,hits,reset_at)
+    values($1,1,clock_timestamp() + $2 * interval '1 millisecond')
+    on conflict(bucket_key) do update set
+      hits=case when security_rate_limits.reset_at <= clock_timestamp() then 1 else least(security_rate_limits.hits::bigint+1,2147483647)::int end,
+      reset_at=case when security_rate_limits.reset_at <= clock_timestamp() then clock_timestamp() + $2 * interval '1 millisecond' else security_rate_limits.reset_at end
+    returning hits, greatest(1,ceil(extract(epoch from (reset_at-clock_timestamp()))))::int as retry_after`,[bucketKey,rule.windowMs]);
+  const bucket=result.rows[0];
+  // Bound abandoned keys without requiring a worker. An explicit scheduled
+  // cleanup is still advisable for higher-traffic deployments.
+  if(randomInt(1024)===0) void query("delete from security_rate_limits where reset_at < clock_timestamp() - interval '1 day'").catch(()=>undefined);
+  return {allowed:bucket.hits<=rule.max,retryAfter:bucket.retry_after};
+}
+
 export function registerSecurity(app: FastifyInstance) {
   /** hands out a token that works with or without cookies */
   app.get("/api/csrf", async (req, reply) => {
@@ -155,23 +180,17 @@ export function registerSecurity(app: FastifyInstance) {
     const bucketName = classFor(path, req.method);
     if (bucketName) {
       const rule = rateLimits[bucketName] ?? rateLimits.write;
-      const key = `${bucketName}:${clientKey(req)}`;
-      const now = Date.now();
-      const bucket = buckets.get(key);
-      if (!bucket || bucket.reset <= now) {
-        buckets.set(key, { count: 1, reset: now + rule.windowMs });
+      const key = `${bucketName}:${rateLimitScope === "global" ? "global" : clientKey(req)}`;
+      let limited=false, retryAfter=1;
+      if(rateLimitStore === "postgres") {
+        try {const bucket=await consumeSharedLimit(key,rule);limited=!bucket.allowed;retryAfter=bucket.retryAfter;}
+        catch(reqError) { req.log.error({err:reqError},"shared rate limit unavailable"); return reply.code(503).send({ok:false,code:"rate_limit_unavailable",message:"کنترل امنیتی موقتاً در دسترس نیست."}); }
       } else {
-        bucket.count += 1;
-        if (bucket.count > rule.max) {
-          const retryAfter = Math.max(1, Math.ceil((bucket.reset - now) / 1000));
-          reply.header("retry-after", String(retryAfter));
-          return reply.code(429).send({
-            ok: false,
-            code: "rate_limited",
-            message: "تعداد درخواست‌ها زیاد است؛ کمی بعد دوباره تلاش کن.",
-          });
-        }
+        const now=Date.now(); const bucket=buckets.get(key);
+        if(!bucket||bucket.reset<=now) buckets.set(key,{count:1,reset:now+rule.windowMs});
+        else {bucket.count+=1;limited=bucket.count>rule.max;retryAfter=Math.max(1,Math.ceil((bucket.reset-now)/1000));}
       }
+      if(limited){reply.header("retry-after",String(retryAfter));return reply.code(429).send({ok:false,code:"rate_limited",message:"تعداد درخواست‌ها زیاد است؛ کمی بعد دوباره تلاش کن."});}
     }
 
     /* ---------- CSRF (double submit) ---------- */

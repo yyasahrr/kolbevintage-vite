@@ -647,3 +647,13 @@ create index if not exists support_tickets_customer_idx on support_tickets(custo
 create index if not exists support_tickets_created_idx on support_tickets(created_at desc,id desc);
 alter table support_tickets add column if not exists version integer not null default 0;
 create index if not exists support_tickets_status_page_idx on support_tickets(status,created_at desc,id desc);
+
+-- Shared, expiring rate-limit buckets for multi-instance deployments. Keys are
+-- keyed hashes, not client IPs. Cleanup is opportunistic and may also be run by
+-- a scheduled maintenance job.
+create table if not exists security_rate_limits (
+  bucket_key text primary key,
+  hits integer not null check (hits > 0),
+  reset_at timestamptz not null
+);
+create index if not exists security_rate_limits_reset_idx on security_rate_limits(reset_at);

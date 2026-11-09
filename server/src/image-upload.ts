@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import sharp from "sharp";
-import { config } from "./config";
+import { storeMedia } from "./media-storage";
 import { validation } from "./commerce/errors";
 
 /** Decode and re-encode user-supplied pixels; never publish active SVG/HTML or metadata. */
@@ -26,9 +24,6 @@ export async function prepareProductImage(data: unknown, requireTransparency = f
   } catch {
     throw validation(requireTransparency ? "برای بوم، فایل PNG یا WebP واقعی با پس‌زمینهٔ شفاف و محصول جداشده بارگذاری کنید." : "فایل تصویر قابل خواندن نیست.");
   }
-  await fs.mkdir(config.uploadsDir, { recursive: true });
   const filename = `product-${randomUUID()}.webp`;
-  const file = path.join(config.uploadsDir, filename);
-  await fs.writeFile(file, processed, { flag: "wx" });
-  return { url: `/uploads/${filename}`, discard: async () => { await fs.unlink(file).catch(() => undefined); } };
+  return storeMedia(filename,processed,"image/webp");
 }
