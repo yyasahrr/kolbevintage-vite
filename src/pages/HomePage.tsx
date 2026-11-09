@@ -93,7 +93,7 @@ export function HomePage() {
               description="مسیرهای کوتاه به دسته‌بندی‌های فروشگاه."
               action={{ to: "/products", label: "همهٔ محصولات" }}
             />
-            <div className="home-collections-grid mx-auto mt-6 grid max-w-[280px] grid-cols-2 gap-3 sm:max-w-[900px] sm:grid-cols-4 sm:gap-4">
+            <div className="home-collections-grid mt-6 grid w-full grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
               {homeCategories.map((c, i) => {
                 const sample = productsInCollection(c.id)[0];
                 if (!sample && !c.thumbnail && !Array.isArray(ops.homeCategoryIds)) return null;
