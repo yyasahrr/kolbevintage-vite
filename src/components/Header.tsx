@@ -244,9 +244,8 @@ export function Header() {
             </nav>
           </div>
 
-          <Link to="/" className="flex items-center justify-center justify-self-center gap-2" aria-label="Kolbe Vintage — خانه">
+          <Link to="/" className="flex items-center justify-center justify-self-center" aria-label="خانه">
             <img src={brand.logoImage || "/kolbe-mark.png"} alt="" className="h-9 w-auto max-w-[100px] object-contain lg:h-10" />
-            {!brand.logoImage && <span dir="ltr" className="font-latin text-[18px] leading-none tracking-[0.08em] text-ink sm:text-[21px]">Kolbe Vintage</span>}
           </Link>
 
           <div className="flex min-w-0 items-center justify-end gap-0.5 sm:gap-1.5">
@@ -468,7 +467,7 @@ function MobileMenu({ open, onClose, onSearch }: { open: boolean; onClose: () =>
             className="absolute inset-y-0 right-0 flex w-[min(21rem,86vw)] flex-col bg-paper"
           >
             <div className="flex items-center justify-between border-b border-black/[0.07] px-5 py-4">
-              <Link to="/" onClick={onClose} className="flex items-center gap-2" aria-label="Kolbe Vintage — خانه"><img src={brand.logoImage || "/kolbe-mark.png"} alt="" className="h-9 w-auto object-contain"/>{!brand.logoImage&&<span dir="ltr" className="font-latin text-lg">Kolbe Vintage</span>}</Link>
+              <Link to="/" onClick={onClose} className="flex items-center" aria-label="خانه"><img src={brand.logoImage || "/kolbe-mark.png"} alt="" className="h-9 w-auto object-contain"/></Link>
               <button
                 type="button"
                 onClick={onClose}
