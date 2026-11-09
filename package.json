@@ -43,6 +43,7 @@
     "production:check": "node scripts/production-check.mjs",
     "test:production-check": "node scripts/test-production-check.mjs",
     "provision:store": "tsx scripts/provision-store.ts",
+    "provision:demo": "tsx scripts/provision-demo.ts",
     "test:store-boot": "node scripts/store-boot-smoke.mjs",
     "test:live-journal": "node scripts/live-journal-smoke.mjs",
     "test:size-guide": "tsx scripts/size-guide-smoke.tsx",

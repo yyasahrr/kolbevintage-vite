@@ -21,6 +21,7 @@
   "include": [
     "src",
     "test",
-    "../api/**/*.ts"
+    "../api/**/*.ts",
+    "../scripts/provision-demo.ts"
   ]
 }

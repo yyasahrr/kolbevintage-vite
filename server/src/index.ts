@@ -1,4 +1,5 @@
 import { panelPathRoutes } from "./routes/panel-path";
+import { scheduledJobRoutes } from "./routes/scheduled-jobs";
 import { panelPath } from "./panel-path";
 import fastifyReplyFrom from "@fastify/reply-from";
 import { adminSmsMfaRoutes } from "./routes/admin-sms-mfa";
@@ -154,6 +155,7 @@ export async function buildServer(options: {apiOnly?: boolean; skipSeedRbac?: bo
   await app.register(analyticsRoutes);
   await app.register(smsRoutes);
   await app.register(maintenanceRoutes);
+  await app.register(scheduledJobRoutes);
   await app.register(publicRoutes);
   await app.register(galleryRoutes);
   await app.register(adminLiveRoutes);
