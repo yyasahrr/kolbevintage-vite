@@ -8,6 +8,7 @@ import {Writable} from 'node:stream';
 import {spawnSync} from 'node:child_process';
 import pg from 'pg';
 import {parseDemoUri, PROJECT_REF} from './demo-connection-uri.mjs';
+import {describeDemoConnectionError} from './demo-connection-errors.mjs';
 
 if (!process.stdin.isTTY || process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
   console.error('ترمینال تعاملی و بررسی معتبر گواهی TLS لازم است.'); process.exit(1);
@@ -44,6 +45,8 @@ try {
   else if(code==='db_password') console.error('رمز نقش دمو باید همان مقدار ۶۴ نویسه‌ای نتیجه SQL باشد.');
   else if(code==='admin_password') console.error('رمز پنل نامعتبر است یا تکرارش مطابقت ندارد.');
   else if(code==='provision') console.error('آماده‌سازی کامل نشد. ممکن است بخشی از داده‌های دمو ثبت شده باشد؛ بدون بررسی دوباره اجرا یا پاک‌سازی نکنید.');
-  else console.error('اتصال یا بررسی امن انجام نشد. هیچ رمز یا آدرس اتصالی را در چت ارسال نکنید.');
+  else if(code==='identity') console.error('اتصال به هویت مورد انتظار نقش دمو انجام نشده است.');
+  else if(['invalid_uri','wrong_host','wrong_user','wrong_port','wrong_database'].includes(code)) console.error('URI واردشده با URI پیش‌فرض Session pooler همین پروژه مطابقت ندارد.');
+  else console.error(describeDemoConnectionError(e));
   process.exitCode=1;
 } finally {rl.close();await client?.end().catch(()=>{});}
