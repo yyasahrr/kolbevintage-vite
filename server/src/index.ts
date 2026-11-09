@@ -1,5 +1,6 @@
 import { panelPathRoutes } from "./routes/panel-path";
 import { scheduledJobRoutes } from "./routes/scheduled-jobs";
+import { panelEntryRoutes } from "./routes/panel-entry";
 import { panelPath } from "./panel-path";
 import fastifyReplyFrom from "@fastify/reply-from";
 import { adminSmsMfaRoutes } from "./routes/admin-sms-mfa";
@@ -166,6 +167,8 @@ export async function buildServer(options: {apiOnly?: boolean; skipSeedRbac?: bo
   await app.register(studioLifecycleRoutes);
   await app.register(studioPageRoutes);
   await app.register(journalRoutes);
+
+  if (options.apiOnly) await app.register(panelEntryRoutes);
 
   if (!options.apiOnly) {
     // The old Next basePath remains necessary for immutable public static assets,

@@ -43,3 +43,7 @@ server/.backups/
 test-results/
 playwright-report/
 blob-report/
+
+# Generated serverless panel build
+panel-output/
+server/panel-static/

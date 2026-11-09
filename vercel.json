@@ -1,7 +1,12 @@
 {
+  "rewrites": [
+    { "source": "/panel", "destination": "/api/internal/panel-default" },
+    { "source": "/panel/", "destination": "/api/internal/panel-default" },
+    { "source": "/manage/:slug", "destination": "/api/internal/panel-custom?slug=:slug" }
+  ],
   "functions": {
     "api/[...path].ts": {
-      "includeFiles": "{server/seed/state.json,src/assets/editorial/**,src/assets/models/**}"
+      "includeFiles": "{server/seed/state.json,src/assets/editorial/**,src/assets/models/**,server/panel-static/index.html}"
     }
   }
 }
