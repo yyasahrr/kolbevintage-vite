@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';import pg from 'pg';import {randomBytes} from 'node:crypto';import {execFileSync} from 'node:child_process';
+if(process.env.LOCAL_DB_ISOLATION_TEST!=='1'||process.env.DATABASE_URL)throw Error('Local disposable PostgreSQL only');
+const admin=new pg.Client({host:'127.0.0.1',port:Number(process.env.PGPORT??55432),user:process.env.PGUSER??'kolbe',password:process.env.PGPASSWORD??'kolbe',database:'postgres'});await admin.connect();const name='kv_migration_'+randomBytes(6).toString('hex');let client;let created=[];
+try{
+ const existing=await admin.query("select rolname from pg_roles where rolname=any($1::text[])",[['kolbe_demo_app','anon','authenticated']]);if(existing.rows.length)throw Error('Test role names already exist; refusing to touch them');
+ for(const r of ['kolbe_demo_app','anon','authenticated']){await admin.query(`create role "${r}" nologin noinherit`);created.push(r)}
+ await admin.query(`create database "${name}"`);client=new pg.Client({host:'127.0.0.1',port:Number(process.env.PGPORT??55432),user:process.env.PGUSER??'kolbe',password:process.env.PGPASSWORD??'kolbe',database:name});await client.connect();
+ await client.query("create schema kolbe_demo; revoke all on schema kolbe_demo from public; grant usage on schema kolbe_demo to kolbe_demo_app; create table public.products(marker text); insert into public.products values('unchanged')");
+ const sql=execFileSync(process.execPath,['scripts/generate-isolated-demo-schema.mjs','--confirm-empty-kolbe-demo'],{encoding:'utf8'});
+ await client.query('grant usage on schema kolbe_demo to anon');await assert.rejects(client.query(sql),/not private/);await client.query('rollback');await client.query('revoke usage on schema kolbe_demo from anon');
+ await client.query(sql);const counts=await client.query("select (select count(*)::int from pg_class c join pg_namespace n on c.relnamespace=n.oid where n.nspname='kolbe_demo' and c.relkind='r') as tables,has_table_privilege('kolbe_demo_app','kolbe_demo.state_documents','SELECT,INSERT,UPDATE,DELETE') as allowed,has_table_privilege('kolbe_demo_app','public.products','SELECT') as other_readable");assert(counts.rows[0].tables>30);assert.equal(counts.rows[0].allowed,true);assert.equal(counts.rows[0].other_readable,false);
+ await assert.rejects(client.query(sql),/not empty/);await client.query('rollback');assert.deepEqual((await client.query('select * from public.products')).rows,[{marker:'unchanged'}]);console.log('Atomic demo schema SQL: empty/private guards, repeat refusal and public isolation OK');
+}finally{await client?.end();await admin.query(`drop database if exists "${name}" with (force)`);for(const r of created.reverse())await admin.query(`drop role "${r}"`);await admin.end()}
