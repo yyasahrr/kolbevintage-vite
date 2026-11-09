@@ -4,8 +4,7 @@
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import pg from 'pg';
-
-const ref = 'fpeixxuiidllpebixeif';
+import { parseDemoUri } from './demo-connection-uri.mjs';
 if (!process.stdin.isTTY) {
   console.error('این بررسی باید در یک ترمینال تعاملی اجرا شود.');
   process.exit(1);
@@ -19,15 +18,7 @@ async function secret(prompt) {
 let client;
 try {
   const raw = await secret('آدرس URI پروژه Supabase (نمایش داده نمی‌شود): ');
-  const url = new URL(raw.trim());
-  const user = decodeURIComponent(url.username);
-  const host = url.hostname.toLowerCase();
-  const port = Number(url.port || 5432);
-  const isDirect = host === `db.${ref}.supabase.co` && user === 'postgres';
-  const isPooler = host.endsWith('.pooler.supabase.com') && user === `postgres.${ref}`;
-  if (!['postgres:', 'postgresql:'].includes(url.protocol) || !(isDirect || isPooler) || port !== 5432 || url.pathname !== '/postgres') {
-    throw new Error('connection_format');
-  }
+  const { host, port, user } = parseDemoUri(raw);
   // Do not use URL query parameters: in particular they must not weaken TLS.
   const password = await secret('رمز فعلی پایگاه داده Supabase (نمایش داده نمی‌شود): ');
   if (!password) throw new Error('password');
@@ -52,7 +43,11 @@ try {
   }
 } catch (error) {
   const code = error instanceof Error ? error.message : '';
-  if (code === 'connection_format') console.error('آدرس معتبر این پروژه نیست؛ URI مستقیم یا Session pooler پروژه را با پورت ۵۴۳۲ انتخاب کنید.');
+  if (code === 'invalid_uri') console.error('قالب آدرس قابل‌خواندن نیست. URI نمایش‌داده‌شده در بخش Connect را کپی کنید، نه کل کد نمونه را.');
+  else if (code === 'wrong_host') console.error('میزبان آدرس متعلق به اتصال مستقیم این پروژه یا Supabase pooler نیست. پروژه و بخش Connect را بررسی کنید.');
+  else if (code === 'wrong_user') console.error('نام کاربری با پروژه مورد انتظار مطابقت ندارد. در Connect همین پروژه، Session pooler و URI پیش‌فرض را انتخاب کنید.');
+  else if (code === 'wrong_port') console.error('پورت آدرس ۵۴۳۲ نیست. در Connect حالت Session pooler را انتخاب کنید، نه Transaction pooler.');
+  else if (code === 'wrong_database') console.error('نام پایگاه داده در URI برابر postgres نیست. URI پیش‌فرض Session pooler پروژه را انتخاب کنید.');
   else if (code === 'password') console.error('رمز خالی است.');
   else console.error('بررسی اتصال موفق نبود. آدرس، رمز، دسترسی شبکه و گواهی TLS را بررسی کنید؛ هیچ تغییری در داده‌ها انجام نشده است.');
   process.exitCode = 1;
