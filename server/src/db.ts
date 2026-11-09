@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import EmbeddedPostgres from "embedded-postgres";
+import type EmbeddedPostgres from "embedded-postgres";
 import pg from "pg";
 import { config } from "./config";
 
@@ -73,6 +73,9 @@ async function ensureDatabase(port: number) {
 }
 
 async function startEmbedded() {
+  // The embedded server is only needed for local development. Remote and
+  // serverless deployments must not load its platform-specific binaries.
+  const { default: EmbeddedPostgres } = await import("embedded-postgres");
   fs.mkdirSync(config.dataDir, { recursive: true });
 
   const running = runningClusterPort();

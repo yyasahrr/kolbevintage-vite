@@ -44,7 +44,7 @@ try {
   delete env.VERCEL;
   const result=spawnSync(process.execPath,['--import','tsx','scripts/provision-demo.ts'],{env,input:adminPassword+'\n',encoding:'utf8',timeout:90000,maxBuffer:1024*1024});
   if(result.status!==0){
-    const diagnostic=(result.stderr??'').match(/DEMO_FAILURE=(input|connect|lock|role|schema|empty|db_init|imports|documents|projection|rbac|commerce|validation|marker):(42501|42P01|42883|3F000|28P01|53300|ECONNREFUSED|ETIMEDOUT|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE|ERR_TLS_CERT_ALTNAME_INVALID|unknown)/);
+    const diagnostic=(result.stderr??'').match(/DEMO_FAILURE=(input|connect|lock|role|schema|empty|db_import|db_init|imports|documents|projection|rbac|commerce|validation|marker):(42501|42P01|42883|3F000|28P01|53300|XX000|ECONNREFUSED|ETIMEDOUT|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_DLOPEN_FAILED|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE|ERR_TLS_CERT_ALTNAME_INVALID|SCHEMA_ACCESS|UNSUPPORTED_PLATFORM|unknown)/);
     const runnerCode=(result.stderr??'').match(/\b(ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ERR_DLOPEN_FAILED|ERR_UNKNOWN_FILE_EXTENSION|ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING)\b/)?.[1] ?? (result.error?.code==='ETIMEDOUT'?'ETIMEDOUT':'unknown');
     console.error(`کد بررسی: ${diagnostic?diagnostic[1]+':'+diagnostic[2]:'runner:'+runnerCode}`);
     throw Error(preflight?'preflight':'provision');
