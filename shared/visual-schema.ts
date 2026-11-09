@@ -1,7 +1,11 @@
+import { extraVisualSpec } from './visual-extra-spec';
+import { advancedVisualSpec } from './visual-advanced-spec';
+import { utilityVisualSpec } from './visual-utility-spec';
+import { commerceVisualSpec } from './visual-commerce-spec';
 /** Server-side allowlist for the visual editor's serialized component tree. */
 export type VisualNode = { type: string; props: Record<string, unknown> & { id: string } };
 export type VisualData = { root: { props: Record<string, never> }; content: VisualNode[] };
-const spec: Record<string, Record<string, 'text'|'long'|'url'|'image'|'color'|'align'|'size'|'space'|'count'|'slot'|'responsiveSize'|'responsiveSpace'>> = {
+const spec: Record<string, Record<string, 'text'|'long'|'url'|'image'|'color'|'align'|'size'|'space'|'count'|'slot'|'responsiveSize'|'responsiveSpace'|'width'|'split'|'reference'|'percent'|'utcDate'>> = {
   Heading:{text:'text',size:'size',sizeTablet:'responsiveSize',sizeMobile:'responsiveSize',color:'color',align:'align'},
   Text:{text:'long',color:'color',align:'align'},
   Image:{url:'image',alt:'text'}, Video:{url:'image',poster:'image',label:'text'},
@@ -11,6 +15,10 @@ const spec: Record<string, Record<string, 'text'|'long'|'url'|'image'|'color'|'a
   Products:{heading:'text',count:'count'}, Categories:{heading:'text',count:'count'},
   Section:{background:'color',padding:'space',paddingTablet:'responsiveSpace',paddingMobile:'responsiveSpace',content:'slot'},
   Columns:{left:'slot',right:'slot'},
+  ...extraVisualSpec,
+  ...advancedVisualSpec,
+  ...commerceVisualSpec,
+  ...utilityVisualSpec,
 };
 const isObj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 function safeUrl(v:string, media:boolean) {
@@ -23,7 +31,7 @@ function safeUrl(v:string, media:boolean) {
 export function validateVisual(value:unknown):VisualData {
   const invalid=():never=>{throw new Error('invalid_visual_data')};
   if(!isObj(value)||Object.keys(value).some(k=>!['root','content'].includes(k))||!isObj(value.root)||Object.keys(value.root).some(k=>k!=='props')||!isObj(value.root.props)||Object.keys(value.root.props).length) return invalid();
-  let count=0;const ids=new Set<string>();
+  let count=0;const ids=new Set<string>();const anchors=new Set<string>();
   function nodes(raw:unknown,depth:number):VisualNode[]{
     if(!Array.isArray(raw)||depth>5) return invalid();
     return raw.map(item=>{
@@ -35,18 +43,22 @@ export function validateVisual(value:unknown):VisualData {
         const v=props[key];
         if(v===undefined&&(kind==='responsiveSize'||kind==='responsiveSpace'))continue; // old visual documents remain valid
         if(kind==='slot'){result[key]=nodes(v,depth+1);continue;}
-        if(['text','long','url','image','color','align'].includes(kind)){
+        if(['text','long','url','image','color','align','split','reference','utcDate'].includes(kind)){
           if(typeof v!=='string'||v.length>(kind==='long'?2000:kind==='url'||kind==='image'?2000:160))return invalid();
           if((kind==='url'||kind==='image')&&!safeUrl(v,kind==='image'))return invalid();
           if(kind==='color'&&!/^#[0-9a-f]{6}$/i.test(v))return invalid();
           if(kind==='align'&&!['right','center','left'].includes(v))return invalid();
+          if(kind==='split'&&!['equal','wide-first','wide-second'].includes(v))return invalid();
+          if(kind==='utcDate'&&v!==''&&(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString()!==v.replace('Z','.000Z')))return invalid();
+          if(kind==='reference'&&v!==''&&!/^[a-zA-Z0-9_-]{1,120}$/.test(v))return invalid();
           result[key]=v;
         }else{
-          const max=kind==='size'||kind==='responsiveSize'?96:kind==='count'?12:240;const min=kind==='size'?12:kind==='count'?1:kind==='responsiveSpace'?-1:0;
+          const max=kind==='percent'?100:kind==='width'?1600:kind==='size'||kind==='responsiveSize'?96:kind==='count'?12:240;const min=kind==='width'?320:kind==='size'?12:kind==='count'?1:kind==='responsiveSpace'?-1:0;
           if(kind==='responsiveSize'&&v!==0&&(typeof v!=='number'||v<12))return invalid();
           if(typeof v!=='number'||!Number.isInteger(v)||v<min||v>max)return invalid();result[key]=v;
         }
       }
+      if(item.type==='AnchorSection'&&result.anchor){const anchor=result.anchor as string;if(anchors.has(anchor))return invalid();anchors.add(anchor)}
       return {type:item.type,props:result};
     });
   }

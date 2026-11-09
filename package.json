@@ -53,6 +53,9 @@
     "test:browser-home-panel": "node scripts/browser-home-panel-smoke.mjs",
     "test:browser-order-page": "node scripts/browser-order-page-smoke.mjs",
     "test:browser-visual-studio": "node scripts/browser-visual-studio-smoke.mjs",
+    "test:visual-widgets": "node --import tsx scripts/test-visual-widget-library.mjs",
+    "test:browser-visual-widgets": "node --import tsx scripts/browser-visual-widgets-smoke.mjs",
+    "test:browser-visual-advanced": "node --import tsx scripts/browser-visual-advanced-smoke.mjs",
     "test:browser-product-video": "node scripts/browser-product-video-smoke.mjs",
     "test:browser-returns-page": "node scripts/browser-returns-page-smoke.mjs",
     "test:browser-journal-category": "node scripts/browser-journal-category-smoke.mjs",
@@ -65,7 +68,9 @@
     "test:browser-panel-path": "node --import tsx scripts/browser-panel-path-smoke.mjs",
     "test:browser-fulfillment": "node scripts/browser-fulfillment-smoke.mjs",
     "test:browser-dashboard-summary": "node scripts/browser-dashboard-summary-smoke.mjs",
-    "test:sms": "node --import tsx --test server/test/melipayamak-otp.test.ts"
+    "test:sms": "node --import tsx --test server/test/melipayamak-otp.test.ts",
+    "test:browser-visual-commerce": "node --import tsx scripts/browser-visual-commerce-smoke.mjs",
+    "test:browser-visual-utility": "node --import tsx scripts/browser-visual-utility-smoke.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

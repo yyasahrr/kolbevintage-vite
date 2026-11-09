@@ -1,0 +1,28 @@
+/** Data-only allowlist for extra widgets. Kept separate from React so the API
+ * validates the exact same persisted fields without importing browser code. */
+export const extraVisualSpec = {
+  Eyebrow:{text:'text',color:'color',align:'align'},
+  Lead:{text:'long',color:'color',align:'align'},
+  Badge:{text:'text',background:'color',color:'color'},
+  Announcement:{text:'text',buttonText:'text',url:'url',background:'color',color:'color'},
+  Notice:{heading:'text',text:'long',background:'color',color:'color'},
+  Quote:{text:'long',author:'text',color:'color'},
+  Checklist:{heading:'text',item1:'text',item2:'text',item3:'text',color:'color'},
+  NumberedList:{heading:'text',item1:'text',item2:'text',item3:'text',color:'color'},
+  FeatureGrid:{heading:'text',title1:'text',text1:'long',title2:'text',text2:'long',title3:'text',text3:'long',background:'color',color:'color'},
+  StatsGrid:{heading:'text',value1:'text',label1:'text',value2:'text',label2:'text',value3:'text',label3:'text',background:'color',color:'color'},
+  Steps:{heading:'text',title1:'text',text1:'long',title2:'text',text2:'long',title3:'text',text3:'long',color:'color'},
+  Testimonial:{quote:'long',name:'text',role:'text',background:'color',color:'color'},
+  FAQ:{heading:'text',question1:'text',answer1:'long',question2:'text',answer2:'long',question3:'text',answer3:'long'},
+  PricingCard:{heading:'text',price:'text',description:'long',feature1:'text',feature2:'text',feature3:'text',buttonText:'text',url:'url',background:'color',color:'color'},
+  CallToAction:{heading:'text',text:'long',buttonText:'text',url:'url',background:'color',color:'color',align:'align'},
+  ImageText:{heading:'text',text:'long',image:'image',alt:'text',buttonText:'text',url:'url',background:'color',color:'color'},
+  PromoCard:{heading:'text',text:'long',image:'image',alt:'text',buttonText:'text',url:'url'},
+  Gallery:{heading:'text',image1:'image',alt1:'text',image2:'image',alt2:'text',image3:'image',alt3:'text'},
+  LinkList:{heading:'text',text1:'text',url1:'url',text2:'text',url2:'url',text3:'text',url3:'url'},
+  SocialLinks:{heading:'text',text1:'text',url1:'url',text2:'text',url2:'url',text3:'text',url3:'url'},
+  ButtonGroup:{text1:'text',url1:'url',text2:'text',url2:'url',background:'color',color:'color',align:'align'},
+  ContactCard:{heading:'text',text:'long',phone:'text',email:'text',address:'long',background:'color',color:'color'},
+  ColumnsThree:{first:'slot',second:'slot',third:'slot'},
+  ColumnsFour:{first:'slot',second:'slot',third:'slot',fourth:'slot'},
+} as const;

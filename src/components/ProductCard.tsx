@@ -22,6 +22,7 @@ export function ProductCard({ product, className, filterColorId }: Props) {
   useEffect(() => { setStep("buy"); setColorId(""); setMessage(""); }, [product.id, filterColorId]);
   const color = product.colors.find(c => c.id === colorId);
   const soldOut = totalStock(product) === 0;
+  const stockUnknown = catalog.status !== "online" || !catalog.loadedAt || Date.now() - catalog.loadedAt > 90_000;
   const wished = isWished(product.id);
   const quickAdd = (sizeId: string) => {
     const size = product.sizes.find(s => s.id === sizeId);
@@ -43,7 +44,7 @@ export function ProductCard({ product, className, filterColorId }: Props) {
         <button type="button" onClick={() => toggleWish(product.id)} aria-label={wished ? `حذف ${product.name} از علاقه‌مندی‌ها` : `افزودن ${product.name} به علاقه‌مندی‌ها`} aria-pressed={wished} className={cn("product-card-wish tap absolute z-10 top-2 end-2 flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur transition-colors duration-250", wished ? "border-ember/30 bg-white text-ember" : "border-white/50 bg-white/75 text-ink-70 hover:bg-white hover:text-ink")}><Heart className={cn("h-3.5 w-3.5", wished && "fill-ember")} /></button>
         <div className={cn("absolute z-10 inset-x-2 bottom-2 transition-[transform,opacity] duration-200", step === "buy" ? "translate-y-3 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 focus-within:translate-y-0 focus-within:opacity-100 max-lg:translate-y-0 max-lg:opacity-100" : "translate-y-0 opacity-100")}>
           {step === "buy" ? <button ref={buyRef} type="button" onClick={() => {setMessage("");setStep("color")}} disabled={soldOut} aria-label={`خرید سریع ${product.name}`} className={buttonStyles("solid", "sm", "tap min-h-11 w-full bg-paper/95 text-ink shadow-[0_6px_24px_-10px_rgba(22,19,15,0.5)] backdrop-blur hover:bg-ink hover:text-bone")}>
-            {soldOut ? <ShoppingBag className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}{catalog.status !== "online" ? "موجودی نامشخص" : soldOut ? "ناموجود" : "خرید سریع"}
+            {soldOut ? <ShoppingBag className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}{stockUnknown ? "موجودی نامشخص" : soldOut ? "ناموجود" : "خرید سریع"}
           </button> : <div ref={controlsRef} className="rounded-xl bg-paper/95 p-2 shadow-lg backdrop-blur" role="group" aria-label={`${step === "color" ? "انتخاب رنگ" : "انتخاب سایز"} ${product.name}`}>
             <div className="flex items-center justify-between gap-1"><span className="text-[11px] font-medium text-ink">{step === "color" ? "رنگ را انتخاب کن" : `سایز · ${color?.name ?? ""}`}</span><div className="flex"><button type="button" onClick={() => {setStep("color");setColorId("");setMessage("")}} aria-label="بازگشت به انتخاب رنگ" className={cn("flex h-8 w-8 items-center justify-center", step === "color" && "hidden")}><ArrowRight size={15}/></button><button type="button" onClick={() => {setStep("buy");setColorId("");setMessage("")}} aria-label="لغو خرید سریع" className="flex h-8 w-8 items-center justify-center"><X size={15}/></button></div></div>
             <div data-quick-options className="no-scrollbar flex gap-1.5 overflow-x-auto py-1">

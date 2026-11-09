@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import { useLiveCatalog } from "@/state/live-catalog";
 import { visibleProducts } from "@/data/catalog";
 import { ProductCard } from "@/components/ProductCard";
+import { CommerceWidget } from "@/components/studio/CommerceWidgets";
 import { useParams } from "react-router-dom";
 
 type Block = {
@@ -213,7 +214,7 @@ function VisualCategories({heading,count}:{heading:string;count:number}) {
   const ops=useOps();const categories=ops.categories.filter(c=>c.active).sort((a,b)=>a.order-b.order).slice(0,count);
   return <section style={{maxWidth:'80rem',margin:'auto',padding:'3rem 1.25rem'}}><h2 style={{fontSize:'1.75rem',fontWeight:700}}>{heading}</h2><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:12,marginTop:20}}>{categories.map(c=><Link key={c.id} to={`/products?collection=${encodeURIComponent(c.id)}`} style={{padding:'20px',border:'1px solid #dedbe1',borderRadius:12,textAlign:'center'}}>{c.name}</Link>)}</div>{!categories.length&&<p>دستهٔ فعالی وجود ندارد.</p>}</section>;
 }
-const visualConfig = makeVisualConfig(({heading,count}) => <StudioProducts count={count} block={{id:'visual-products',type:'products',heading,text:'',buttonText:'',href:'',image:''}}/>,p=><VisualCategories {...p}/>);
+const visualConfig = makeVisualConfig(({heading,count}) => <StudioProducts count={count} block={{id:'visual-products',type:'products',heading,text:'',buttonText:'',href:'',image:''}}/>,p=><VisualCategories {...p}/>,(kind,props)=><CommerceWidget kind={kind} props={props}/>);
 
 export function VisualStudioContent({title,visual}:{title:string;visual:VisualData}) {
   return <div aria-label={title}><Render config={visualConfig} data={visual}/></div>;

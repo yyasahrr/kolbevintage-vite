@@ -1,5 +1,10 @@
 import type { Config } from '@puckeditor/core';
 import type { CSSProperties, ReactNode } from 'react';
+import { extraVisualComponents } from './visual-extra-widgets';
+import { advancedVisualComponents } from './visual-advanced-widgets';
+import { makeUtilityComponents } from './visual-utility-widgets';
+import { makeCommerceComponents } from './visual-commerce-config';
+import type {CommerceKind,CommerceProps} from './visual-commerce-spec';
 
 const align={type:'select' as const,label:'تراز',options:[{label:'راست',value:'right'},{label:'وسط',value:'center'},{label:'چپ',value:'left'}]};
 const color=(label:string)=>({type:'text' as const,label});
@@ -10,11 +15,15 @@ function safeUrl(value:string,media=false){
 }
 function link(value:string){const u=safeUrl(value);return u.startsWith('/')?`/#${u}`:u;}
 const textStyle={whiteSpace:'pre-wrap' as const,overflowWrap:'anywhere' as const};
-export function makeVisualConfig(renderProducts:(props:{heading:string;count:number})=>ReactNode, renderCategories:(props:{heading:string;count:number})=>ReactNode):Config {
+export function makeVisualConfig(renderProducts:(props:{heading:string;count:number})=>ReactNode, renderCategories:(props:{heading:string;count:number})=>ReactNode, renderCommerce:(kind:CommerceKind,props:CommerceProps)=>ReactNode=(_kind,props)=><section><h2>{props.heading}</h2><p>پیش‌نمایش فروشگاه در دسترس نیست.</p></section>,preview=false):Config {
   return {
-    categories:{basic:{title:'ویجت‌های پایه',components:['Heading','Text','Image','Video','Button','Spacer','Divider']},layout:{title:'چیدمان',components:['Section','Columns','Hero']},store:{title:'فروشگاه',components:['Products','Categories']}},
+    categories:{basic:{title:'ویجت‌های پایه',components:['Heading','Text','Image','Video','Button','Spacer','Divider','Eyebrow','Lead','Badge','Quote']},layout:{title:'چیدمان',components:['Section','Columns','ColumnsThree','ColumnsFour','Container','Stack','SplitLayout','CardLayout','RowsLayout','AnchorSection','Hero']},content:{title:'محتوا و معرفی',components:['Checklist','NumberedList','FeatureGrid','StatsGrid','Steps','Testimonial','FAQ','ContactCard','InfoTable','StoryTimeline','BusinessHours']},marketing:{title:'بنر و فراخوان',components:['Announcement','Notice','CallToAction','ImageText','PromoCard','PricingCard','ButtonGroup']},media:{title:'رسانه و پیوندها',components:['Gallery','ImageCaption','ImageLinkCard','ImageMosaic','VideoCaption','ImageHero','PortraitProfile','AudioPlayer','LinkList','SocialLinks']},interactive:{title:'ویجت‌های تعاملی',components:['ImageComparison','ImageCarousel','LightboxImage','ContentTabs','ExpandText','TogglePanels','TestimonialSlider','PriceToggle','DismissBanner','CopyCode','JumpLinks','BackToTop','SharePage','PrintPage','Countdown','ProgressMeter']},store:{title:'فروشگاه',components:['Products','Categories','LiveFeatured','LiveAvailable','LiveLowStock','LiveOrderLeaders','LiveCategory','LiveProduct','LiveRelated','LiveWishlist','LiveCartSummary','LiveProductStatus','LiveCategorySpotlight','LiveSearch']}},
     root:{fields:{}},
     components:{
+      ...extraVisualComponents,
+      ...advancedVisualComponents,
+      ...makeCommerceComponents(renderCommerce),
+      ...makeUtilityComponents(preview),
       Heading:{label:'عنوان',fields:{text:{type:'text',label:'متن'},size:{type:'number',label:'اندازه دسکتاپ (۱۲ تا ۹۶ پیکسل)',min:12,max:96},sizeTablet:{type:'number',label:'اندازه تبلت (۰ یا ۱۲ تا ۹۶؛ ۰ یعنی مانند دسکتاپ)',min:0,max:96},sizeMobile:{type:'number',label:'اندازه موبایل (۰ یا ۱۲ تا ۹۶؛ ۰ یعنی مانند اندازهٔ بزرگ‌تر)',min:0,max:96},color:color('رنگ متن (#rrggbb)'),align},defaultProps:{text:'عنوان خود را بنویسید',size:36,sizeTablet:0,sizeMobile:0,color:'#171429',align:'right'},render:({text,size,sizeTablet,sizeMobile,color,align})=><h2 className="kv-visual-heading" style={{...textStyle,textAlign:align,'--kv-heading-desktop':`${size}px`,'--kv-heading-tablet':`${sizeTablet||size}px`,'--kv-heading-mobile':`${sizeMobile||sizeTablet||size}px`,color,lineHeight:1.4,margin:'0 0 16px',fontWeight:700} as CSSProperties}>{text}</h2>},
       Text:{label:'متن',fields:{text:{type:'textarea',label:'متن'},color:color('رنگ متن (#rrggbb)'),align},defaultProps:{text:'متن دلخواه خود را اینجا بنویسید.',color:'#333333',align:'right'},render:({text,color,align})=><p style={{...textStyle,textAlign:align,color,lineHeight:2,margin:'0 0 16px'}}>{text}</p>},
       Image:{label:'تصویر',fields:{url:{type:'text',label:'نشانی تصویر HTTPS یا فایل آپلودی'},alt:{type:'text',label:'متن جایگزین'}},defaultProps:{url:'',alt:''},render:({url,alt})=>safeUrl(url,true)?<img src={safeUrl(url,true)} alt={alt} style={{display:'block',width:'100%',height:'auto',borderRadius:12}}/>:<div style={{padding:40,textAlign:'center',background:'#f1f2f5',color:'#464b55',borderRadius:12}}>نشانی تصویر را وارد کنید</div>},

@@ -86,11 +86,6 @@
 /* Full-screen visual page editor. Puck's internal editor is isolated from the
    normal admin shell; widgets render their own storefront-safe inline styles. */
 .kv-puck-modal { position:fixed; inset:0; z-index:100; background:#f4f4f7; display:flex; flex-direction:column; color:#1b1b24; }
-.kv-puck-topbar { min-height:56px; background:#20202b; color:white; display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:8px 14px; font-size:13px; }
-.kv-puck-topbar label { display:flex; align-items:center; gap:8px; flex:1; min-width:140px; }
-.kv-puck-topbar input { min-width:0; max-width:360px; width:100%; background:#fff; color:#15151b; border-radius:6px; padding:5px 8px; }
-.kv-puck-topbar button { border:1px solid #b6b6c7; border-radius:7px; padding:6px 12px; }
-.kv-puck-topbar button:disabled { opacity:.5; }
 .kv-puck-canvas { flex:1; min-height:0; overflow:hidden; }
 .kv-puck-editor { height:100%; font-family:Vazirmatn,Tahoma,sans-serif; }
 .kv-puck-feedback { padding:6px 16px; background:#fff2db; color:#713d00; font-size:13px; }
@@ -98,3 +93,70 @@
 
 /* Improve Puck muted labels against its light editor panels. */
 .kv-puck-editor { --puck-color-text-muted: #666; }
+
+/* Design studio: Puck remains responsible for the canvas, drag/drop and history. */
+.kv-puck-editor { --puck-font-family:Vazirmatn,Tahoma,sans-serif; --puck-color-text-muted:#666579; --puck-color-interactive:#6943d5; --puck-color-interactive-soft:#f0ebff; }
+.kv-puck-editor [class*="_PuckLayout--mounted"] [class*="_PuckLayout-inner"] { --puck-sidebar-width: 270px; }
+.kv-studio-header { min-height:68px; display:flex; align-items:center; gap:12px; padding:10px 16px; background:#171622; color:#fff; box-sizing:border-box; }
+.kv-studio-header button { cursor:pointer; }
+.kv-studio-header button:disabled { opacity:.4; cursor:not-allowed; }
+.kv-studio-header button:focus-visible,.kv-studio-header input:focus-visible,.kv-palette-search:focus-within { outline:2px solid #a58aff; outline-offset:2px; }
+.kv-header-icon { width:36px; height:36px; display:grid; place-items:center; color:#ddd9ed; border:1px solid transparent; border-radius:9px; background:transparent; }
+.kv-header-icon:hover:not(:disabled) { background:#343142; color:white; }
+.kv-studio-brand { display:flex; gap:9px; align-items:center; min-width:145px; border-left:1px solid #3c3949; padding-left:14px; }
+.kv-studio-brand-icon { width:36px;height:36px;display:grid;place-items:center;background:#7455db;border-radius:10px; }
+.kv-studio-brand strong { display:block;font-size:13px; }
+.kv-studio-brand small { display:block;font-size:9px;letter-spacing:1px;color:#a8a3b8;direction:ltr; }
+.kv-header-title { display:flex;flex-direction:column;gap:2px;min-width:110px;max-width:230px; }
+.kv-header-title span { font-size:10px;color:#aaa5bb; }
+.kv-header-title input { width:100%;background:transparent;color:#fff;border:0;padding:0;font-size:13px;font-weight:600; }
+.kv-save-status { color:#c2bdce;font-size:11px;white-space:nowrap; }
+.kv-header-spacer { flex:1; }
+.kv-header-controls { display:flex;align-items:center;gap:2px;direction:rtl; }
+.kv-header-separator { width:1px;height:22px;background:#474253;margin:0 7px; }
+.kv-save-button { display:flex;align-items:center;gap:7px;background:#7854df;color:#fff;border:0;border-radius:9px;padding:11px 14px;font-size:12px;font-weight:700;white-space:nowrap; }
+.kv-save-button:hover:not(:disabled) { background:#6740ca; }
+.kv-palette-intro { padding:20px 16px 12px; }
+.kv-palette-kicker { color:#7956d9;font-size:10px;font-weight:700; }
+.kv-palette-intro h2 { color:#242132;font-size:19px;font-weight:800;margin:4px 0; }
+.kv-palette-intro p { color:#6d6b79;font-size:11px;line-height:1.8;margin:4px 0 12px; }
+.kv-palette-search { background:#f5f4f8;border:1px solid #e7e5ed;border-radius:9px;display:flex;align-items:center;gap:8px;padding:9px;color:#787486; }
+.kv-palette-search input { background:transparent;border:0;outline:none;min-width:0;width:100%;font:inherit;font-size:12px;color:#252233; }
+.kv-palette [class*="_ComponentList-content"] [class*="_Drawer_"] { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }
+.kv-palette [class*="_ComponentList-title"] { color:#555164;font-size:12px;font-weight:700; }
+.kv-palette-item { display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#7657cb;background:#fff;border:1px solid #eae8f0;border-radius:10px;min-height:82px;text-align:center;transition:border-color .15s,box-shadow .15s; }
+.kv-palette-item:hover { border-color:#9677ee;box-shadow:0 5px 18px #6c4ec21c; }
+.kv-palette-item [class*="_DrawerItem-draggable"] { border:0;background:transparent;padding:0;display:block;font-size:11px;color:#343044; }
+.kv-palette-item [class*="_DrawerItem-icon"] { display:none; }
+.kv-puck-editor [class*="_PuckLayout-nav"] { background:#242231; }
+.kv-puck-editor [class*="_PuckCanvas_"] { background:#e9e7ed; }
+.kv-puck-editor [class*="_PuckCanvas-root"] { box-shadow:0 8px 30px #28233b1c; }
+.kv-fields-empty { margin:22px 16px;padding:24px 14px;border:1px dashed #d7d1e7;border-radius:12px;text-align:center;color:#776b99;background:#faf9fd; }
+.kv-fields-empty svg { margin:0 auto 10px; }
+.kv-fields-empty strong { display:block;color:#383245;font-size:13px; }
+.kv-fields-empty p { font-size:11px;line-height:2;margin:8px 0 0;color:#6d6978; }
+@media(max-width:900px) { .kv-studio-brand { min-width:auto; } .kv-studio-brand div,.kv-save-status { display:none; } }
+@media(max-width:637px) { .kv-studio-header { padding:8px;gap:5px;min-height:56px; } .kv-studio-brand { display:none; } .kv-header-title { min-width:75px;max-width:100px; } .kv-header-icon { width:30px;height:32px; } .kv-header-separator { margin:0 2px; } .kv-save-button { padding:9px;font-size:11px; } .kv-save-button svg { display:none; } }
+.kv-palette [class*="_Drawer_"] > div:has(.kv-palette-item[hidden]) { display:none; }
+.kv-puck-editor[data-empty="true"] [class*="_PuckCanvas-inner"]::after { content:'برای شروع، یک ویجت را به اینجا بکشید یا از پنل اضافه کنید'; position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);z-index:1;pointer-events:none;text-align:center;color:#77718a;background:#fff;border:1px dashed #bdb4d5;border-radius:14px;padding:20px 24px;font-size:13px;line-height:2;box-shadow:0 8px 24px #28233b0d;width:min(300px,80%); }
+@media(max-width:637px) {
+ .kv-puck-editor [class*="_PuckLayout--mobilePanelHeightToggle"][class*="_PuckLayout--leftSideBarVisible"] [class*="_PuckLayout-inner"] { grid-template-rows:min-content minmax(0,1fr) 30% 0 var(--puck-pluginbar-width); }
+ .kv-puck-editor [class*="_PuckLayout--mobilePanelHeightToggle"][class*="_PuckLayout--leftSideBarVisible"][class*="_PuckLayout--isExpanded"] [class*="_PuckLayout-inner"] { grid-template-rows:min-content minmax(0,1fr) 55% 0 var(--puck-pluginbar-width); }
+}
+.kv-palette [class*="_Drawer-draggableBg"] { display:none; }
+.kv-palette-item { padding:10px 4px; }
+.kv-target-label { display:block;margin-top:12px;color:#625d70;font-size:11px;font-weight:600; }
+.kv-target-label select { display:block;width:100%;margin-top:5px;border:1px solid #e3dfeb;background:white;border-radius:8px;padding:8px;color:#383348;font-size:11px; }
+.kv-puck-editor [class*="_NavItem-link_"] { color:#cbc5dc;cursor:pointer; }
+.kv-puck-editor [class*="_NavItem-link_"]:focus-visible { outline:2px solid #aa91ff;outline-offset:-3px;border-radius:8px; }
+.kv-puck-editor [class*="_NavItem--active_"] [class*="_NavItem-link_"] { color:#c1aaff; }
+.kv-quick-add { display:flex;gap:6px;margin-top:7px; }
+.kv-quick-add select { flex:1;min-width:0;border:1px solid #e3dfeb;background:#fff;border-radius:8px;padding:8px;font-size:11px;color:#383348; }
+.kv-quick-add button { background:#7653d6;color:white;border:0;border-radius:8px;padding:8px 12px;font-size:11px;font-weight:700;cursor:pointer; }
+.kv-header-icon[aria-pressed="true"] { background:#7455db;color:#fff; }
+/* Mobile already has Puck's bottom tabs for blocks, layers and settings. */
+@media(max-width:400px) {
+ .kv-header-controls > button:nth-child(1),.kv-header-controls > button:nth-child(2),.kv-header-separator { display:none; }
+ .kv-header-title { min-width:60px;max-width:90px; }
+ .kv-header-icon,.kv-save-button { flex-shrink:0; }
+}
