@@ -46,7 +46,7 @@ export async function healthRoutes(app: FastifyInstance) {
            from pg_class c
            join pg_namespace n on n.oid = c.relnamespace
            left join pg_stat_user_tables s on s.relid = c.oid
-          where n.nspname = 'public' and c.relkind = 'r'
+          where n.nspname = current_schema() and c.relkind = 'r'
           order by pg_total_relation_size(c.oid) desc
           limit 14`,
       );

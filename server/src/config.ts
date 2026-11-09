@@ -9,6 +9,8 @@ export const config = {
   port: Number(process.env.PORT ?? 4000),
   /** when set, the server connects to an external PostgreSQL instead of the embedded one */
   databaseUrl: process.env.DATABASE_URL,
+  /** Optional isolated, pre-created schema; never falls back to public. */
+  databaseSchema: process.env.DATABASE_SCHEMA ?? "",
   databaseName: process.env.PGDATABASE ?? "kolbevintage",
   pgUser: process.env.PGUSER ?? "kolbe",
   pgPassword: process.env.PGPASSWORD ?? "kolbe",

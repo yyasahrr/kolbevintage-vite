@@ -1,0 +1,8 @@
+// Exercises signed token verification across independent Node processes.
+import assert from 'node:assert/strict';import {spawnSync} from 'node:child_process';import {randomBytes} from 'node:crypto';
+const key=randomBytes(32).toString('hex');const env={...process.env,CSRF_SIGNING_KEY:key,VERCEL:'1'};
+const issue=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',"import {issueCsrfToken} from './server/src/http/security.ts';console.log(issueCsrfToken())"],{env,encoding:'utf8'});assert.equal(issue.status,0,issue.stderr);const token=issue.stdout.trim();assert(token);
+const verify=`import Fastify from 'fastify';import {registerSecurity} from './server/src/http/security.ts';const app=Fastify();registerSecurity(app);app.post('/check',async()=>({ok:true}));await app.ready();const r=await app.inject({method:'POST',url:'/check',headers:{'x-csrf-token':process.env.TEST_TOKEN}});console.log(r.statusCode);await app.close()`;
+function verifyWith(k){return spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',verify],{env:{...env,CSRF_SIGNING_KEY:k,TEST_TOKEN:token},encoding:'utf8'})}
+assert.equal(verifyWith(key).stdout.trim(),'200');assert.equal(verifyWith(randomBytes(32).toString('hex')).stdout.trim(),'403');
+const missing=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',"import './server/src/http/security.ts'"],{env:{...env,CSRF_SIGNING_KEY:''},encoding:'utf8'});assert.notEqual(missing.status,0);assert.match(missing.stderr,/CSRF_SIGNING_KEY/);console.log('Shared CSRF signing across processes, wrong key and missing key OK');

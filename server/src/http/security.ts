@@ -22,7 +22,13 @@ const CSRF_HEADER = "x-csrf-token";
    visit beacon) is refused with "invalid security token". The signed token is
    still unreadable cross-origin (CORS keeps the response closed), so it keeps
    the protection while needing no cookie at all. */
-const CSRF_SECRET = randomBytes(32).toString("hex");
+// Serverless instances must share a stable secret; otherwise a token issued by
+// one instance is rejected by another. Never derive this key from public IDs.
+const configuredCsrfKey = process.env.CSRF_SIGNING_KEY ?? "";
+if ((configuredCsrfKey && !/^[0-9a-f]{64}$/i.test(configuredCsrfKey)) || (process.env.VERCEL === "1" && !configuredCsrfKey)) {
+  throw new Error("CSRF_SIGNING_KEY must be a private, randomly generated 64-character hexadecimal key.");
+}
+const CSRF_SECRET = configuredCsrfKey || randomBytes(32).toString("hex");
 const CSRF_TTL_MS = 86_400_000;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 

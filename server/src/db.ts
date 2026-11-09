@@ -111,6 +111,21 @@ async function startEmbedded() {
   await admin.end();
 }
 
+// Explicit schema isolation is essential when sharing a PostgreSQL database.
+// Only lowercase SQL identifiers are accepted; public and system schemas are
+// never valid overrides. SET LOCAL is repeated in every transaction, so it
+// also works with a transaction-mode connection pooler.
+const isolatedSchema = config.databaseSchema;
+if (isolatedSchema && (!/^[a-z][a-z0-9_]{0,62}$/.test(isolatedSchema) || isolatedSchema === "public" || isolatedSchema.startsWith("pg_") || isolatedSchema === "information_schema")) {
+  throw new Error("DATABASE_SCHEMA must name a dedicated non-system schema.");
+}
+async function useIsolatedSchema(client: pg.PoolClient) {
+  if (!isolatedSchema) return;
+  // SET LOCAL is not a query, so callers can still set transaction isolation
+  // before their first query. Identifier is constrained by the regex above.
+  await client.query(`set local search_path to "${isolatedSchema}"`);
+}
+
 export async function initDb() {
   if (config.databaseUrl) {
     pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10 });
@@ -126,13 +141,20 @@ export async function initDb() {
     });
   }
 
-  await migrate();
-  return pool;
+  try {
+    if (isolatedSchema) {
+      const exists=await pool.query<{ok:boolean}>("select exists(select 1 from pg_namespace where nspname=$1 and has_schema_privilege(current_user, oid, 'USAGE,CREATE')) as ok", [isolatedSchema]);
+      if (!exists.rows[0]?.ok) throw new Error("DATABASE_SCHEMA is missing or is not accessible to the database role.");
+    }
+    await migrate(); return pool;
+  }
+  catch (error) { await pool.end().catch(() => undefined); pool=null; throw error; }
 }
 
 async function migrate() {
   const sql = fs.readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
-  await getPool().query(sql);
+  if (isolatedSchema) await withTransaction(async client => { await client.query(sql); });
+  else await getPool().query(sql);
 }
 
 export function getPool(): pg.Pool {
@@ -141,6 +163,7 @@ export function getPool(): pg.Pool {
 }
 
 export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(text: string, params: unknown[] = []) {
+  if (isolatedSchema) return withTransaction(client => client.query<T>(text, params));
   return getPool().query<T>(text, params);
 }
 
@@ -148,6 +171,7 @@ export async function withTransaction<T>(fn: (client: pg.PoolClient) => Promise<
   const client = await getPool().connect();
   try {
     await client.query("begin");
+    await useIsolatedSchema(client);
     const result = await fn(client);
     await client.query("commit");
     return result;

@@ -2548,7 +2548,7 @@ test('concurrent re-quotes cannot overwrite one another using stale checkout sta
   await query(`insert into coupons(code,kind,value,min_subtotal,active,used_count) values ('RACEQUOTE','amount',17,0,true,0)
     on conflict(code) do update set kind='amount',value=17,min_subtotal=0,max_discount=null,active=true,usage_limit=null,used_count=0`);
   const started=await startCheckout(client,[{variantId,quantity:1}]),id=started.body.checkout.id;
-  const blocker=await getPool().connect();await blocker.query('begin');await blocker.query('select id from checkout_sessions where id=$1 for update',[id]);
+  const blocker=await getPool().connect();await blocker.query('begin');if(process.env.DATABASE_SCHEMA) await blocker.query("select set_config('search_path',$1,true)",[process.env.DATABASE_SCHEMA]);await blocker.query('select id from checkout_sessions where id=$1 for update',[id]);
   try {
     const requests=[client.post(`/api/commerce/checkout/${id}/quote`,{shippingMethod:'express'}),client.post(`/api/commerce/checkout/${id}/quote`,{couponCode:'RACEQUOTE'})];
     let waiting=0;
@@ -2566,7 +2566,7 @@ test('concurrent re-quotes cannot overwrite one another using stale checkout sta
 test('payment creation and re-quote serialize against the checkout snapshot', async () => {
   const {getPool}=await import('../src/db');const variantId=await setStock(SKU,2),client=makeClient();
   const started=await startCheckout(client,[{variantId,quantity:1}]),id=started.body.checkout.id,original=started.body.checkout.quote;
-  const blocker=await getPool().connect();await blocker.query('begin');await blocker.query('select id from checkout_sessions where id=$1 for update',[id]);
+  const blocker=await getPool().connect();await blocker.query('begin');if(process.env.DATABASE_SCHEMA) await blocker.query("select set_config('search_path',$1,true)",[process.env.DATABASE_SCHEMA]);await blocker.query('select id from checkout_sessions where id=$1 for update',[id]);
   try {
     const requests=[client.post(`/api/commerce/checkout/${id}/pay`,{method:'online'}),client.post(`/api/commerce/checkout/${id}/quote`,{shippingMethod:'express'})];
     let waiting=0;
@@ -2980,7 +2980,7 @@ test('pausing a variant blocks new carts and checkout but preserves an existing 
 
 test('a sale pause committed while checkout waits on variant lock prevents new reservation', async () => {
   const variantId=await setStock(SKU,3);const buyer=await customerClient();const original=(await query('select sale_enabled,sale_version from product_variants where id=$1',[variantId])).rows[0];
-  const {getPool}=await import('../src/db');const locker=await getPool().connect();await locker.query('begin');
+  const {getPool}=await import('../src/db');const locker=await getPool().connect();await locker.query('begin');if(process.env.DATABASE_SCHEMA) await locker.query("select set_config('search_path',$1,true)",[process.env.DATABASE_SCHEMA]);
   try{
     await locker.query('update product_variants set sale_enabled=false,sale_version=sale_version+1 where id=$1',[variantId]);
     const pending=startCheckout(buyer,[{variantId,quantity:1}]);let waiting=0;

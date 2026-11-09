@@ -50,6 +50,13 @@ const KEEP = Number(process.env.BACKUP_KEEP ?? 14);
 
 const backupDir = () => path.resolve(BACKUP_DIR);
 
+// The legacy backup format explicitly names public tables. Never allow it to
+// read or truncate a different application when an isolated schema is used.
+function requirePublicBackupMode() {
+  if (config.databaseSchema) throw new Error("پشتیبان‌گیری و بازیابی قدیمی برای فضای پایگاه مجزا پشتیبانی نمی‌شود.");
+}
+
+
 /** bigint columns arrive as strings from pg; the panel needs real numbers */
 const BACKUP_COLUMNS = `select id, file, bytes::int as bytes, kind, sha256, tables, rows,
                                created_at, cloud_status, cloud_error from backups`;
@@ -71,6 +78,7 @@ async function listTables(client?: pg.PoolClient): Promise<string[]> {
 }
 
 export async function dumpAll(client?: pg.PoolClient): Promise<BackupPayload> {
+  requirePublicBackupMode();
   const tables = await listTables(client);
   const data: Record<string, unknown[]> = {};
   let rowCount = 0;
@@ -120,6 +128,7 @@ async function pushToCloud(file: string, payload: Buffer): Promise<{ status: Bac
 }
 
 export async function createBackup(kind: BackupRow["kind"] = "manual"): Promise<BackupRow> {
+  requirePublicBackupMode();
   await ensureDir();
   // All tables must describe one consistent point in time, not separate
   // read-committed snapshots from before/after an order or stock update.
@@ -186,6 +195,7 @@ export async function restoreBackup(
   file: string,
   options: { client?: pg.PoolClient; allowEmptyJournalFromOlderBackup?: boolean; allowEmptySupportFromOlderBackup?: boolean; allowLegacyVariantSales?: boolean; allowGalleryRepublish?: boolean } = {},
 ): Promise<{ tables: number; rows: number }> {
+  requirePublicBackupMode();
   const raw = await fsp.readFile(file);
   const buffer = file.endsWith(".gz") ? gunzipSync(raw) : raw;
   const payload = parseLossless(buffer.toString("utf8")) as BackupPayload;
@@ -337,6 +347,7 @@ export function backupSchedule(): { hour: number; keep: number; cloudConfigured:
 
 /** runs every 15 minutes and takes at most one nightly backup per day */
 export function startBackupScheduler() {
+  if (config.databaseSchema) return () => {};
   const tick = async () => {
     const now = new Date();
     if (now.getHours() < NIGHTLY_HOUR) return;

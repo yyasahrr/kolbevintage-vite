@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { requireOwnerRole, requirePermission } from "../http/rbac";
 import { recordAudit } from "../commerce/audit";
 import { backupSchedule, createBackup, listBackups, readBackup } from "../backup";
+import { config } from "../config";
 
 /* =====================================================================
    Backup endpoints — list, take one now, download.
@@ -10,13 +11,15 @@ import { backupSchedule, createBackup, listBackups, readBackup } from "../backup
    ===================================================================== */
 
 export async function backupRoutes(app: FastifyInstance) {
-  app.get("/api/admin/backups", async (req) => {
+  app.get("/api/admin/backups", async (req, reply) => {
     await requirePermission(req, "settings:view");
+    if (config.databaseSchema) return reply.code(503).send({error:"پشتیبان‌گیری و بازیابی قدیمی برای فضای پایگاه مجزا پشتیبانی نمی‌شود."});
     return { schedule: backupSchedule(), backups: await listBackups() };
   });
 
-  app.post<{ Body: { dryRun?: boolean } | undefined }>("/api/admin/backups", async (req) => {
+  app.post<{ Body: { dryRun?: boolean } | undefined }>("/api/admin/backups", async (req, reply) => {
     const session = await requirePermission(req, "settings:edit");
+    if (config.databaseSchema) return reply.code(503).send({error:"پشتیبان‌گیری و بازیابی قدیمی برای فضای پایگاه مجزا پشتیبانی نمی‌شود."});
     // a dry run only reports the format the panel would get; it writes nothing
     if (req.body?.dryRun) {
       return { ok: true, dryRun: true, format: "kv-logical-backup" };
@@ -36,6 +39,7 @@ export async function backupRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>("/api/admin/backups/:id/download", async (req, reply) => {
     const actor = await requirePermission(req, "settings:view");
     await requireOwnerRole(actor);
+    if (config.databaseSchema) return reply.code(503).send({error:"پشتیبان‌گیری و بازیابی قدیمی برای فضای پایگاه مجزا پشتیبانی نمی‌شود."});
     const found = await readBackup(req.params.id);
     if (!found) return reply.code(404).send({ error: "این پشتیبان پیدا نشد یا فایلش روی دیسک نیست." });
     await recordAudit({actor:actor.subject,action:"backup.download",targetType:"backup",targetId:found.meta.id,requestId:req.id});

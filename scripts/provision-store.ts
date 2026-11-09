@@ -13,7 +13,7 @@ import { hashPassword } from "../server/src/security";
 const nameArg = process.argv.find(arg => arg.startsWith("--store-name="));
 const name = nameArg?.slice("--store-name=".length).trim() ?? "";
 const allowed = process.argv.slice(2).every(arg => arg === "--confirm-new-empty-store" || arg.startsWith("--store-name="));
-if (!allowed || !process.argv.includes("--confirm-new-empty-store") || process.env.NODE_ENV !== "production" || !process.env.DATABASE_URL || name.length < 2 || name.length > 100) {
+if (process.env.DATABASE_SCHEMA || !allowed || !process.argv.includes("--confirm-new-empty-store") || process.env.NODE_ENV !== "production" || !process.env.DATABASE_URL || name.length < 2 || name.length > 100) {
   console.error("فقط برای پایگاه تازه و خالی: NODE_ENV=production DATABASE_URL=… npm run provision:store -- --confirm-new-empty-store --store-name=نام‌فروشگاه");
   console.error("رمز مالک را فقط در ورودی امن برنامه وارد کنید؛ دستور هیچ پایگاه موجودی را بازنویسی نمی‌کند.");
   process.exit(1);
